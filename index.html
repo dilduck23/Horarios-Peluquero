@@ -972,7 +972,13 @@
                     overlay.style.opacity = '0';
                     setTimeout(async () => {
                         overlay.classList.add('hidden');
-                        await app.init(); // Re-run init to apply styles
+                        // Check if mobile device for admin/organizador/pdv
+                        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
+                        if (isMobile && roleId >= 1 && roleId <= 3) {
+                            window.location.href = 'admin-mobile.html';
+                        } else {
+                            await app.init(); // Re-run init to apply styles
+                        }
                     }, 500);
 
                 } catch (err) {

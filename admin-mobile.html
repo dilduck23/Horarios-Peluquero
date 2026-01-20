@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Calendario | StaffPlanner</title>
+
+    <!-- Tailwind & Dependencies -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+
+    <style>
+        * {
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #f8fafc;
+            min-height: 100vh;
+            overscroll-behavior: none;
+        }
+
+        /* Hide scrollbar */
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        /* Day pill active state */
+        .day-pill {
+            transition: all 0.2s ease;
+        }
+
+        .day-pill.active {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            color: white;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+        }
+
+        /* Card animations */
+        .assignment-card {
+            transition: all 0.2s ease;
+        }
+
+        .assignment-card:active {
+            transform: scale(0.98);
+        }
+
+        /* Navbar active */
+        .nav-item {
+            transition: all 0.2s ease;
+        }
+
+        .nav-item.active {
+            color: #6366f1;
+        }
+
+        .nav-item.active .nav-icon {
+            background: linear-gradient(135deg, #ede9fe 0%, #e0e7ff 100%);
+        }
+
+        /* Secure text for PIN */
+        .secure-text {
+            -webkit-text-security: disc;
+            text-security: disc;
+            font-family: text-security-disc;
+        }
+
+        /* Loading skeleton */
+        @keyframes shimmer {
+            0% {
+                background-position: -200% 0;
+            }
+
+            100% {
+                background-position: 200% 0;
+            }
+        }
+
+        .skeleton {
+            background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+
+        /* Store group header sticky */
+        .store-group-header {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+    </style>
+</head>
+
+<body class="text-slate-800 pb-20">
+
+    <!-- SUPABASE CLIENT -->
+    <script>
+        const SUPABASE_URL = 'https://cectqtufttubsepyiolr.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_Ow2zQpNDPsLA6on9VBWFgg_Q0_LAc1D';
+        const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    </script>
+
+    <!-- LOGIN OVERLAY -->
+    <div id="loginOverlay" class="fixed inset-0 bg-slate-100 z-[99999] flex items-center justify-center p-6">
+        <div class="bg-white p-8 rounded-3xl shadow-xl w-full max-w-sm text-center" id="loginCard">
+            <div
+                class="w-20 h-20 bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-2xl flex items-center justify-center mx-auto mb-6 text-4xl shadow-lg">
+                📊
+            </div>
+            <h2 class="text-2xl font-bold text-slate-800 mb-2">StaffPlanner</h2>
+            <p class="text-slate-500 mb-8 text-sm">Ingresa tus credenciales para acceder</p>
+
+            <!-- Email/Password Login -->
+            <div id="loginFormEmail" class="space-y-4 text-left">
+                <div>
+                    <label class="text-xs font-bold text-slate-500 uppercase">Usuario</label>
+                    <input type="text" id="loginUser"
+                        class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 mt-1 focus:ring-2 focus:ring-indigo-500 outline-none"
+                        placeholder="correo@ejemplo.com">
+                </div>
+                <div>
+                    <label class="text-xs font-bold text-slate-500 uppercase">Contraseña</label>
+                    <input type="password" id="loginPass"
+                        class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 mt-1 focus:ring-2 focus:ring-indigo-500 outline-none"
+                        placeholder="••••••••">
+                </div>
+
+                <button onclick="app.handleLogin()"
+                    class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold py-4 rounded-xl shadow-lg hover:shadow-xl transition-all active:scale-[0.98]">
+                    INGRESAR
+                </button>
+            </div>
+
+            <p id="loginError" class="text-red-500 text-sm mt-4 hidden font-medium"></p>
+
+            <a href="mi-horario.html" class="block mt-6 text-slate-400 text-xs hover:text-slate-600 underline">
+                Acceso Impulsadora (PIN)
+            </a>
+        </div>
+    </div>
+
+    <!-- MAIN APP -->
+    <div id="mainApp" class="hidden min-h-screen flex flex-col">
+
+        <!-- Header -->
+        <header class="sticky top-0 z-50 bg-white border-b border-slate-100 px-4 py-3 shadow-sm">
+            <!-- Date Selector Row -->
+            <div class="flex items-center justify-between mb-3">
+                <button onclick="app.openDatePicker()"
+                    class="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 rounded-xl px-4 py-2 transition-colors">
+                    <span class="material-icons text-slate-500 text-lg">calendar_today</span>
+                    <span id="selectedDateText" class="font-semibold text-slate-700 text-sm">Dom, 19 Ene 2026</span>
+                    <span class="material-icons text-slate-400 text-sm">expand_more</span>
+                </button>
+
+                <!-- Add Button (Admin/Organizador only) -->
+                <button onclick="app.openAddModal()" id="addBtn"
+                    class="hidden w-10 h-10 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-xl flex items-center justify-center shadow-lg hover:shadow-xl transition-all active:scale-95">
+                    <span class="material-icons text-white">add</span>
+                </button>
+            </div>
+
+            <!-- Day Pills -->
+            <div id="dayPills" class="flex gap-2 overflow-x-auto hide-scrollbar -mx-4 px-4 pb-1">
+                <!-- Injected by JS -->
+            </div>
+        </header>
+
+        <!-- Assignments Count -->
+        <div class="px-4 py-3 bg-white border-b border-slate-100">
+            <h2 class="font-bold text-slate-800">
+                Asignaciones <span id="assignmentCount" class="text-indigo-500">(0)</span>
+            </h2>
+        </div>
+
+        <!-- Assignments List -->
+        <main id="assignmentsList" class="flex-1 overflow-y-auto bg-slate-50">
+            <!-- Loading Skeletons -->
+            <div class="p-4 space-y-3">
+                <div class="skeleton h-16 rounded-xl"></div>
+                <div class="skeleton h-16 rounded-xl"></div>
+                <div class="skeleton h-16 rounded-xl"></div>
+            </div>
+        </main>
+
+        <!-- Bottom Navigation -->
+        <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-4 py-2 z-50">
+            <div class="flex justify-around items-center">
+                <button onclick="app.switchTab('calendar')"
+                    class="nav-item active flex flex-col items-center gap-1 p-2">
+                    <div class="nav-icon w-10 h-10 rounded-xl flex items-center justify-center">
+                        <span class="material-icons">calendar_month</span>
+                    </div>
+                    <span class="text-[10px] font-semibold">Calendario</span>
+                </button>
+                <button onclick="app.switchTab('stores')"
+                    class="nav-item flex flex-col items-center gap-1 p-2 text-slate-400">
+                    <div class="nav-icon w-10 h-10 rounded-xl flex items-center justify-center">
+                        <span class="material-icons">storefront</span>
+                    </div>
+                    <span class="text-[10px] font-semibold">Tiendas</span>
+                </button>
+                <button onclick="app.switchTab('staff')"
+                    class="nav-item flex flex-col items-center gap-1 p-2 text-slate-400">
+                    <div class="nav-icon w-10 h-10 rounded-xl flex items-center justify-center">
+                        <span class="material-icons">groups</span>
+                    </div>
+                    <span class="text-[10px] font-semibold">Staff</span>
+                </button>
+                <button onclick="app.switchTab('reports')"
+                    class="nav-item flex flex-col items-center gap-1 p-2 text-slate-400">
+                    <div class="nav-icon w-10 h-10 rounded-xl flex items-center justify-center">
+                        <span class="material-icons">assessment</span>
+                    </div>
+                    <span class="text-[10px] font-semibold">Reportes</span>
+                </button>
+                <button onclick="app.switchTab('profile')"
+                    class="nav-item flex flex-col items-center gap-1 p-2 text-slate-400">
+                    <div id="userNavAvatar"
+                        class="nav-icon w-10 h-10 rounded-xl flex items-center justify-center bg-slate-200 text-slate-600 font-bold text-sm">
+                        U
+                    </div>
+                    <span class="text-[10px] font-semibold">Perfil</span>
+                </button>
+            </div>
+        </nav>
+    </div>
+
+    <!-- JAVASCRIPT APP LOGIC -->
+    <script>
+        const app = {
+            state: {
+                selectedDate: new Date(),
+                roleId: 0,
+                user: null,
+                data: {
+                    tiendas: [],
+                    personal: [],
+                    categorias: [],
+                    horarios: []
+                }
+            },
+
+            dayNames: ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'],
+            dayNamesFull: ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'],
+            monthNames: ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'],
+            monthNamesShort: ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'],
+
+            // Helper to determine if a color is light or dark
+            isLightColor: (hexColor) => {
+                if (!hexColor) return true;
+                const hex = hexColor.replace('#', '');
+                const r = parseInt(hex.substr(0, 2), 16);
+                const g = parseInt(hex.substr(2, 2), 16);
+                const b = parseInt(hex.substr(4, 2), 16);
+                const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+                return brightness > 155;
+            },
+
+            init: async () => {
+                const isLoggedIn = sessionStorage.getItem('staffPlannerAuth');
+                const roleId = parseInt(sessionStorage.getItem('staffPlannerRoleId') || '0');
+
+                if (isLoggedIn === 'true' && roleId >= 1 && roleId <= 3) {
+                    app.state.roleId = roleId;
+                    app.state.user = JSON.parse(sessionStorage.getItem('staffPlannerUser') || '{}');
+
+                    document.getElementById('loginOverlay').classList.add('hidden');
+                    document.getElementById('mainApp').classList.remove('hidden');
+
+                    // Show add button for Admin/Organizador
+                    if (roleId === 1 || roleId === 2) {
+                        document.getElementById('addBtn').classList.remove('hidden');
+                        document.getElementById('addBtn').classList.add('flex');
+                    }
+
+                    // Set user avatar initial
+                    const email = app.state.user.email || '';
+                    const initial = email.substring(0, 1).toUpperCase();
+                    document.getElementById('userNavAvatar').textContent = initial;
+
+                    await app.loadData();
+                } else {
+                    sessionStorage.clear();
+                }
+            },
+
+            handleLogin: async () => {
+                const email = document.getElementById('loginUser').value;
+                const password = document.getElementById('loginPass').value;
+                const errorMsg = document.getElementById('loginError');
+                errorMsg.classList.add('hidden');
+
+                try {
+                    const { data, error } = await db.auth.signInWithPassword({
+                        email: email,
+                        password: password,
+                    });
+
+                    if (error) throw error;
+
+                    // Fetch user role
+                    const { data: userData, error: userError } = await db
+                        .from('Tiendas_Usuarios')
+                        .select('*, Tiendas_Roles(*)')
+                        .eq('email', data.user.email)
+                        .eq('activo', true)
+                        .single();
+
+                    if (userError || !userData) {
+                        throw new Error('Usuario no autorizado');
+                    }
+
+                    const roleId = userData.id_rol;
+                    const roleName = userData.Tiendas_Roles?.nombre || 'Usuario';
+
+                    // Store session
+                    sessionStorage.setItem('staffPlannerAuth', 'true');
+                    sessionStorage.setItem('staffPlannerUser', JSON.stringify(data.user));
+                    sessionStorage.setItem('staffPlannerRoleId', roleId.toString());
+                    sessionStorage.setItem('staffPlannerRoleName', roleName);
+                    sessionStorage.setItem('staffPlannerUserId', userData.id.toString());
+                    sessionStorage.setItem('staffPlannerIsAdmin', roleId === 1 ? 'true' : 'false');
+
+                    // Animate & redirect
+                    const overlay = document.getElementById('loginOverlay');
+                    overlay.style.opacity = '0';
+                    overlay.style.transition = 'opacity 0.4s ease';
+                    setTimeout(() => location.reload(), 400);
+
+                } catch (err) {
+                    console.error('Login error:', err);
+                    errorMsg.textContent = 'Error: ' + (err.message || 'Credenciales inválidas');
+                    errorMsg.classList.remove('hidden');
+                }
+            },
+
+            loadData: async () => {
+                const [tiendasRes, personalRes, categoriasRes] = await Promise.all([
+                    db.from('Tiendas_Razonamiento').select('*').order('nombre_display'),
+                    db.from('Tiendas_Impulsadoras').select('*'),
+                    db.from('Tiendas_Categorias').select('*')
+                ]);
+
+                app.state.data.tiendas = tiendasRes.data || [];
+                app.state.data.personal = personalRes.data || [];
+                app.state.data.categorias = categoriasRes.data || [];
+
+                await app.fetchAssignmentsForDate();
+                app.renderDayPills();
+                app.renderAssignments();
+                app.updateDateText();
+            },
+
+            fetchAssignmentsForDate: async () => {
+                const dateStr = app.formatDate(app.state.selectedDate);
+
+                const { data, error } = await db
+                    .from('Tiendas_Horario')
+                    .select('*')
+                    .eq('fecha', dateStr);
+
+                if (error) console.error('Error fetching:', error);
+                app.state.data.horarios = data || [];
+            },
+
+            formatDate: (date) => {
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+            },
+
+            updateDateText: () => {
+                const d = app.state.selectedDate;
+                const dayName = app.dayNames[d.getDay()];
+                const day = d.getDate();
+                const month = app.monthNamesShort[d.getMonth()];
+                const year = d.getFullYear();
+                document.getElementById('selectedDateText').textContent = `${dayName}, ${day} ${month} ${year}`;
+            },
+
+            renderDayPills: () => {
+                const today = new Date();
+                const selectedStr = app.formatDate(app.state.selectedDate);
+                let html = '';
+
+                // Show 7 days centered around today
+                for (let i = -2; i <= 4; i++) {
+                    const date = new Date(today);
+                    date.setDate(today.getDate() + i);
+                    const dateStr = app.formatDate(date);
+                    const isActive = dateStr === selectedStr;
+                    const isToday = dateStr === app.formatDate(today);
+
+                    html += `
+                    <button onclick="app.selectDate('${dateStr}')" 
+                        class="day-pill flex-shrink-0 flex flex-col items-center px-4 py-2 rounded-xl ${isActive ? 'active' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">
+                        <span class="text-xs font-medium ${isActive ? 'text-white/80' : ''}">${app.dayNames[date.getDay()]}</span>
+                        <span class="text-lg font-bold">${date.getDate()}</span>
+                    </button>`;
+                }
+
+                document.getElementById('dayPills').innerHTML = html;
+            },
+
+            selectDate: async (dateStr) => {
+                const [year, month, day] = dateStr.split('-').map(Number);
+                app.state.selectedDate = new Date(year, month - 1, day);
+                await app.fetchAssignmentsForDate();
+                app.renderDayPills();
+                app.renderAssignments();
+                app.updateDateText();
+            },
+
+            openDatePicker: () => {
+                // Simple date picker using HTML5 input
+                const input = document.createElement('input');
+                input.type = 'date';
+                input.value = app.formatDate(app.state.selectedDate);
+                input.style.position = 'fixed';
+                input.style.opacity = '0';
+                input.style.top = '0';
+                document.body.appendChild(input);
+
+                input.addEventListener('change', async (e) => {
+                    if (e.target.value) {
+                        await app.selectDate(e.target.value);
+                    }
+                    document.body.removeChild(input);
+                });
+
+                input.addEventListener('blur', () => {
+                    setTimeout(() => {
+                        if (document.body.contains(input)) {
+                            document.body.removeChild(input);
+                        }
+                    }, 200);
+                });
+
+                input.showPicker();
+            },
+
+            renderAssignments: () => {
+                const horarios = app.state.data.horarios;
+
+                // Group by store
+                const byStore = {};
+                horarios.forEach(h => {
+                    if (!byStore[h.tienda_id]) byStore[h.tienda_id] = [];
+                    byStore[h.tienda_id].push(h);
+                });
+
+                // Sort stores by name
+                const storeIds = Object.keys(byStore).sort((a, b) => {
+                    const storeA = app.state.data.tiendas.find(t => t.id === parseInt(a));
+                    const storeB = app.state.data.tiendas.find(t => t.id === parseInt(b));
+                    return (storeA?.nombre_display || '').localeCompare(storeB?.nombre_display || '');
+                });
+
+                let html = '<div class="p-4 space-y-4">';
+                let totalCount = 0;
+
+                if (storeIds.length === 0) {
+                    html += `
+                    <div class="text-center py-10">
+                        <span class="material-icons text-5xl text-slate-300 mb-3">event_busy</span>
+                        <p class="text-slate-400 font-medium">No hay asignaciones para esta fecha</p>
+                    </div>`;
+                } else {
+                    storeIds.forEach(storeId => {
+                        const store = app.state.data.tiendas.find(t => t.id === parseInt(storeId));
+                        const assignments = byStore[storeId];
+                        const storeColor = store?.color_hex || '#6366f1';
+                        const isLight = app.isLightColor(storeColor);
+
+                        // Store header
+                        html += `
+                        <div class="store-group-header bg-slate-50 -mx-4 px-4 py-2 flex items-center gap-2">
+                            <div class="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${isLight ? 'text-slate-800' : 'text-white'}"
+                                 style="background-color: ${storeColor}">
+                                ${store?.alias_tienda || 'T'}
+                            </div>
+                            <span class="font-bold text-slate-700">${store?.nombre_display || 'Tienda'}</span>
+                            <span class="ml-auto text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full font-semibold">${assignments.length}</span>
+                        </div>`;
+
+                        // Assignment cards
+                        html += '<div class="space-y-2">';
+                        assignments.forEach(a => {
+                            const person = app.state.data.personal.find(p => p.id === a.impulsadora_id);
+                            const category = person ? app.state.data.categorias.find(c => c.id === person.idCategoria) : null;
+                            totalCount++;
+
+                            html += `
+                            <div class="assignment-card bg-white rounded-xl p-3 shadow-sm border border-slate-100 flex items-center gap-3">
+                                <!-- Store Badge -->
+                                <div class="w-12 h-12 rounded-xl flex items-center justify-center text-sm font-bold ${isLight ? 'text-slate-800' : 'text-white'}"
+                                     style="background-color: ${storeColor}">
+                                    ${store?.alias_tienda || 'T'}
+                                </div>
+                                
+                                <!-- Person Info -->
+                                <div class="flex-1 min-w-0">
+                                    <div class="font-bold text-slate-800 truncate">${person?.nombre_completo || 'Sin asignar'}</div>
+                                    <div class="text-xs text-slate-400 truncate">${person?.Marca || 'Sin marca'}</div>
+                                </div>
+
+                                <!-- Category Badge -->
+                                ${category ? `
+                                <div class="flex-shrink-0 px-2 py-1 rounded-full text-[10px] font-semibold ${category.id_zona === 1 ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}">
+                                    ${category.id_zona === 1 ? 'Zona A' : 'Zona B'}
+                                </div>` : ''}
+                            </div>`;
+                        });
+                        html += '</div>';
+                    });
+                }
+
+                html += '</div>';
+                document.getElementById('assignmentsList').innerHTML = html;
+                document.getElementById('assignmentCount').textContent = `(${totalCount})`;
+            },
+
+            openAddModal: () => {
+                // TODO: Implement add assignment modal
+                alert('Función de agregar asignación - Próximamente');
+            },
+
+            switchTab: (tab) => {
+                // Update active state
+                document.querySelectorAll('.nav-item').forEach(item => {
+                    item.classList.remove('active');
+                    item.classList.add('text-slate-400');
+                });
+                event.currentTarget.classList.add('active');
+                event.currentTarget.classList.remove('text-slate-400');
+
+                // Navigate based on tab
+                switch (tab) {
+                    case 'calendar':
+                        // Already here
+                        break;
+                    case 'stores':
+                        window.location.href = 'calendario-tienda.html';
+                        break;
+                    case 'staff':
+                        window.location.href = 'personal.html';
+                        break;
+                    case 'reports':
+                        window.location.href = 'reportes.html';
+                        break;
+                    case 'profile':
+                        app.showProfileMenu();
+                        break;
+                }
+            },
+
+            showProfileMenu: () => {
+                const roleName = sessionStorage.getItem('staffPlannerRoleName') || 'Usuario';
+                const email = app.state.user?.email || '';
+
+                if (confirm(`${email}\nRol: ${roleName}\n\n¿Deseas cerrar sesión?`)) {
+                    app.logout();
+                }
+            },
+
+            logout: () => {
+                sessionStorage.clear();
+                window.location.href = 'index.html';
+            }
+        };
+
+        // Initialize on load
+        document.addEventListener('DOMContentLoaded', () => app.init());
+    </script>
+
+</body>
+
+</html>
