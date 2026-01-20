@@ -165,11 +165,17 @@
                     <span class="material-icons text-slate-400 text-sm">expand_more</span>
                 </button>
 
-                <!-- Add Button (Admin/Organizador only) -->
-                <button onclick="app.openAddModal()" id="addBtn"
-                    class="hidden w-10 h-10 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-xl flex items-center justify-center shadow-lg hover:shadow-xl transition-all active:scale-95">
-                    <span class="material-icons text-white">add</span>
-                </button>
+                <!-- Action Buttons (Admin/Organizador only) -->
+                <div class="flex items-center gap-2">
+                    <a href="staff-list-mobile.html" id="viewStaffBtn"
+                        class="hidden w-10 h-10 bg-gradient-to-r from-slate-500 to-slate-600 rounded-xl flex items-center justify-center shadow-lg hover:shadow-xl transition-all active:scale-95">
+                        <span class="material-icons text-white">visibility</span>
+                    </a>
+                    <button onclick="app.openAddModal()" id="addBtn"
+                        class="hidden w-10 h-10 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-xl flex items-center justify-center shadow-lg hover:shadow-xl transition-all active:scale-95">
+                        <span class="material-icons text-white">add</span>
+                    </button>
+                </div>
             </div>
 
             <!-- Day Pills -->
@@ -280,8 +286,10 @@
                     document.getElementById('loginOverlay').classList.add('hidden');
                     document.getElementById('mainApp').classList.remove('hidden');
 
-                    // Show add button for Admin/Organizador
+                    // Show action buttons for Admin/Organizador
                     if (roleId === 1 || roleId === 2) {
+                        document.getElementById('viewStaffBtn').classList.remove('hidden');
+                        document.getElementById('viewStaffBtn').classList.add('flex');
                         document.getElementById('addBtn').classList.remove('hidden');
                         document.getElementById('addBtn').classList.add('flex');
                     }

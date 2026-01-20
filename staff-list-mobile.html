@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Listado de Staff | StaffPlanner</title>
+
+    <!-- Tailwind & Dependencies -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+    <style>
+        * {
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #f8fafc;
+            min-height: 100vh;
+            overscroll-behavior: none;
+        }
+
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        .staff-card {
+            transition: all 0.2s ease;
+        }
+
+        .staff-card:active {
+            transform: scale(0.98);
+        }
+
+        @keyframes shimmer {
+            0% {
+                background-position: -200% 0;
+            }
+
+            100% {
+                background-position: 200% 0;
+            }
+        }
+
+        .skeleton {
+            background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+    </style>
+</head>
+
+<body class="text-slate-800">
+
+    <!-- SUPABASE CLIENT -->
+    <script>
+        const SUPABASE_URL = 'https://cectqtufttubsepyiolr.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_Ow2zQpNDPsLA6on9VBWFgg_Q0_LAc1D';
+        const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    </script>
+
+    <!-- MAIN APP -->
+    <div id="mainApp" class="min-h-screen flex flex-col">
+
+        <!-- Header -->
+        <header class="sticky top-0 z-50 bg-white border-b border-slate-100 px-4 py-3 shadow-sm">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <a href="admin-mobile.html"
+                        class="w-10 h-10 bg-slate-100 hover:bg-slate-200 rounded-xl flex items-center justify-center transition-colors">
+                        <span class="material-icons text-slate-600">arrow_back</span>
+                    </a>
+                    <div>
+                        <h1 class="text-lg font-bold text-slate-800">👥 Listado de Staff</h1>
+                        <p id="staffCount" class="text-xs text-slate-400">Cargando...</p>
+                    </div>
+                </div>
+
+                <!-- Add Button (Admin only) -->
+                <button onclick="app.openAddStaffModal()" id="addStaffBtn"
+                    class="hidden w-10 h-10 bg-gradient-to-r from-green-500 to-emerald-500 rounded-xl flex items-center justify-center shadow-lg hover:shadow-xl transition-all active:scale-95">
+                    <span class="material-icons text-white">person_add</span>
+                </button>
+            </div>
+
+            <!-- Search Input -->
+            <div class="relative mt-3">
+                <span
+                    class="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
+                <input type="text" id="searchInput" placeholder="Buscar por nombre o marca..."
+                    oninput="app.onSearchChange()"
+                    class="w-full pl-10 pr-4 py-2 bg-slate-100 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400">
+            </div>
+        </header>
+
+        <!-- Staff List -->
+        <main id="staffList" class="flex-1 overflow-y-auto bg-slate-50">
+            <!-- Loading Skeletons -->
+            <div class="p-4 space-y-3">
+                <div class="skeleton h-20 rounded-xl"></div>
+                <div class="skeleton h-20 rounded-xl"></div>
+                <div class="skeleton h-20 rounded-xl"></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- JAVASCRIPT APP LOGIC -->
+    <script>
+        const app = {
+            state: {
+                roleId: 0,
+                user: null,
+                searchQuery: '',
+                staff: [],
+                categorias: [],
+                filteredStaff: []
+            },
+
+            init: async () => {
+                // Auth check
+                if (sessionStorage.getItem('staffPlannerAuth') !== 'true') {
+                    window.location.href = 'login.html';
+                    return;
+                }
+
+                const roleId = parseInt(sessionStorage.getItem('staffPlannerRoleId') || '0');
+                app.state.roleId = roleId;
+                app.state.user = JSON.parse(sessionStorage.getItem('staffPlannerUser') || '{}');
+
+                // Show add button for Admin only
+                if (roleId === 1) {
+                    document.getElementById('addStaffBtn').classList.remove('hidden');
+                    document.getElementById('addStaffBtn').classList.add('flex');
+                }
+
+                await app.loadData();
+            },
+
+            loadData: async () => {
+                try {
+                    const [staffRes, categoriasRes] = await Promise.all([
+                        db.from('Tiendas_Impulsadoras').select('*').order('nombre_completo'),
+                        db.from('Tiendas_Categorias').select('*')
+                    ]);
+
+                    app.state.staff = staffRes.data || [];
+                    app.state.categorias = categoriasRes.data || [];
+
+                    app.applyFilters();
+
+                } catch (err) {
+                    console.error('Error loading data:', err);
+                    Swal.fire('Error', 'No se pudieron cargar los datos', 'error');
+                }
+            },
+
+            onSearchChange: () => {
+                app.state.searchQuery = document.getElementById('searchInput').value.toLowerCase().trim();
+                app.applyFilters();
+            },
+
+            applyFilters: () => {
+                const search = app.state.searchQuery;
+
+                app.state.filteredStaff = app.state.staff.filter(s => {
+                    if (!search) return true;
+                    const name = (s.nombre_completo || '').toLowerCase();
+                    const marca = (s.Marca || '').toLowerCase();
+                    const codigo = (s.idVendedor || '').toLowerCase();
+                    return name.includes(search) || marca.includes(search) || codigo.includes(search);
+                });
+
+                app.renderStaffList();
+            },
+
+            getCategory: (catId) => {
+                return app.state.categorias.find(c => c.id === catId);
+            },
+
+            renderStaffList: () => {
+                const container = document.getElementById('staffList');
+                const staff = app.state.filteredStaff;
+                const total = app.state.staff.length;
+                const filtered = staff.length;
+
+                document.getElementById('staffCount').textContent =
+                    app.state.searchQuery
+                        ? `${filtered} de ${total} personas`
+                        : `${total} personas`;
+
+                if (staff.length === 0) {
+                    container.innerHTML = `
+                        <div class="text-center py-16">
+                            <span class="material-icons text-5xl text-slate-300 mb-3">person_off</span>
+                            <p class="text-slate-400 font-medium">No se encontró personal</p>
+                        </div>`;
+                    return;
+                }
+
+                let html = '<div class="p-4 space-y-3">';
+
+                staff.forEach(person => {
+                    const category = app.getCategory(person.idCategoria);
+                    const isActive = person.habilitado !== false;
+                    const categoryBadge = category
+                        ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${category.id_zona === 1 ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}">${category.nombre || 'Sin cat.'}</span>`
+                        : '';
+
+                    html += `
+                        <div class="staff-card bg-white rounded-xl p-4 shadow-sm border border-slate-100 ${!isActive ? 'opacity-50' : ''}"
+                             onclick="app.showStaffDetails(${person.id})">
+                            <div class="flex items-center gap-3">
+                                <!-- Avatar -->
+                                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-lg">
+                                    ${(person.nombre_completo || 'S').substring(0, 1).toUpperCase()}
+                                </div>
+                                
+                                <!-- Info -->
+                                <div class="flex-1 min-w-0">
+                                    <div class="font-bold text-slate-800 truncate">${person.nombre_completo || 'Sin nombre'}</div>
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                        <span class="text-xs text-slate-400">${person.idVendedor || ''}</span>
+                                        ${person.Marca ? `<span class="text-xs text-slate-500">• ${person.Marca}</span>` : ''}
+                                    </div>
+                                </div>
+
+                                <!-- Status/Category -->
+                                <div class="flex flex-col items-end gap-1">
+                                    ${categoryBadge}
+                                    <span class="text-[10px] font-bold ${isActive ? 'text-green-600' : 'text-red-500'}">${isActive ? 'Activo' : 'Inactivo'}</span>
+                                </div>
+
+                                <span class="material-icons text-slate-300 text-sm">chevron_right</span>
+                            </div>
+                        </div>`;
+                });
+
+                html += '</div>';
+                container.innerHTML = html;
+            },
+
+            showStaffDetails: (personId) => {
+                const person = app.state.staff.find(s => s.id === personId);
+                if (!person) return;
+
+                const category = app.getCategory(person.idCategoria);
+                const isActive = person.habilitado !== false;
+                const roleId = app.state.roleId;
+
+                let actionsHtml = '';
+
+                // Admin/Organizador can edit
+                if (roleId === 1 || roleId === 2) {
+                    actionsHtml = `
+                        <button onclick="app.editStaff(${person.id})" 
+                            class="w-full py-3 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-xl font-semibold flex items-center justify-center gap-2 transition-all">
+                            <span class="material-icons text-base">edit</span> Editar
+                        </button>
+                        <button onclick="app.toggleStaffStatus(${person.id}, ${isActive})" 
+                            class="w-full py-3 px-4 ${isActive ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'} text-white rounded-xl font-semibold flex items-center justify-center gap-2 transition-all">
+                            <span class="material-icons text-base">${isActive ? 'block' : 'check_circle'}</span> ${isActive ? 'Deshabilitar' : 'Habilitar'}
+                        </button>
+                    `;
+                }
+
+                Swal.fire({
+                    title: person.nombre_completo || 'Sin nombre',
+                    html: `
+                        <div class="text-left space-y-3">
+                            <div class="bg-slate-50 p-3 rounded-lg">
+                                <div class="text-xs text-slate-400">Código</div>
+                                <div class="font-medium text-slate-700">${person.idVendedor || '-'}</div>
+                            </div>
+                            <div class="bg-slate-50 p-3 rounded-lg">
+                                <div class="text-xs text-slate-400">Marca</div>
+                                <div class="font-medium text-slate-700">${person.Marca || '-'}</div>
+                            </div>
+                            <div class="bg-slate-50 p-3 rounded-lg">
+                                <div class="text-xs text-slate-400">Categoría</div>
+                                <div class="font-medium text-slate-700">${category?.nombre || '-'}</div>
+                            </div>
+                            <div class="bg-slate-50 p-3 rounded-lg">
+                                <div class="text-xs text-slate-400">Correo</div>
+                                <div class="font-medium text-slate-700">${person.Correo || '-'}</div>
+                            </div>
+                            <div class="bg-slate-50 p-3 rounded-lg">
+                                <div class="text-xs text-slate-400">Estado</div>
+                                <div class="font-bold ${isActive ? 'text-green-600' : 'text-red-500'}">${isActive ? 'Activo' : 'Inactivo'}</div>
+                            </div>
+                        </div>
+                        ${actionsHtml ? `<div class="space-y-3 mt-4">${actionsHtml}</div>` : ''}
+                    `,
+                    showConfirmButton: false,
+                    showCloseButton: true,
+                    customClass: {
+                        popup: 'rounded-2xl'
+                    }
+                });
+            },
+
+            editStaff: async (personId) => {
+                Swal.close();
+                const person = app.state.staff.find(s => s.id === personId);
+                if (!person) return;
+
+                const categoryOptions = app.state.categorias.map(c =>
+                    `<option value="${c.id}" ${c.id === person.idCategoria ? 'selected' : ''}>${c.nombre}</option>`
+                ).join('');
+
+                const { value: formValues } = await Swal.fire({
+                    title: 'Editar Personal',
+                    html: `
+                        <div class="text-left space-y-3">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Nombre Completo</label>
+                                <input type="text" id="swal-nombre" class="w-full p-3 border rounded-xl" value="${person.nombre_completo || ''}">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Código (idVendedor)</label>
+                                <input type="text" id="swal-codigo" class="w-full p-3 border rounded-xl" value="${person.idVendedor || ''}">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Marca</label>
+                                <input type="text" id="swal-marca" class="w-full p-3 border rounded-xl" value="${person.Marca || ''}">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Correo</label>
+                                <input type="email" id="swal-correo" class="w-full p-3 border rounded-xl" value="${person.Correo || ''}">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Categoría</label>
+                                <select id="swal-categoria" class="w-full p-3 border rounded-xl">
+                                    <option value="">Sin categoría</option>
+                                    ${categoryOptions}
+                                </select>
+                            </div>
+                        </div>
+                    `,
+                    showCancelButton: true,
+                    confirmButtonText: 'Guardar',
+                    cancelButtonText: 'Cancelar',
+                    confirmButtonColor: '#6366f1',
+                    preConfirm: () => ({
+                        nombre_completo: document.getElementById('swal-nombre').value,
+                        idVendedor: document.getElementById('swal-codigo').value,
+                        Marca: document.getElementById('swal-marca').value,
+                        Correo: document.getElementById('swal-correo').value,
+                        idCategoria: parseInt(document.getElementById('swal-categoria').value) || null
+                    })
+                });
+
+                if (formValues) {
+                    const { error } = await db.from('Tiendas_Impulsadoras')
+                        .update(formValues)
+                        .eq('id', personId);
+
+                    if (error) {
+                        Swal.fire('Error', error.message, 'error');
+                    } else {
+                        Swal.fire({ icon: 'success', title: '¡Guardado!', timer: 1500, showConfirmButton: false });
+                        await app.loadData();
+                    }
+                }
+            },
+
+            toggleStaffStatus: async (personId, currentStatus) => {
+                Swal.close();
+
+                const action = currentStatus ? 'deshabilitar' : 'habilitar';
+                const result = await Swal.fire({
+                    title: `¿${currentStatus ? 'Deshabilitar' : 'Habilitar'} este personal?`,
+                    icon: 'question',
+                    showCancelButton: true,
+                    confirmButtonText: `Sí, ${action}`,
+                    cancelButtonText: 'Cancelar',
+                    confirmButtonColor: currentStatus ? '#ef4444' : '#10b981'
+                });
+
+                if (result.isConfirmed) {
+                    const { error } = await db.from('Tiendas_Impulsadoras')
+                        .update({ habilitado: !currentStatus })
+                        .eq('id', personId);
+
+                    if (error) {
+                        Swal.fire('Error', error.message, 'error');
+                    } else {
+                        Swal.fire({ icon: 'success', title: `¡${currentStatus ? 'Deshabilitado' : 'Habilitado'}!`, timer: 1500, showConfirmButton: false });
+                        await app.loadData();
+                    }
+                }
+            },
+
+            openAddStaffModal: async () => {
+                const categoryOptions = app.state.categorias.map(c =>
+                    `<option value="${c.id}">${c.nombre}</option>`
+                ).join('');
+
+                const { value: formValues } = await Swal.fire({
+                    title: 'Agregar Personal',
+                    html: `
+                        <div class="text-left space-y-3">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Nombre Completo *</label>
+                                <input type="text" id="swal-nombre" class="w-full p-3 border rounded-xl" placeholder="Nombre completo">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Código (PIN) *</label>
+                                <input type="text" id="swal-codigo" class="w-full p-3 border rounded-xl" placeholder="Código único de 4 dígitos">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Marca</label>
+                                <input type="text" id="swal-marca" class="w-full p-3 border rounded-xl" placeholder="Marca">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Correo</label>
+                                <input type="email" id="swal-correo" class="w-full p-3 border rounded-xl" placeholder="correo@ejemplo.com">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Categoría</label>
+                                <select id="swal-categoria" class="w-full p-3 border rounded-xl">
+                                    <option value="">Sin categoría</option>
+                                    ${categoryOptions}
+                                </select>
+                            </div>
+                        </div>
+                    `,
+                    showCancelButton: true,
+                    confirmButtonText: '✅ Agregar',
+                    cancelButtonText: 'Cancelar',
+                    confirmButtonColor: '#10b981',
+                    preConfirm: () => {
+                        const nombre = document.getElementById('swal-nombre').value;
+                        const codigo = document.getElementById('swal-codigo').value;
+
+                        if (!nombre || !codigo) {
+                            Swal.showValidationMessage('Nombre y código son requeridos');
+                            return false;
+                        }
+
+                        return {
+                            nombre_completo: nombre,
+                            idVendedor: codigo,
+                            Marca: document.getElementById('swal-marca').value || null,
+                            Correo: document.getElementById('swal-correo').value || null,
+                            idCategoria: parseInt(document.getElementById('swal-categoria').value) || null,
+                            habilitado: true
+                        };
+                    }
+                });
+
+                if (formValues) {
+                    const { error } = await db.from('Tiendas_Impulsadoras').insert(formValues);
+
+                    if (error) {
+                        Swal.fire('Error', error.message, 'error');
+                    } else {
+                        Swal.fire({ icon: 'success', title: '¡Personal agregado!', timer: 1500, showConfirmButton: false });
+                        await app.loadData();
+                    }
+                }
+            }
+        };
+
+        document.addEventListener('DOMContentLoaded', app.init);
+    </script>
+</body>
+
+</html>
