@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Listado de Tiendas | StaffPlanner</title>
+
+    <!-- Tailwind & Dependencies -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+    <style>
+        * {
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #f8fafc;
+            min-height: 100vh;
+            overscroll-behavior: none;
+        }
+
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        .store-card {
+            transition: all 0.2s ease;
+        }
+
+        .store-card:active {
+            transform: scale(0.98);
+        }
+
+        @keyframes shimmer {
+            0% {
+                background-position: -200% 0;
+            }
+
+            100% {
+                background-position: 200% 0;
+            }
+        }
+
+        .skeleton {
+            background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+    </style>
+</head>
+
+<body class="text-slate-800">
+
+    <!-- SUPABASE CLIENT -->
+    <script>
+        const SUPABASE_URL = 'https://cectqtufttubsepyiolr.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_Ow2zQpNDPsLA6on9VBWFgg_Q0_LAc1D';
+        const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    </script>
+
+    <!-- MAIN APP -->
+    <div id="mainApp" class="min-h-screen flex flex-col">
+
+        <!-- Header -->
+        <header class="sticky top-0 z-50 bg-white border-b border-slate-100 px-4 py-3 shadow-sm">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <a href="admin-mobile.html"
+                        class="w-10 h-10 bg-slate-100 hover:bg-slate-200 rounded-xl flex items-center justify-center transition-colors">
+                        <span class="material-icons text-slate-600">arrow_back</span>
+                    </a>
+                    <div>
+                        <h1 class="text-lg font-bold text-slate-800">🏪 Listado de Tiendas</h1>
+                        <p id="storeCount" class="text-xs text-slate-400">Cargando...</p>
+                    </div>
+                </div>
+
+                <!-- Add Button (Admin only) -->
+                <button onclick="app.openAddStoreModal()" id="addStoreBtn"
+                    class="hidden w-10 h-10 bg-gradient-to-r from-green-500 to-emerald-500 rounded-xl flex items-center justify-center shadow-lg hover:shadow-xl transition-all active:scale-95">
+                    <span class="material-icons text-white">add_business</span>
+                </button>
+            </div>
+
+            <!-- Search Input -->
+            <div class="relative mt-3">
+                <span
+                    class="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
+                <input type="text" id="searchInput" placeholder="Buscar por nombre o alias..."
+                    oninput="app.onSearchChange()"
+                    class="w-full pl-10 pr-4 py-2 bg-slate-100 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-green-400 focus:border-green-400">
+            </div>
+        </header>
+
+        <!-- Store List -->
+        <main id="storeList" class="flex-1 overflow-y-auto bg-slate-50">
+            <!-- Loading Skeletons -->
+            <div class="p-4 space-y-3">
+                <div class="skeleton h-20 rounded-xl"></div>
+                <div class="skeleton h-20 rounded-xl"></div>
+                <div class="skeleton h-20 rounded-xl"></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- JAVASCRIPT APP LOGIC -->
+    <script>
+        const app = {
+            state: {
+                roleId: 0,
+                user: null,
+                searchQuery: '',
+                stores: [],
+                filteredStores: []
+            },
+
+            isLightColor: (hexColor) => {
+                if (!hexColor) return true;
+                const hex = hexColor.replace('#', '');
+                const r = parseInt(hex.substr(0, 2), 16);
+                const g = parseInt(hex.substr(2, 2), 16);
+                const b = parseInt(hex.substr(4, 2), 16);
+                const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+                return brightness > 155;
+            },
+
+            init: async () => {
+                // Auth check
+                if (sessionStorage.getItem('staffPlannerAuth') !== 'true') {
+                    window.location.href = 'login.html';
+                    return;
+                }
+
+                const roleId = parseInt(sessionStorage.getItem('staffPlannerRoleId') || '0');
+                app.state.roleId = roleId;
+                app.state.user = JSON.parse(sessionStorage.getItem('staffPlannerUser') || '{}');
+
+                // Show add button for Admin only
+                if (roleId === 1) {
+                    document.getElementById('addStoreBtn').classList.remove('hidden');
+                    document.getElementById('addStoreBtn').classList.add('flex');
+                }
+
+                await app.loadData();
+            },
+
+            loadData: async () => {
+                try {
+                    const { data, error } = await db.from('Tiendas_Razonamiento').select('*').order('nombre_display');
+
+                    if (error) throw error;
+                    app.state.stores = data || [];
+
+                    app.applyFilters();
+
+                } catch (err) {
+                    console.error('Error loading data:', err);
+                    Swal.fire('Error', 'No se pudieron cargar los datos', 'error');
+                }
+            },
+
+            onSearchChange: () => {
+                app.state.searchQuery = document.getElementById('searchInput').value.toLowerCase().trim();
+                app.applyFilters();
+            },
+
+            applyFilters: () => {
+                const search = app.state.searchQuery;
+
+                app.state.filteredStores = app.state.stores.filter(s => {
+                    if (!search) return true;
+                    const name = (s.nombre_display || '').toLowerCase();
+                    const alias = (s.alias_tienda || '').toLowerCase();
+                    return name.includes(search) || alias.includes(search);
+                });
+
+                app.renderStoreList();
+            },
+
+            renderStoreList: () => {
+                const container = document.getElementById('storeList');
+                const stores = app.state.filteredStores;
+                const total = app.state.stores.length;
+                const filtered = stores.length;
+
+                document.getElementById('storeCount').textContent =
+                    app.state.searchQuery
+                        ? `${filtered} de ${total} tiendas`
+                        : `${total} tiendas`;
+
+                if (stores.length === 0) {
+                    container.innerHTML = `
+                        <div class="text-center py-16">
+                            <span class="material-icons text-5xl text-slate-300 mb-3">store</span>
+                            <p class="text-slate-400 font-medium">No se encontraron tiendas</p>
+                        </div>`;
+                    return;
+                }
+
+                let html = '<div class="p-4 space-y-3">';
+
+                stores.forEach(store => {
+                    const isActive = store.activo !== false;
+                    const storeColor = store.color_hex || '#10b981';
+                    const isLight = app.isLightColor(storeColor);
+
+                    html += `
+                        <div class="store-card bg-white rounded-xl p-4 shadow-sm border border-slate-100 ${!isActive ? 'opacity-50' : ''}"
+                             onclick="app.showStoreDetails(${store.id})">
+                            <div class="flex items-center gap-3">
+                                <!-- Color Badge -->
+                                <div class="w-14 h-14 rounded-xl flex items-center justify-center font-bold text-lg ${isLight ? 'text-slate-800' : 'text-white'}"
+                                     style="background-color: ${storeColor}">
+                                    ${store.alias_tienda || 'T'}
+                                </div>
+                                
+                                <!-- Info -->
+                                <div class="flex-1 min-w-0">
+                                    <div class="font-bold text-slate-800 truncate">${store.nombre_display || 'Sin nombre'}</div>
+                                    <div class="flex items-center gap-2 flex-wrap text-xs text-slate-500">
+                                        <span>Zona A: ${store.zonaA || 0}</span>
+                                        <span>•</span>
+                                        <span>Zona B: ${store.zonaB || 0}</span>
+                                        <span>•</span>
+                                        <span class="font-bold">Total: ${(store.zonaA || 0) + (store.zonaB || 0)}</span>
+                                    </div>
+                                </div>
+
+                                <!-- Status -->
+                                <div class="flex flex-col items-end gap-1">
+                                    <span class="text-[10px] font-bold ${isActive ? 'text-green-600' : 'text-red-500'}">${isActive ? 'Activa' : 'Inactiva'}</span>
+                                    ${store.requiere_impulso ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700">Impulso</span>' : ''}
+                                </div>
+
+                                <span class="material-icons text-slate-300 text-sm">chevron_right</span>
+                            </div>
+                        </div>`;
+                });
+
+                html += '</div>';
+                container.innerHTML = html;
+            },
+
+            showStoreDetails: (storeId) => {
+                const store = app.state.stores.find(s => s.id === storeId);
+                if (!store) return;
+
+                const isActive = store.activo !== false;
+                const roleId = app.state.roleId;
+                const storeColor = store.color_hex || '#10b981';
+
+                let actionsHtml = '';
+
+                // Admin/Organizador can edit
+                if (roleId === 1 || roleId === 2) {
+                    actionsHtml = `
+                        <button onclick="app.editStore(${store.id})" 
+                            class="w-full py-3 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-xl font-semibold flex items-center justify-center gap-2 transition-all">
+                            <span class="material-icons text-base">edit</span> Editar
+                        </button>
+                        <button onclick="app.toggleStoreStatus(${store.id}, ${isActive})" 
+                            class="w-full py-3 px-4 ${isActive ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'} text-white rounded-xl font-semibold flex items-center justify-center gap-2 transition-all">
+                            <span class="material-icons text-base">${isActive ? 'block' : 'check_circle'}</span> ${isActive ? 'Desactivar' : 'Activar'}
+                        </button>
+                    `;
+                }
+
+                Swal.fire({
+                    title: store.nombre_display || 'Sin nombre',
+                    html: `
+                        <div class="text-left space-y-3">
+                            <div class="p-3 rounded-lg text-center" style="background-color: ${storeColor}">
+                                <div class="text-2xl font-bold ${app.isLightColor(storeColor) ? 'text-slate-800' : 'text-white'}">${store.alias_tienda || '-'}</div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div class="bg-blue-50 p-3 rounded-lg text-center">
+                                    <div class="text-xs text-blue-400">Zona A</div>
+                                    <div class="font-bold text-blue-700 text-lg">${store.zonaA || 0}</div>
+                                </div>
+                                <div class="bg-amber-50 p-3 rounded-lg text-center">
+                                    <div class="text-xs text-amber-400">Zona B</div>
+                                    <div class="font-bold text-amber-700 text-lg">${store.zonaB || 0}</div>
+                                </div>
+                            </div>
+                            <div class="bg-slate-50 p-3 rounded-lg">
+                                <div class="text-xs text-slate-400">Requiere Impulso</div>
+                                <div class="font-bold ${store.requiere_impulso ? 'text-purple-600' : 'text-slate-500'}">${store.requiere_impulso ? 'Sí' : 'No'}</div>
+                            </div>
+                            <div class="bg-slate-50 p-3 rounded-lg">
+                                <div class="text-xs text-slate-400">Estado</div>
+                                <div class="font-bold ${isActive ? 'text-green-600' : 'text-red-500'}">${isActive ? 'Activa' : 'Inactiva'}</div>
+                            </div>
+                        </div>
+                        ${actionsHtml ? `<div class="space-y-3 mt-4">${actionsHtml}</div>` : ''}
+                    `,
+                    showConfirmButton: false,
+                    showCloseButton: true,
+                    customClass: {
+                        popup: 'rounded-2xl'
+                    }
+                });
+            },
+
+            editStore: async (storeId) => {
+                Swal.close();
+                const store = app.state.stores.find(s => s.id === storeId);
+                if (!store) return;
+
+                const { value: formValues } = await Swal.fire({
+                    title: 'Editar Tienda',
+                    html: `
+                        <div class="text-left space-y-3">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Nombre</label>
+                                <input type="text" id="swal-nombre" class="w-full p-3 border rounded-xl" value="${store.nombre_display || ''}">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Alias</label>
+                                <input type="text" id="swal-alias" class="w-full p-3 border rounded-xl" value="${store.alias_tienda || ''}" maxlength="4">
+                            </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 mb-1">Zona A</label>
+                                    <input type="number" id="swal-zonaA" class="w-full p-3 border rounded-xl" value="${store.zonaA || 0}" min="0">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 mb-1">Zona B</label>
+                                    <input type="number" id="swal-zonaB" class="w-full p-3 border rounded-xl" value="${store.zonaB || 0}" min="0">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Color</label>
+                                <input type="color" id="swal-color" class="w-full h-12 border rounded-xl cursor-pointer" value="${store.color_hex || '#10b981'}">
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <input type="checkbox" id="swal-impulso" class="w-5 h-5 rounded" ${store.requiere_impulso ? 'checked' : ''}>
+                                <label for="swal-impulso" class="text-sm text-slate-700">Requiere Impulso</label>
+                            </div>
+                        </div>
+                    `,
+                    showCancelButton: true,
+                    confirmButtonText: 'Guardar',
+                    cancelButtonText: 'Cancelar',
+                    confirmButtonColor: '#10b981',
+                    preConfirm: () => ({
+                        nombre_display: document.getElementById('swal-nombre').value,
+                        alias_tienda: document.getElementById('swal-alias').value,
+                        zonaA: parseInt(document.getElementById('swal-zonaA').value) || 0,
+                        zonaB: parseInt(document.getElementById('swal-zonaB').value) || 0,
+                        color_hex: document.getElementById('swal-color').value,
+                        requiere_impulso: document.getElementById('swal-impulso').checked
+                    })
+                });
+
+                if (formValues) {
+                    const { error } = await db.from('Tiendas_Razonamiento')
+                        .update(formValues)
+                        .eq('id', storeId);
+
+                    if (error) {
+                        Swal.fire('Error', error.message, 'error');
+                    } else {
+                        Swal.fire({ icon: 'success', title: '¡Guardado!', timer: 1500, showConfirmButton: false });
+                        await app.loadData();
+                    }
+                }
+            },
+
+            toggleStoreStatus: async (storeId, currentStatus) => {
+                Swal.close();
+
+                const action = currentStatus ? 'desactivar' : 'activar';
+                const result = await Swal.fire({
+                    title: `¿${currentStatus ? 'Desactivar' : 'Activar'} esta tienda?`,
+                    icon: 'question',
+                    showCancelButton: true,
+                    confirmButtonText: `Sí, ${action}`,
+                    cancelButtonText: 'Cancelar',
+                    confirmButtonColor: currentStatus ? '#ef4444' : '#10b981'
+                });
+
+                if (result.isConfirmed) {
+                    const { error } = await db.from('Tiendas_Razonamiento')
+                        .update({ activo: !currentStatus })
+                        .eq('id', storeId);
+
+                    if (error) {
+                        Swal.fire('Error', error.message, 'error');
+                    } else {
+                        Swal.fire({ icon: 'success', title: `¡${currentStatus ? 'Desactivada' : 'Activada'}!`, timer: 1500, showConfirmButton: false });
+                        await app.loadData();
+                    }
+                }
+            },
+
+            openAddStoreModal: async () => {
+                const { value: formValues } = await Swal.fire({
+                    title: 'Nueva Tienda',
+                    html: `
+                        <div class="text-left space-y-3">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Nombre *</label>
+                                <input type="text" id="swal-nombre" class="w-full p-3 border rounded-xl" placeholder="Nombre de la tienda">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Alias (máx 4 caracteres)</label>
+                                <input type="text" id="swal-alias" class="w-full p-3 border rounded-xl" placeholder="Ej: CCQI" maxlength="4">
+                            </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 mb-1">Zona A</label>
+                                    <input type="number" id="swal-zonaA" class="w-full p-3 border rounded-xl" value="0" min="0">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 mb-1">Zona B</label>
+                                    <input type="number" id="swal-zonaB" class="w-full p-3 border rounded-xl" value="0" min="0">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Color</label>
+                                <input type="color" id="swal-color" class="w-full h-12 border rounded-xl cursor-pointer" value="#10b981">
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <input type="checkbox" id="swal-impulso" class="w-5 h-5 rounded">
+                                <label for="swal-impulso" class="text-sm text-slate-700">Requiere Impulso</label>
+                            </div>
+                        </div>
+                    `,
+                    showCancelButton: true,
+                    confirmButtonText: '✅ Agregar',
+                    cancelButtonText: 'Cancelar',
+                    confirmButtonColor: '#10b981',
+                    preConfirm: () => {
+                        const nombre = document.getElementById('swal-nombre').value;
+
+                        if (!nombre) {
+                            Swal.showValidationMessage('El nombre es requerido');
+                            return false;
+                        }
+
+                        return {
+                            nombre_display: nombre,
+                            alias_tienda: document.getElementById('swal-alias').value || null,
+                            zonaA: parseInt(document.getElementById('swal-zonaA').value) || 0,
+                            zonaB: parseInt(document.getElementById('swal-zonaB').value) || 0,
+                            color_hex: document.getElementById('swal-color').value,
+                            requiere_impulso: document.getElementById('swal-impulso').checked,
+                            activo: true
+                        };
+                    }
+                });
+
+                if (formValues) {
+                    const { error } = await db.from('Tiendas_Razonamiento').insert(formValues);
+
+                    if (error) {
+                        Swal.fire('Error', error.message, 'error');
+                    } else {
+                        Swal.fire({ icon: 'success', title: '¡Tienda agregada!', timer: 1500, showConfirmButton: false });
+                        await app.loadData();
+                    }
+                }
+            }
+        };
+
+        document.addEventListener('DOMContentLoaded', app.init);
+    </script>
+</body>
+
+</html>

@@ -171,6 +171,10 @@
                         class="hidden w-10 h-10 bg-gradient-to-r from-slate-500 to-slate-600 rounded-xl flex items-center justify-center shadow-lg hover:shadow-xl transition-all active:scale-95">
                         <span class="material-icons text-white">visibility</span>
                     </a>
+                    <a href="store-list-mobile.html" id="viewStoresBtn"
+                        class="hidden w-10 h-10 bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl flex items-center justify-center shadow-lg hover:shadow-xl transition-all active:scale-95">
+                        <span class="material-icons text-white">storefront</span>
+                    </a>
                     <button onclick="app.openAddModal()" id="addBtn"
                         class="hidden w-10 h-10 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-xl flex items-center justify-center shadow-lg hover:shadow-xl transition-all active:scale-95">
                         <span class="material-icons text-white">add</span>
@@ -290,6 +294,8 @@
                     if (roleId === 1 || roleId === 2) {
                         document.getElementById('viewStaffBtn').classList.remove('hidden');
                         document.getElementById('viewStaffBtn').classList.add('flex');
+                        document.getElementById('viewStoresBtn').classList.remove('hidden');
+                        document.getElementById('viewStoresBtn').classList.add('flex');
                         document.getElementById('addBtn').classList.remove('hidden');
                         document.getElementById('addBtn').classList.add('flex');
                     }
