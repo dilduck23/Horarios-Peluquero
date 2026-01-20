@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mi Horario | StaffPlanner</title>
+
+    <!-- Tailwind & Dependencies -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+
+    <style>
+        * {
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            min-height: 100vh;
+            overscroll-behavior: none;
+        }
+
+        /* Custom scrollbar */
+        .custom-scroll::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 2px;
+        }
+
+        /* Day card animations */
+        .day-card {
+            transition: all 0.2s ease;
+        }
+
+        .day-card:active {
+            transform: scale(0.98);
+        }
+
+        /* Month selector */
+        .month-pill {
+            transition: all 0.2s ease;
+        }
+
+        .month-pill.active {
+            background: white;
+            color: #1e293b;
+            font-weight: 700;
+        }
+
+        /* Store badge colors */
+        .store-badge {
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        }
+
+        /* Loading skeleton */
+        @keyframes shimmer {
+            0% {
+                background-position: -200% 0;
+            }
+
+            100% {
+                background-position: 200% 0;
+            }
+        }
+
+        .skeleton {
+            background: linear-gradient(90deg, #334155 25%, #475569 50%, #334155 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+
+        /* Today indicator */
+        .today-indicator {
+            position: relative;
+        }
+
+        .today-indicator::before {
+            content: '';
+            position: absolute;
+            left: -12px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 4px;
+            height: 70%;
+            background: #3b82f6;
+            border-radius: 4px;
+        }
+
+        /* Secure text for PIN */
+        .secure-text {
+            -webkit-text-security: disc;
+            text-security: disc;
+            font-family: text-security-disc;
+        }
+    </style>
+</head>
+
+<body class="text-white">
+
+    <!-- SUPABASE CLIENT -->
+    <script>
+        const SUPABASE_URL = 'https://cectqtufttubsepyiolr.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_Ow2zQpNDPsLA6on9VBWFgg_Q0_LAc1D';
+        const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    </script>
+
+    <!-- LOGIN OVERLAY -->
+    <div id="loginOverlay" class="fixed inset-0 bg-slate-900 z-[99999] flex items-center justify-center p-6">
+        <div class="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-sm text-center" id="loginCard">
+            <div
+                class="w-20 h-20 bg-gradient-to-br from-blue-500 to-blue-700 text-white rounded-2xl flex items-center justify-center mx-auto mb-6 text-4xl shadow-lg">
+                📅
+            </div>
+            <h2 class="text-2xl font-bold text-slate-800 mb-2">Mi Horario</h2>
+            <p class="text-slate-500 mb-8 text-sm">Ingresa tu PIN para ver tu calendario</p>
+
+            <input type="text" id="loginPin"
+                class="secure-text w-full text-center text-4xl tracking-[0.5em] font-mono bg-slate-100 p-4 rounded-2xl border-2 border-slate-200 focus:border-blue-500 focus:ring-0 outline-none transition-colors"
+                placeholder="••••" maxlength="4" inputmode="numeric" autocomplete="off">
+
+            <button onclick="app.handlePinLogin()"
+                class="w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white font-bold py-4 rounded-2xl mt-6 shadow-lg hover:shadow-xl transition-all active:scale-[0.98]">
+                INGRESAR
+            </button>
+
+            <p id="loginError" class="text-red-500 text-sm mt-4 hidden font-medium"></p>
+
+            <a href="index.html" class="block mt-6 text-slate-400 text-xs hover:text-slate-600 underline">
+                Acceso Administrador
+            </a>
+        </div>
+    </div>
+
+    <!-- MAIN APP -->
+    <div id="mainApp" class="hidden min-h-screen flex flex-col">
+
+        <!-- Header -->
+        <header class="sticky top-0 z-50 bg-slate-900/95 backdrop-blur-lg border-b border-slate-800 px-4 py-4">
+            <!-- User Info -->
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-3">
+                    <div id="userAvatar"
+                        class="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-lg shadow-lg">
+                        --
+                    </div>
+                    <div>
+                        <h1 id="userName" class="font-bold text-lg text-white">Cargando...</h1>
+                        <p id="userCategory" class="text-xs text-slate-400">• Categoría</p>
+                    </div>
+                </div>
+                <button onclick="app.logout()"
+                    class="p-3 bg-red-500/20 hover:bg-red-500/30 rounded-xl transition-colors">
+                    <span class="material-icons text-red-400">logout</span>
+                </button>
+            </div>
+
+            <!-- Filter Tabs (Today/Calendar) - Now used as Bodega filter -->
+            <div class="flex gap-2 mb-4">
+                <button onclick="app.setFilter('all')" id="filter-all"
+                    class="flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all bg-white text-slate-900">
+                    Todos
+                </button>
+                <button onclick="app.setFilter('assigned')" id="filter-assigned"
+                    class="flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all bg-slate-800 text-slate-400 hover:bg-slate-700">
+                    Con Asignación
+                </button>
+            </div>
+
+            <!-- Month Selector -->
+            <div class="flex items-center justify-center gap-2">
+                <button onclick="app.changeMonth(-1)" class="p-2 hover:bg-slate-800 rounded-xl transition-colors">
+                    <span class="material-icons text-slate-400">chevron_left</span>
+                </button>
+
+                <div class="flex gap-1 bg-slate-800/50 rounded-2xl p-1">
+                    <button onclick="app.goToMonth(-1)" id="month-prev"
+                        class="month-pill px-4 py-2 rounded-xl text-sm text-slate-400">
+                        NOV
+                    </button>
+                    <button onclick="app.goToMonth(0)" id="month-current"
+                        class="month-pill active px-4 py-2 rounded-xl text-sm">
+                        DIC
+                    </button>
+                    <button onclick="app.goToMonth(1)" id="month-next"
+                        class="month-pill px-4 py-2 rounded-xl text-sm text-slate-400">
+                        ENE
+                    </button>
+                </div>
+
+                <button onclick="app.changeMonth(1)" class="p-2 hover:bg-slate-800 rounded-xl transition-colors">
+                    <span class="material-icons text-slate-400">chevron_right</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Calendar List -->
+        <main id="calendarList" class="flex-1 overflow-y-auto custom-scroll px-4 py-4 space-y-3">
+            <!-- Loading Skeletons -->
+            <div class="skeleton h-24 rounded-2xl"></div>
+            <div class="skeleton h-24 rounded-2xl"></div>
+            <div class="skeleton h-24 rounded-2xl"></div>
+        </main>
+
+        <!-- Footer Stats -->
+        <footer class="bg-slate-900/95 backdrop-blur-lg border-t border-slate-800 px-4 py-4">
+            <div class="flex justify-around text-center">
+                <div>
+                    <div id="statDaysWorked" class="text-2xl font-bold text-blue-400">0</div>
+                    <div class="text-[10px] text-slate-500 uppercase font-semibold">Días Asignados</div>
+                </div>
+                <div>
+                    <div id="statDaysFree" class="text-2xl font-bold text-amber-400">0</div>
+                    <div class="text-[10px] text-slate-500 uppercase font-semibold">Días Libres</div>
+                </div>
+                <div>
+                    <div id="statStores" class="text-2xl font-bold text-purple-400">0</div>
+                    <div class="text-[10px] text-slate-500 uppercase font-semibold">Tiendas</div>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <!-- JAVASCRIPT APP LOGIC -->
+    <script>
+        const app = {
+            state: {
+                currentDate: new Date(),
+                personId: null,
+                person: null,
+                filter: 'all', // 'all' or 'assigned'
+                data: {
+                    tiendas: [],
+                    personal: [],
+                    categorias: [],
+                    horarios: []
+                }
+            },
+
+            // Day names in Spanish
+            dayNames: ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'],
+            dayNamesShort: ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'],
+            monthNames: ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'],
+            monthNamesShort: ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'],
+
+            // Palette of pastel colors for day cards
+            cardColors: [
+                { bg: 'bg-purple-100', text: 'text-purple-900', accent: '#a855f7' },
+                { bg: 'bg-rose-100', text: 'text-rose-900', accent: '#f43f5e' },
+                { bg: 'bg-teal-100', text: 'text-teal-900', accent: '#14b8a6' },
+                { bg: 'bg-amber-100', text: 'text-amber-900', accent: '#f59e0b' },
+                { bg: 'bg-blue-100', text: 'text-blue-900', accent: '#3b82f6' },
+                { bg: 'bg-emerald-100', text: 'text-emerald-900', accent: '#10b981' },
+                { bg: 'bg-pink-100', text: 'text-pink-900', accent: '#ec4899' },
+                { bg: 'bg-cyan-100', text: 'text-cyan-900', accent: '#06b6d4' },
+            ],
+
+            init: async () => {
+                // Check if already logged in
+                const isLoggedIn = sessionStorage.getItem('staffPlannerAuth');
+                const staffId = sessionStorage.getItem('staffPlannerStaffId');
+                const roleId = parseInt(sessionStorage.getItem('staffPlannerRoleId') || '0');
+
+                if (isLoggedIn === 'true' && staffId && roleId === 4) {
+                    app.state.personId = parseInt(staffId);
+                    document.getElementById('loginOverlay').classList.add('hidden');
+                    document.getElementById('mainApp').classList.remove('hidden');
+                    await app.loadData();
+                } else {
+                    // Clear and show login
+                    sessionStorage.clear();
+                    document.getElementById('loginPin').focus();
+                }
+            },
+
+            handlePinLogin: async () => {
+                const pin = document.getElementById('loginPin').value.trim();
+                const errorMsg = document.getElementById('loginError');
+                errorMsg.classList.add('hidden');
+
+                if (!pin || pin.length !== 4) {
+                    errorMsg.textContent = 'Ingresa un PIN de 4 dígitos';
+                    errorMsg.classList.remove('hidden');
+                    return;
+                }
+
+                try {
+                    // Search in Impulsadoras
+                    let { data: impulsadora } = await db
+                        .from('Tiendas_Impulsadoras')
+                        .select('*')
+                        .eq('pin', pin)
+                        .eq('Habilitado', true)
+                        .single();
+
+                    if (!impulsadora) throw new Error('PIN no encontrado');
+
+                    // Store session
+                    sessionStorage.setItem('staffPlannerAuth', 'true');
+                    sessionStorage.setItem('staffPlannerRole', 'staff');
+                    sessionStorage.setItem('staffPlannerStaffId', impulsadora.id);
+                    sessionStorage.setItem('staffPlannerIsAdmin', 'false');
+                    sessionStorage.setItem('staffPlannerRoleId', '4');
+                    sessionStorage.setItem('staffPlannerRoleName', 'Impulsadora');
+                    sessionStorage.setItem('staffPlannerUser', JSON.stringify({ email: impulsadora.nombre_completo }));
+
+                    app.state.personId = impulsadora.id;
+
+                    // Animate transition
+                    const overlay = document.getElementById('loginOverlay');
+                    overlay.style.opacity = '0';
+                    overlay.style.transition = 'opacity 0.4s ease';
+
+                    setTimeout(async () => {
+                        overlay.classList.add('hidden');
+                        document.getElementById('mainApp').classList.remove('hidden');
+                        await app.loadData();
+                    }, 400);
+
+                } catch (err) {
+                    console.error('PIN Login error:', err);
+                    errorMsg.textContent = 'PIN Inválido o Usuario Deshabilitado';
+                    errorMsg.classList.remove('hidden');
+
+                    const card = document.getElementById('loginCard');
+                    card.style.animation = 'shake 0.5s ease';
+                    setTimeout(() => card.style.animation = '', 500);
+                }
+            },
+
+            logout: () => {
+                sessionStorage.clear();
+                location.reload();
+            },
+
+            loadData: async () => {
+                const [tiendasRes, personalRes, categoriasRes] = await Promise.all([
+                    db.from('Tiendas_Razonamiento').select('*'),
+                    db.from('Tiendas_Impulsadoras').select('*'),
+                    db.from('Tiendas_Categorias').select('*')
+                ]);
+
+                app.state.data.tiendas = tiendasRes.data || [];
+                app.state.data.personal = personalRes.data || [];
+                app.state.data.categorias = categoriasRes.data || [];
+
+                // Get current person
+                app.state.person = app.state.data.personal.find(p => p.id === app.state.personId);
+
+                await app.fetchAssignments();
+                app.renderHeader();
+                app.renderCalendar();
+                app.updateMonthSelector();
+            },
+
+            fetchAssignments: async () => {
+                const year = app.state.currentDate.getFullYear();
+                const month = app.state.currentDate.getMonth();
+                const firstDay = new Date(year, month, 1).toISOString().split('T')[0];
+                const lastDay = new Date(year, month + 1, 0).toISOString().split('T')[0];
+
+                const { data, error } = await db
+                    .from('Tiendas_Horario')
+                    .select('*')
+                    .eq('impulsadora_id', app.state.personId)
+                    .gte('fecha', firstDay)
+                    .lte('fecha', lastDay);
+
+                if (error) console.error('Error fetching schedule', error);
+                app.state.data.horarios = data || [];
+            },
+
+            renderHeader: () => {
+                const person = app.state.person;
+                if (!person) return;
+
+                const category = app.state.data.categorias.find(c => c.id === person.idCategoria);
+                const initials = person.nombre_completo.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+
+                document.getElementById('userAvatar').textContent = initials;
+                document.getElementById('userName').textContent = person.nombre_completo;
+                document.getElementById('userCategory').textContent = `• ${category?.descripcion || 'Sin categoría'} | ${person.Marca || ''}`;
+            },
+
+            renderCalendar: () => {
+                const year = app.state.currentDate.getFullYear();
+                const month = app.state.currentDate.getMonth();
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                const today = new Date();
+                const todayStr = today.toISOString().split('T')[0];
+
+                let html = '';
+                let daysWorked = 0;
+                let daysFree = 0;
+                const storesVisited = new Set();
+
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                    const dateObj = new Date(year, month, d);
+                    const dayOfWeek = dateObj.getDay();
+                    const dayName = app.dayNames[dayOfWeek];
+                    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                    const isToday = dateStr === todayStr;
+                    const assignment = app.state.data.horarios.find(a => a.fecha === dateStr);
+
+                    // Filter logic
+                    if (app.state.filter === 'assigned' && !assignment) continue;
+
+                    if (assignment) {
+                        daysWorked++;
+                        const store = app.state.data.tiendas.find(t => t.id === assignment.tienda_id);
+                        if (store) storesVisited.add(store.id);
+
+                        // Pick a color based on day
+                        const colorIndex = d % app.cardColors.length;
+                        const colors = app.cardColors[colorIndex];
+                        const storeColor = store?.color_hex || colors.accent;
+
+                        html += `
+                        <div class="day-card ${colors.bg} rounded-2xl p-4 ${isToday ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-slate-900' : ''}">
+                            <div class="flex">
+                                <!-- Date Section -->
+                                <div class="w-24 flex flex-col justify-center ${isToday ? 'today-indicator' : ''}">
+                                    <div class="text-xs font-semibold ${colors.text} opacity-70 uppercase">${dayName}</div>
+                                    <div class="text-5xl font-extrabold ${colors.text} leading-none">${d}</div>
+                                    <div class="text-lg font-bold ${colors.text} opacity-60 uppercase">${app.monthNamesShort[month]}</div>
+                                </div>
+                                
+                                <!-- Store Info -->
+                                <div class="flex-1 pl-4 border-l border-black/10 flex flex-col justify-center">
+                                    ${store ? `
+                                        <div class="flex items-center gap-2 mb-1">
+                                            <span class="store-badge w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold" 
+                                                  style="background-color: ${storeColor}">
+                                                ${store.alias_tienda || store.nombre_display.substring(0, 2)}
+                                            </span>
+                                            <span class="text-xs font-semibold ${colors.text} opacity-60">ASIGNACIÓN</span>
+                                        </div>
+                                        <div class="font-bold ${colors.text} text-lg leading-tight">${store.nombre_display}</div>
+                                    ` : `
+                                        <div class="text-slate-400 italic">Sin información</div>
+                                    `}
+                                </div>
+                            </div>
+                        </div>`;
+                    } else {
+                        daysFree++;
+                        // Free day - more subtle card
+                        html += `
+                        <div class="day-card bg-slate-800/50 rounded-2xl p-4 border border-slate-700/50 ${isToday ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-slate-900' : ''}">
+                            <div class="flex">
+                                <!-- Date Section -->
+                                <div class="w-24 flex flex-col justify-center ${isToday ? 'today-indicator' : ''}">
+                                    <div class="text-xs font-semibold text-slate-500 uppercase">${dayName}</div>
+                                    <div class="text-5xl font-extrabold text-slate-600 leading-none">${d}</div>
+                                    <div class="text-lg font-bold text-slate-600 uppercase">${app.monthNamesShort[month]}</div>
+                                </div>
+                                
+                                <!-- Free Day -->
+                                <div class="flex-1 pl-4 border-l border-slate-700 flex items-center">
+                                    <div class="flex items-center gap-2 text-slate-500">
+                                        <span class="material-icons text-amber-500/70">wb_sunny</span>
+                                        <span class="font-medium ${isWeekend ? 'text-amber-500/70' : ''}">Día Libre</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>`;
+                    }
+                }
+
+                document.getElementById('calendarList').innerHTML = html || '<div class="text-center text-slate-500 py-10">No hay días para mostrar</div>';
+
+                // Update stats
+                document.getElementById('statDaysWorked').textContent = daysWorked;
+                document.getElementById('statDaysFree').textContent = daysFree;
+                document.getElementById('statStores').textContent = storesVisited.size;
+            },
+
+            updateMonthSelector: () => {
+                const month = app.state.currentDate.getMonth();
+                const prevMonth = month === 0 ? 11 : month - 1;
+                const nextMonth = month === 11 ? 0 : month + 1;
+
+                document.getElementById('month-prev').textContent = app.monthNamesShort[prevMonth];
+                document.getElementById('month-current').textContent = app.monthNamesShort[month];
+                document.getElementById('month-next').textContent = app.monthNamesShort[nextMonth];
+            },
+
+            changeMonth: async (delta) => {
+                app.state.currentDate.setMonth(app.state.currentDate.getMonth() + delta);
+                await app.fetchAssignments();
+                app.renderCalendar();
+                app.updateMonthSelector();
+            },
+
+            goToMonth: async (delta) => {
+                await app.changeMonth(delta);
+            },
+
+            setFilter: (filter) => {
+                app.state.filter = filter;
+
+                // Update button styles
+                const allBtn = document.getElementById('filter-all');
+                const assignedBtn = document.getElementById('filter-assigned');
+
+                if (filter === 'all') {
+                    allBtn.className = 'flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all bg-white text-slate-900';
+                    assignedBtn.className = 'flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all bg-slate-800 text-slate-400 hover:bg-slate-700';
+                } else {
+                    allBtn.className = 'flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all bg-slate-800 text-slate-400 hover:bg-slate-700';
+                    assignedBtn.className = 'flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all bg-white text-slate-900';
+                }
+
+                app.renderCalendar();
+            }
+        };
+
+        // Initialize on load
+        document.addEventListener('DOMContentLoaded', () => app.init());
+
+        // Auto-submit PIN on 4 digits
+        document.addEventListener('DOMContentLoaded', () => {
+            const pinInput = document.getElementById('loginPin');
+            pinInput.addEventListener('input', (e) => {
+                // Only allow numbers
+                e.target.value = e.target.value.replace(/[^0-9]/g, '');
+
+                if (e.target.value.length === 4) {
+                    app.handlePinLogin();
+                }
+            });
+        });
+    </script>
+
+</body>
+
+</html>

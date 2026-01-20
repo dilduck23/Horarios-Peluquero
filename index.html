@@ -849,7 +849,14 @@
                             // Redirect to personal.html for internal staff
                             window.location.href = 'personal.html';
                         } else {
-                            location.reload();
+                            // Check if mobile device for impulsadoras
+                            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
+                            if (isMobile) {
+                                // Redirect to mobile-optimized calendar
+                                window.location.href = 'mi-horario.html';
+                            } else {
+                                location.reload();
+                            }
                         }
                     }, 500);
 
