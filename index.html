@@ -1,0 +1,3297 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StaffPlanner</title>
+
+    <!-- Tailwind & Icons -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <!-- PDF Export Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+        }
+
+        /* Sidebar Scroll */
+        .sidebar-scroll::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .sidebar-scroll::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 2px;
+        }
+
+        /* Table Sticky Cols */
+        .sticky-col-1 {
+            position: sticky;
+            left: 0;
+            z-index: 20;
+        }
+
+        .sticky-col-2 {
+            position: sticky;
+            left: 100px;
+            z-index: 20;
+        }
+
+        th.sticky-col-1,
+        th.sticky-col-2 {
+            z-index: 30;
+        }
+
+        /* Custom Scrollbar for Table */
+        .custom-scroll::-webkit-scrollbar {
+            height: 8px;
+            width: 8px;
+        }
+
+        .custom-scroll::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+
+        .custom-scroll::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* Cell Interactions */
+        .cell-hover:hover {
+            transform: scale(1.1);
+            z-index: 10;
+            cursor: pointer;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .empty-cell:hover {
+            background-color: #dbeafe;
+            cursor: pointer;
+        }
+
+        .transition-all-fast {
+            transition: all 0.15s ease-in-out;
+        }
+
+        /* Sidebar Filter Items */
+        .filter-item {
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+        }
+
+        .filter-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .filter-item.active {
+            border-color: #3b82f6;
+            background: rgba(59, 130, 246, 0.2);
+        }
+
+        /* Fix SweetAlert z-index so sidebar doesn't move */
+        .swal2-container {
+            z-index: 9999 !important;
+        }
+
+        aside {
+            position: relative;
+            z-index: 10;
+        }
+
+        /* RBAC Styles */
+        .admin-only {
+            /* Marker class */
+        }
+
+        body.guest-mode .admin-only {
+            display: none !important;
+        }
+
+        body.guest-mode .admin-card-lock {
+            cursor: default !important;
+            opacity: 0.8;
+        }
+
+        body.guest-mode .admin-card-lock {
+            cursor: default !important;
+            opacity: 0.8;
+        }
+
+        /* Disable clicks on calendar cells for guests */
+        body.guest-mode [onclick*="handleCellClick"] {
+            cursor: default !important;
+        }
+
+        body.guest-mode .cell-hover:hover {
+            transform: none !important;
+            box-shadow: none !important;
+        }
+
+        /* Staff View Only Mode */
+        body.staff-view-only aside {
+            display: none !important;
+        }
+
+        body.staff-view-only #dashboardMetrics {
+            display: none !important;
+        }
+
+        body.staff-view-only .back-button {
+            display: none !important;
+        }
+
+        /* generic class for back buttons if needed */
+        body.staff-view-only main {
+            width: 100vw !important;
+            padding: 20px !important;
+        }
+
+        body.staff-view-only .admin-only {
+            display: none !important;
+        }
+
+        /* Organizador Mode - Can't edit tiendas/categorias */
+        body.organizador-mode .admin-only-stores,
+        body.organizador-mode .admin-only-categories {
+            display: none !important;
+        }
+
+        /* Punto de Venta Mode - View only + report faltas */
+        body.pdv-mode .admin-only,
+        body.pdv-mode .organizador-only {
+            display: none !important;
+        }
+
+        /* PIN Login Mode - Only date navigation visible */
+        body.pin-mode .pin-hidden {
+            display: none !important;
+        }
+
+        body.pdv-mode .admin-card-lock {
+            cursor: default !important;
+            opacity: 0.8;
+        }
+
+        /* PdV mode: Allow cell clicks but JS handles permissions */
+
+        /* PIN Logout Button - Only visible for PIN users */
+        .pin-logout-btn {
+            display: none !important;
+        }
+
+        body.staff-view-only .pin-logout-btn {
+            display: flex !important;
+        }
+    </style>
+</head>
+
+<body class="text-slate-800 h-screen flex overflow-hidden">
+
+    <!-- SUPABASE CLIENT -->
+    <script>
+        const SUPABASE_URL = 'https://cectqtufttubsepyiolr.supabase.co';
+        // ⚠️ PEGA TU PUBLISHABLE KEY COMPLETA AQUÍ (la que empieza con sb_pub...)
+        const SUPABASE_KEY = 'sb_publishable_Ow2zQpNDPsLA6on9VBWFgg_Q0_LAc1D'; // ← REEMPLAZA CON TU KEY COMPLETA
+
+        // Usamos 'db' para evitar conflicto con window.supabase
+        const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    </script>
+
+    <!-- LOGIN OVERLAY -->
+    <div id="loginOverlay"
+        class="fixed inset-0 bg-slate-900 z-[99999] flex items-center justify-center transition-opacity duration-500">
+        <div class="bg-white p-8 rounded-2xl shadow-2xl w-96 text-center transform transition-all duration-500 scale-100"
+            id="loginCard">
+            <div
+                class="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-6 text-3xl">
+                🔒
+            </div>
+            <h2 class="text-2xl font-bold text-slate-800 mb-2">StaffPlanner</h2>
+            <p class="text-slate-500 mb-6 text-sm">Ingresa tus credenciales para acceder</p>
+
+            <!-- EMAIL LOGIN FORM -->
+            <div id="loginFormEmail">
+                <form onsubmit="event.preventDefault(); app.handleLogin()">
+                    <div class="space-y-4 text-left">
+                        <div>
+                            <label class="text-xs font-bold text-slate-500 uppercase">Usuario</label>
+                            <input type="text" id="loginUser"
+                                class="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-2 mt-1 focus:ring-2 focus:ring-blue-500 outline-none"
+                                placeholder="admin">
+                        </div>
+                        <div>
+                            <label class="text-xs font-bold text-slate-500 uppercase">Contraseña</label>
+                            <input type="password" id="loginPass"
+                                class="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-2 mt-1 focus:ring-2 focus:ring-blue-500 outline-none"
+                                placeholder="••••••••">
+                        </div>
+                    </div>
+
+                    <button type="submit"
+                        class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg mt-8 transition shadow-lg">
+                        Entrar
+                    </button>
+
+                    <div class="mt-4 border-t pt-4">
+                        <button type="button" onclick="app.toggleLoginMode('pin')"
+                            class="w-full bg-black text-white py-2 rounded-lg text-sm font-bold shadow-lg hover:bg-gray-800 transition flex items-center justify-center gap-2">
+                            <span>🔢</span> Entrar con PIN
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- PIN LOGIN FORM (Hidden) -->
+            <div id="loginFormPin" class="hidden">
+                <h3 class="text-lg font-bold mb-4 text-slate-700">Ingreso Staff</h3>
+                <p class="text-xs text-slate-400 mb-4">Ingresa tu ID de Vendedor</p>
+
+                <input type="password" id="loginPin"
+                    class="w-full text-center text-3xl tracking-[1em] font-mono bg-gray-50 p-4 rounded-xl border-2 border-gray-200 focus:border-black focus:ring-0 outline-none transition-colors"
+                    placeholder="••••" maxlength="6" inputmode="numeric">
+
+                <button onclick="app.handlePinLogin()"
+                    class="w-full bg-blue-600 text-white font-bold py-3 rounded-lg mt-6 shadow-lg hover:bg-blue-700 transition">
+                    VALIDAR PIN
+                </button>
+
+                <button onclick="app.toggleLoginMode('email')"
+                    class="w-full text-slate-400 text-xs mt-6 hover:text-slate-600 underline">
+                    Volver a Login Email
+                </button>
+            </div>
+
+            <p id="loginError" class="text-red-500 text-xs mt-4 hidden font-bold"></p>
+        </div>
+    </div>
+
+    <!-- SIDEBAR -->
+    <aside class="w-64 bg-slate-900 text-white flex-shrink-0 flex flex-col h-full shadow-2xl z-20">
+        <!-- Logo -->
+        <div class="h-16 flex items-center gap-3 px-6 border-b border-slate-800">
+            <span class="material-icons text-blue-500 text-3xl">calendar_month</span>
+            <span class="font-bold text-lg tracking-wide">ControlPeluquero</span>
+        </div>
+
+        <!-- Scrollable Content -->
+        <div class="flex-1 overflow-y-auto sidebar-scroll px-4 py-6 space-y-8">
+
+            <!-- Zonas Stats -->
+            <div>
+                <h3 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">ZONAS</h3>
+                <div class="space-y-2" id="zonaStats">
+                    <!-- Injected by JS -->
+                    <div class="animate-pulse h-8 bg-slate-800 rounded"></div>
+                    <div class="animate-pulse h-8 bg-slate-800 rounded"></div>
+                </div>
+            </div>
+
+            <!-- Filters -->
+            <div>
+                <h3 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">FILTROS</h3>
+
+                <!-- Search Input -->
+                <div class="relative mb-4">
+                    <span class="material-icons absolute left-3 top-2.5 text-slate-400 text-sm">search</span>
+                    <input type="text" id="searchInput" placeholder="Buscar personal o marca..."
+                        class="w-full bg-slate-800 text-sm text-slate-200 rounded-lg pl-9 pr-3 py-2 border border-slate-700 focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-slate-500 transition-all"
+                        oninput="app.handleSearch(this.value)">
+                </div>
+
+                <label class="flex items-center gap-3 cursor-pointer group">
+                    <div class="relative">
+                        <input type="checkbox" id="filterToggle" class="sr-only peer" checked
+                            onchange="app.renderCalendar()">
+                        <div class="w-10 h-6 bg-slate-700 rounded-full peer peer-checked:bg-blue-600 transition-colors">
+                        </div>
+                        <div
+                            class="absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform peer-checked:translate-x-4">
+                        </div>
+                    </div>
+                    <span class="text-sm text-slate-300 group-hover:text-white transition">Solo con asignaciones</span>
+                </label>
+            </div>
+
+            <!-- Locations Legend -->
+            <div>
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-xs font-bold text-slate-500 uppercase tracking-wider">UBICACIONES</h3>
+                    <button onclick="app.toggleAllStores()"
+                        class="text-[10px] text-blue-400 hover:text-blue-300 font-medium"
+                        id="toggleAllBtn">Todas</button>
+                </div>
+                <div class="space-y-2" id="locationLegend">
+                    <!-- Injected by JS -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Profile -->
+        <div class="p-4 border-t border-slate-800 bg-slate-900">
+            <div class="flex items-center gap-3 mb-3">
+                <div class="w-9 h-9 rounded-full bg-slate-700 flex items-center justify-center text-xs"
+                    id="userInitials">--</div>
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-semibold truncate" id="userName">Cargando...</div>
+                    <div class="text-xs text-slate-500" id="userRole">-</div>
+                </div>
+            </div>
+            <button onclick="app.logout()"
+                class="w-full bg-red-600 hover:bg-red-700 text-white text-xs font-bold py-2 px-3 rounded-lg transition-colors flex items-center justify-center gap-2">
+                <span class="material-icons text-sm">logout</span>
+                <span>Cerrar Sesión</span>
+            </button>
+        </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="flex-1 flex flex-col h-full min-w-0 bg-white">
+
+        <!-- Header -->
+        <header class="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shadow-sm z-10">
+            <h1 class="text-xl font-bold text-slate-800" id="monthTitle">Enero 2026</h1>
+
+            <div class="flex items-center gap-4">
+                <div class="flex bg-slate-100 rounded-lg p-1">
+                    <button onclick="app.changeMonth(-1)"
+                        class="p-1.5 hover:bg-white rounded shadow-sm transition"><span
+                            class="material-icons text-slate-600 text-sm">chevron_left</span></button>
+                    <span class="px-4 text-sm font-semibold text-slate-700 flex items-center"
+                        id="dateRangeDisplay">...</span>
+                    <button onclick="app.changeMonth(1)" class="p-1.5 hover:bg-white rounded shadow-sm transition"><span
+                            class="material-icons text-slate-600 text-sm">chevron_right</span></button>
+                </div>
+
+                <a href="calendario-tienda.html"
+                    class="flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm pin-hidden">
+                    <span class="material-icons text-base">storefront</span>
+                    <span>Por Tienda</span>
+                </a>
+
+                <a href="personal.html"
+                    class="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm pin-hidden">
+                    <span class="material-icons text-base">groups</span>
+                    <span>Personal Interno</span>
+                </a>
+
+                <a href="reportes.html"
+                    class="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm pin-hidden">
+                    <span class="material-icons text-base">report_problem</span>
+                    <span>Ver Incidencias</span>
+                </a>
+
+                <button onclick="app.exportToPdf()"
+                    class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm pin-hidden">
+                    <span class="material-icons text-base">picture_as_pdf</span>
+                    <span>Exportar PDF</span>
+                </button>
+
+                <!-- View Toggle -->
+                <div class="flex bg-slate-200 p-1 rounded-lg ml-2 pin-hidden">
+                    <button onclick="app.toggleView('detail')" id="btn-view-detail"
+                        class="px-3 py-1.5 rounded-md text-xs font-bold transition-all shadow-sm bg-white text-slate-700">
+                        DETALLE
+                    </button>
+                    <button onclick="app.toggleView('summary')" id="btn-view-summary"
+                        class="px-3 py-1.5 rounded-md text-xs font-bold transition-all text-slate-500 hover:text-slate-700">
+                        RESUMEN
+                    </button>
+                </div>
+                <button onclick="location.reload()" class="p-2 text-slate-400 hover:text-blue-600 transition"
+                    title="Recargar"><span class="material-icons">sync</span></button>
+            </div>
+        </header>
+
+        <!-- Metrics -->
+        <div id="dashboardMetrics" class="grid grid-cols-4 gap-6 p-8 bg-slate-50">
+            <div onclick="app.showStaffList()"
+                class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4 cursor-pointer hover:shadow-md hover:border-blue-300 transition-all admin-card-lock">
+                <div class="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-2xl">👥</div>
+                <div>
+                    <div class="text-xs font-bold text-slate-400 uppercase">Staff Activo</div>
+                    <div class="text-2xl font-bold text-slate-800" id="statStaff">0</div>
+                </div>
+            </div>
+            <div onclick="app.showStoresList()"
+                class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4 cursor-pointer hover:shadow-md hover:border-green-300 transition-all admin-card-lock">
+                <div class="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center text-2xl">🏪</div>
+                <div>
+                    <div class="text-xs font-bold text-slate-400 uppercase">Tiendas</div>
+                    <div class="text-2xl font-bold text-slate-800" id="statStores">0</div>
+                </div>
+            </div>
+            <div onclick="app.showCategoriesList()"
+                class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4 cursor-pointer hover:shadow-md hover:border-orange-300 transition-all admin-card-lock">
+                <div class="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center text-2xl">🏷️</div>
+                <div>
+                    <div class="text-xs font-bold text-slate-400 uppercase">Categorías</div>
+                    <div class="text-2xl font-bold text-slate-800" id="statCategories">0</div>
+                </div>
+            </div>
+            <div onclick="app.showUserGuide()"
+                class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4 cursor-pointer hover:shadow-md hover:border-purple-300 transition-all">
+                <div class="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center text-2xl">📚</div>
+                <div>
+                    <div class="text-xs font-bold text-slate-400 uppercase">Guía de Uso</div>
+                    <div class="text-sm font-medium text-slate-600">Click para ver ayuda</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Calendar Matrix -->
+        <div id="mainCalendarView" class="flex-1 flex flex-col px-8 pb-8 bg-slate-50 min-h-0">
+            <div class="bg-white rounded-xl shadow border border-slate-200 flex-1 overflow-auto custom-scroll">
+                <table class="w-full border-collapse">
+                    <thead class="bg-slate-100 text-xs uppercase text-slate-500 font-bold sticky top-0 z-40 shadow-md">
+                        <tr id="calendarHeader">
+                            <!-- Injected by JS -->
+                        </tr>
+                    </thead>
+                    <tbody class="text-sm divide-y divide-slate-100" id="calendarBody">
+                        <!-- Injected by JS -->
+                        <tr>
+                            <td colspan="100" class="p-10 text-center text-slate-400">Cargando datos...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- PERSON CALENDAR VIEW (Hidden by default) -->
+        <div id="personCalendarView" class="hidden flex-1 flex flex-col px-8 pb-8 bg-slate-50 min-h-0">
+            <!-- Person Header -->
+            <div class="bg-white rounded-xl shadow border border-slate-200 p-6 mb-4">
+                <div class="flex flex-wrap items-center justify-between gap-4">
+                    <div class="flex items-center gap-4">
+                        <button onclick="app.closePersonCalendar()"
+                            class="p-2 hover:bg-slate-100 rounded-lg transition-colors back-button" title="Volver">
+                            <span class="material-icons text-slate-500">arrow_back</span>
+                        </button>
+                        <div id="personAvatar"
+                            class="w-14 h-14 rounded-full flex items-center justify-center text-white text-xl font-bold shadow-lg">
+                            <!-- Injected -->
+                        </div>
+                        <div>
+                            <h2 id="personName" class="text-xl font-bold text-slate-800">Nombre</h2>
+                            <p id="personCategory" class="text-sm text-slate-500">• Categoría</p>
+                        </div>
+                        <div id="personPinBadge"
+                            class="ml-4 px-3 py-1 rounded-lg bg-slate-800 text-white text-sm font-mono font-bold hidden">
+                            🔐 PIN: <span id="personPin">----</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button onclick="app.openEditPersonModal()"
+                            class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm admin-only">
+                            <span class="material-icons text-base">edit</span>
+                            <span class="hidden sm:inline">Editar Perfil</span>
+                        </button>
+                        <button onclick="app.exportPersonPdf()"
+                            class="flex items-center gap-2 bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm">
+                            <span class="material-icons text-base">picture_as_pdf</span>
+                            <span class="hidden sm:inline">Exportar</span>
+                        </button>
+                        <button onclick="app.logout()"
+                            class="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm pin-logout-btn">
+                            <span class="material-icons text-base">logout</span>
+                            <span class="hidden sm:inline">Salir</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Month Navigation for Person View -->
+            <div class="flex items-center justify-center gap-4 mb-4">
+                <button onclick="app.changeMonth(-1)" class="p-2 hover:bg-slate-200 rounded-full transition-colors">
+                    <span class="material-icons text-slate-600">chevron_left</span>
+                </button>
+                <span id="personMonthDisplay" class="text-lg font-bold text-slate-700 uppercase"></span>
+                <button onclick="app.changeMonth(1)" class="p-2 hover:bg-slate-200 rounded-full transition-colors">
+                    <span class="material-icons text-slate-600">chevron_right</span>
+                </button>
+            </div>
+
+            <!-- Desktop Calendar Grid -->
+            <div id="personCalendarGrid"
+                class="hidden md:block bg-white rounded-xl shadow border border-slate-200 overflow-auto flex-1">
+                <!-- Injected by JS -->
+            </div>
+
+            <!-- Mobile List View -->
+            <div id="personCalendarList"
+                class="md:hidden bg-white rounded-xl shadow border border-slate-200 overflow-auto flex-1">
+                <!-- Injected by JS -->
+            </div>
+        </div>
+
+        <!-- STAFF LIST VIEW (Hidden by default) -->
+        <div id="staffListView" class="hidden flex-1 flex flex-col px-8 pb-8 bg-slate-50 min-h-0">
+            <!-- Header -->
+            <div class="bg-white rounded-xl shadow border border-slate-200 p-4 mb-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-4">
+                        <button onclick="app.closeStaffList()"
+                            class="p-2 hover:bg-slate-100 rounded-lg transition-colors" title="Volver">
+                            <span class="material-icons text-slate-500">arrow_back</span>
+                        </button>
+                        <h2 class="text-xl font-bold text-slate-800">👥 Listado de Staff</h2>
+                    </div>
+                    <button onclick="app.openAddStaffModal()"
+                        class="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm admin-only">
+                        <span class="material-icons text-base">person_add</span>
+                        <span>Agregar Nuevo</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Staff Table -->
+            <div class="bg-white rounded-xl shadow border border-slate-200 overflow-auto flex-1">
+                <table class="w-full">
+                    <thead class="bg-slate-100 sticky top-0">
+                        <tr>
+                            <th onclick="app.sortStaffList('idVendedor')"
+                                class="p-3 text-left text-xs font-bold text-slate-500 uppercase cursor-pointer hover:bg-slate-200 transition-colors">
+                                <span class="flex items-center gap-1">Código <span id="sort-icon-idVendedor"
+                                        class="material-icons text-xs"></span></span>
+                            </th>
+                            <th onclick="app.sortStaffList('nombre_completo')"
+                                class="p-3 text-left text-xs font-bold text-slate-500 uppercase cursor-pointer hover:bg-slate-200 transition-colors">
+                                <span class="flex items-center gap-1">Nombre <span id="sort-icon-nombre_completo"
+                                        class="material-icons text-xs"></span></span>
+                            </th>
+                            <th onclick="app.sortStaffList('Marca')"
+                                class="p-3 text-left text-xs font-bold text-slate-500 uppercase cursor-pointer hover:bg-slate-200 transition-colors">
+                                <span class="flex items-center gap-1">Marca <span id="sort-icon-Marca"
+                                        class="material-icons text-xs"></span></span>
+                            </th>
+                            <th class="p-3 text-left text-xs font-bold text-slate-500 uppercase">Categoría</th>
+                            <th class="p-3 text-center text-xs font-bold text-slate-500 uppercase">🔐 PIN</th>
+                            <th class="p-3 text-center text-xs font-bold text-slate-500 uppercase">Fechas</th>
+                            <th onclick="app.sortStaffList('Habilitado')"
+                                class="p-3 text-left text-xs font-bold text-slate-500 uppercase cursor-pointer hover:bg-slate-200 transition-colors">
+                                <span class="flex items-center gap-1">Estado <span id="sort-icon-Habilitado"
+                                        class="material-icons text-xs"></span></span>
+                            </th>
+                            <th class="p-3 text-center text-xs font-bold text-slate-500 uppercase">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="staffListBody" class="divide-y divide-slate-100">
+                        <!-- Injected by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- STORES LIST VIEW (Hidden by default) -->
+        <div id="storesListView" class="hidden flex-1 flex flex-col px-8 pb-8 bg-slate-50 min-h-0">
+            <!-- Header -->
+            <div class="bg-white rounded-xl shadow border border-slate-200 p-4 mb-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-4">
+                        <button onclick="app.closeStoresList()"
+                            class="p-2 hover:bg-slate-100 rounded-lg transition-colors" title="Volver">
+                            <span class="material-icons text-slate-500">arrow_back</span>
+                        </button>
+                        <h2 class="text-xl font-bold text-slate-800">🏪 Listado de Tiendas</h2>
+                    </div>
+                    <button onclick="app.openAddStoreModal()"
+                        class="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm admin-only admin-only-stores">
+                        <span class="material-icons text-base">add_business</span>
+                        <span>Agregar Nueva</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Stores Table -->
+            <div class="bg-white rounded-xl shadow border border-slate-200 overflow-auto flex-1">
+                <table class="w-full">
+                    <thead class="bg-slate-100 sticky top-0">
+                        <tr>
+                            <th onclick="app.sortStoresList('nombre_display')"
+                                class="p-3 text-left text-xs font-bold text-slate-500 uppercase cursor-pointer hover:bg-slate-200">
+                                <span class="flex items-center gap-1">Nombre <span id="sort-icon-store-nombre_display"
+                                        class="material-icons text-xs"></span></span>
+                            </th>
+                            <th onclick="app.sortStoresList('alias_tienda')"
+                                class="p-3 text-left text-xs font-bold text-slate-500 uppercase cursor-pointer hover:bg-slate-200">
+                                <span class="flex items-center gap-1">Alias <span id="sort-icon-store-alias_tienda"
+                                        class="material-icons text-xs"></span></span>
+                            </th>
+                            <th class="p-3 text-center text-xs font-bold text-slate-500 uppercase">Zona A</th>
+                            <th class="p-3 text-center text-xs font-bold text-slate-500 uppercase">Zona B</th>
+                            <th class="p-3 text-center text-xs font-bold text-slate-500 uppercase">Total</th>
+                            <th class="p-3 text-center text-xs font-bold text-slate-500 uppercase">Impulso</th>
+                            <th onclick="app.sortStoresList('activo')"
+                                class="p-3 text-left text-xs font-bold text-slate-500 uppercase cursor-pointer hover:bg-slate-200">
+                                <span class="flex items-center gap-1">Estado <span id="sort-icon-store-activo"
+                                        class="material-icons text-xs"></span></span>
+                            </th>
+                            <th class="p-3 text-center text-xs font-bold text-slate-500 uppercase">Color</th>
+                            <th class="p-3 text-center text-xs font-bold text-slate-500 uppercase">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="storesListBody" class="divide-y divide-slate-100">
+                        <!-- Injected by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <!-- CATEGORIES LIST VIEW (Hidden by default) -->
+        <div id="categoriesListView" class="hidden flex-1 flex flex-col px-8 pb-8 bg-slate-50 min-h-0">
+            <!-- Header -->
+            <div class="bg-white rounded-xl shadow border border-slate-200 p-4 mb-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-4">
+                        <button onclick="app.closeCategoriesList()"
+                            class="p-2 hover:bg-slate-100 rounded-lg transition-colors" title="Volver">
+                            <span class="material-icons text-slate-500">arrow_back</span>
+                        </button>
+                        <h2 class="text-xl font-bold text-slate-800">🏷️ Listado de Categorías</h2>
+                    </div>
+                    <button onclick="app.openAddCategoryModal()"
+                        class="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm admin-only admin-only-categories">
+                        <span class="material-icons text-base">add_circle</span>
+                        <span>Agregar Nueva</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Categories Table -->
+            <div class="bg-white rounded-xl shadow border border-slate-200 overflow-auto flex-1">
+                <table class="w-full">
+                    <thead class="bg-slate-100 sticky top-0">
+                        <tr>
+                            <th class="p-3 text-left text-xs font-bold text-slate-500 uppercase">ID</th>
+                            <th class="p-3 text-left text-xs font-bold text-slate-500 uppercase">Nombre</th>
+                            <th class="p-3 text-center text-xs font-bold text-slate-500 uppercase">Zona Vinculada</th>
+                            <th class="p-3 text-center text-xs font-bold text-slate-500 uppercase">Registros (Mes)</th>
+                            <th class="p-3 text-center text-xs font-bold text-slate-500 uppercase">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="categoriesListBody" class="divide-y divide-slate-100">
+                        <!-- Injected by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <!-- JAVASCRIPT APP LOGIC -->
+    <script>
+        const app = {
+            state: {
+                currentDate: new Date(),
+                data: {
+                    tiendas: [],
+                    personal: [],
+                    categorias: [],
+                    horarios: []
+                },
+                filters: {
+                    zone: null,      // null = all, 1 = Zona A, 2 = Zona B
+                    visibleStores: [], // empty = all stores visible, otherwise only these store IDs
+                    searchTerm: ''   // search filter
+                },
+                viewMode: 'detail', // 'detail' or 'summary'
+                expandedZones: { 'Zona A': false, 'Zona B': false }, // Collapsible state
+                selectedPerson: null, // Person ID for individual calendar view (null = main view)
+                staffListSort: { column: 'nombre_completo', direction: 'asc' }, // Sort state for staff list
+                storesListSort: { column: 'nombre_display', direction: 'asc' } // Sort state for stores list
+            },
+
+            init: async () => {
+                // AUTH CHECK
+                const isLoggedIn = sessionStorage.getItem('staffPlannerAuth');
+                const roleId = parseInt(sessionStorage.getItem('staffPlannerRoleId') || '0');
+                const staffId = sessionStorage.getItem('staffPlannerStaffId');
+
+                if (isLoggedIn === 'true') {
+                    // Clear previous role classes
+                    document.body.classList.remove('guest-mode', 'staff-view-only', 'organizador-mode', 'pdv-mode', 'pin-mode');
+
+                    // Update user profile in sidebar
+                    const userStr = sessionStorage.getItem('staffPlannerUser');
+                    const roleName = sessionStorage.getItem('staffPlannerRoleName') || 'Usuario';
+                    if (userStr) {
+                        const user = JSON.parse(userStr);
+                        const email = user.email || '';
+                        const initials = email.substring(0, 2).toUpperCase();
+                        document.getElementById('userInitials').textContent = initials;
+                        document.getElementById('userName').textContent = email;
+                        document.getElementById('userRole').textContent = roleName;
+                    }
+
+                    // APPLY ROLE RESTRICTIONS BASED ON roleId
+                    // 1 = Administrador, 2 = Organizador, 3 = Punto de Venta, 4 = Impulsadora
+                    switch (roleId) {
+                        case 1: // Administrador - Full access
+                            // No restrictions
+                            break;
+                        case 2: // Organizador - Can't edit tiendas/categorias
+                            document.body.classList.add('organizador-mode');
+                            break;
+                        case 3: // Punto de Venta - View only + report faltas
+                            document.body.classList.add('pdv-mode');
+                            break;
+                        case 4: // Impulsadora - Only see their calendar + hide top bar buttons
+                            document.body.classList.add('staff-view-only');
+                            document.body.classList.add('pin-mode');
+                            break;
+                        default: // Unknown role - treat as guest
+                            document.body.classList.add('guest-mode');
+                    }
+
+                    document.getElementById('loginOverlay').classList.add('hidden');
+                    await app.loadData();
+
+                    // For Impulsadora role or PIN login, force open their calendar
+                    if ((roleId === 4 || staffId) && staffId) {
+                        app.showPersonCalendar(parseInt(staffId));
+                    }
+                } else {
+                    // Show login (default)
+                }
+            },
+
+            toggleLoginMode: (mode) => {
+                const emailForm = document.getElementById('loginFormEmail');
+                const pinForm = document.getElementById('loginFormPin');
+                const errorMsg = document.getElementById('loginError');
+                errorMsg.classList.add('hidden');
+
+                if (mode === 'pin') {
+                    emailForm.classList.add('hidden');
+                    pinForm.classList.remove('hidden');
+                    setTimeout(() => document.getElementById('loginPin').focus(), 100);
+                } else {
+                    pinForm.classList.add('hidden');
+                    emailForm.classList.remove('hidden');
+                }
+            },
+
+            handlePinLogin: async () => {
+                const pin = document.getElementById('loginPin').value.trim();
+                const errorMsg = document.getElementById('loginError');
+                errorMsg.classList.add('hidden');
+
+                if (!pin || pin.length !== 4) {
+                    errorMsg.textContent = 'Ingresa un PIN de 4 dígitos';
+                    errorMsg.classList.remove('hidden');
+                    return;
+                }
+
+                try {
+                    // First, try to find in Impulsadoras
+                    let { data: impulsadora } = await db
+                        .from('Tiendas_Impulsadoras')
+                        .select('*')
+                        .eq('pin', pin)
+                        .single();
+
+                    // If not found, try Personal Interno
+                    let { data: personal } = await db
+                        .from('Tiendas_Personal')
+                        .select('*')
+                        .eq('pin', pin)
+                        .single();
+
+                    const staffUser = impulsadora || personal;
+                    const isPersonal = !impulsadora && !!personal;
+
+                    if (!staffUser) throw new Error('PIN no encontrado');
+
+                    // Success
+                    sessionStorage.setItem('staffPlannerAuth', 'true');
+                    sessionStorage.setItem('staffPlannerRole', isPersonal ? 'personal' : 'staff');
+                    sessionStorage.setItem('staffPlannerStaffId', staffUser.id);
+                    sessionStorage.setItem('staffPlannerIsAdmin', 'false');
+                    sessionStorage.setItem('staffPlannerRoleId', '4'); // Impulsadora/Personal role
+                    sessionStorage.setItem('staffPlannerRoleName', isPersonal ? 'Personal Interno' : 'Impulsadora');
+                    sessionStorage.setItem('staffPlannerUser', JSON.stringify({ email: staffUser.nombre_completo }));
+
+                    // Animation
+                    const overlay = document.getElementById('loginOverlay');
+                    overlay.style.opacity = '0';
+                    setTimeout(async () => {
+                        overlay.classList.add('hidden');
+                        if (isPersonal) {
+                            // Redirect to personal.html for internal staff
+                            window.location.href = 'personal.html';
+                        } else {
+                            location.reload();
+                        }
+                    }, 500);
+
+                } catch (err) {
+                    console.error('PIN Login error:', err);
+                    errorMsg.textContent = 'PIN Inválido';
+                    errorMsg.classList.remove('hidden');
+
+                    const card = document.getElementById('loginCard');
+                    card.classList.add('animate-pulse');
+                    setTimeout(() => card.classList.remove('animate-pulse'), 500);
+                }
+            },
+
+            checkAdmin: () => {
+                return sessionStorage.getItem('staffPlannerIsAdmin') === 'true';
+            },
+
+            // Check if user can edit staff (Admin or Organizador)
+            canEditStaff: () => {
+                const roleId = parseInt(sessionStorage.getItem('staffPlannerRoleId') || '0');
+                return roleId === 1 || roleId === 2; // Admin or Organizador
+            },
+
+            logout: async () => {
+                // Sign out from Supabase
+                await db.auth.signOut();
+
+                // Clear all session data
+                sessionStorage.removeItem('staffPlannerAuth');
+                sessionStorage.removeItem('staffPlannerUser');
+                sessionStorage.removeItem('staffPlannerRoleId');
+                sessionStorage.removeItem('staffPlannerRoleName');
+                sessionStorage.removeItem('staffPlannerUserId');
+                sessionStorage.removeItem('staffPlannerIsAdmin');
+                sessionStorage.removeItem('staffPlannerTiendaId');
+                sessionStorage.removeItem('staffPlannerStaffId');
+                sessionStorage.removeItem('staffPlannerRole');
+
+                // Reload to show login
+                location.reload();
+            },
+
+            handleLogin: async () => {
+                const email = document.getElementById('loginUser').value;
+                const password = document.getElementById('loginPass').value;
+                const errorMsg = document.getElementById('loginError');
+
+                // Clear previous errors
+                errorMsg.classList.add('hidden');
+
+                try {
+                    const { data, error } = await db.auth.signInWithPassword({
+                        email: email,
+                        password: password,
+                    });
+
+                    if (error) throw error;
+
+                    // SUCCESS - Now fetch user role from database
+                    const userEmail = data.user.email;
+
+                    // Query Tiendas_Usuarios for role
+                    const { data: userData, error: userError } = await db
+                        .from('Tiendas_Usuarios')
+                        .select('*, Tiendas_Roles(*)')
+                        .eq('email', userEmail)
+                        .eq('activo', true)
+                        .single();
+
+                    if (userError || !userData) {
+                        // User not in Tiendas_Usuarios - treat as unauthorized
+                        throw new Error('Usuario no autorizado. Contacta al administrador.');
+                    }
+
+                    // Get role info
+                    const roleId = userData.id_rol;
+                    const roleName = userData.Tiendas_Roles?.nombre || 'Desconocido';
+
+                    // Store session data
+                    sessionStorage.setItem('staffPlannerAuth', 'true');
+                    sessionStorage.setItem('staffPlannerUser', JSON.stringify(data.user));
+                    sessionStorage.setItem('staffPlannerRoleId', roleId.toString());
+                    sessionStorage.setItem('staffPlannerRoleName', roleName);
+                    sessionStorage.setItem('staffPlannerUserId', userData.id.toString());
+
+                    // Legacy compatibility
+                    sessionStorage.setItem('staffPlannerIsAdmin', roleId === 1 ? 'true' : 'false');
+
+                    // Store tienda for PdV role
+                    if (userData.id_tienda) {
+                        sessionStorage.setItem('staffPlannerTiendaId', userData.id_tienda.toString());
+                    }
+
+                    // Store impulsadora link if exists
+                    if (userData.id_impulsadora) {
+                        sessionStorage.setItem('staffPlannerStaffId', userData.id_impulsadora.toString());
+                    }
+
+                    // Animation
+                    const overlay = document.getElementById('loginOverlay');
+                    overlay.style.opacity = '0';
+                    setTimeout(async () => {
+                        overlay.classList.add('hidden');
+                        await app.init(); // Re-run init to apply styles
+                    }, 500);
+
+                } catch (err) {
+                    console.error('Login error:', err);
+                    errorMsg.textContent = 'Error: ' + (err.message || 'Credenciales inválidas');
+                    errorMsg.classList.remove('hidden');
+
+                    const card = document.getElementById('loginCard');
+                    card.classList.add('animate-pulse');
+                    setTimeout(() => card.classList.remove('animate-pulse'), 500);
+                }
+            },
+
+            loadData: async () => {
+                // 1. Fetch Master Data
+                const [tiendasRes, personalRes, categoriasRes] = await Promise.all([
+                    db.from('Tiendas_Razonamiento').select('*').order('nombre_display'), // Get ALL stores including inactive
+                    db.from('Tiendas_Impulsadoras').select('*'), // Get ALL staff including inactive
+                    db.from('Tiendas_Categorias').select('*')
+                ]);
+
+                app.state.data.tiendas = tiendasRes.data || [];
+                app.state.data.personal = personalRes.data || [];
+                app.state.data.categorias = categoriasRes.data || [];
+
+                // 2. Fetch Assignments for Month
+                await app.fetchAssignments();
+
+                // 3. Render
+                app.renderSidebar();
+                app.renderStats();
+                app.renderCalendar();
+                app.updateViewButtons();
+            },
+
+            // Refresh only assignment data without losing scroll position
+            refreshDataOnly: async () => {
+                // Save scroll position
+                const scrollContainer = document.querySelector('.custom-scroll');
+                const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
+                const scrollLeft = scrollContainer ? scrollContainer.scrollLeft : 0;
+
+                // Fetch only assignments (not master data)
+                await app.fetchAssignments();
+
+                // Re-render calendar
+                app.renderCalendar();
+                app.renderStats();
+
+                // Restore scroll position
+                if (scrollContainer) {
+                    scrollContainer.scrollTop = scrollTop;
+                    scrollContainer.scrollLeft = scrollLeft;
+                }
+            },
+
+            fetchAssignments: async () => {
+                const year = app.state.currentDate.getFullYear();
+                const month = app.state.currentDate.getMonth();
+                const firstDay = new Date(year, month, 1).toISOString().split('T')[0];
+                const lastDay = new Date(year, month + 1, 0).toISOString().split('T')[0];
+
+                const { data, error } = await db
+                    .from('Tiendas_Horario')
+                    .select('*')
+                    .gte('fecha', firstDay)
+                    .lte('fecha', lastDay);
+
+                if (error) console.error("Error fetching schedule", error);
+                app.state.data.horarios = data || [];
+            },
+
+            changeMonth: async (delta) => {
+                app.state.currentDate.setMonth(app.state.currentDate.getMonth() + delta);
+                await app.fetchAssignments();
+                app.renderCalendar();
+                app.renderStats();
+                // Also update person calendar if open
+                if (app.state.selectedPerson) {
+                    app.renderPersonCalendar();
+                }
+            },
+
+            // --- COMPUTED HELPERS ---
+            getFormattedDateRange: () => {
+                const d = app.state.currentDate;
+                const year = d.getFullYear();
+                const month = d.getMonth();
+                const lastDay = new Date(year, month + 1, 0).getDate();
+                const monthName = d.toLocaleDateString('es-ES', { month: 'short' });
+                return `${monthName} 01 - ${monthName} ${lastDay}`;
+            },
+
+            getCategoryInfo: (catId) => app.state.data.categorias.find(c => c.id === catId),
+
+            getPersonalZone: (pId) => {
+                const p = app.state.data.personal.find(x => x.id === pId);
+                if (!p) return null;
+                const cat = app.getCategoryInfo(p.idCategoria);
+                return cat ? (cat.id_zona === 1 ? 'Zona A' : 'Zona B') : 'Sin Zona';
+            },
+
+            // --- RENDERING ---
+            renderSidebar: () => {
+                // 1. Zone Stats (Clickable Filters)
+                const zones = { 1: 0, 2: 0 }; // 1 = Zona A, 2 = Zona B
+                app.state.data.personal.forEach(p => {
+                    const cat = app.getCategoryInfo(p.idCategoria);
+                    if (cat && zones[cat.id_zona] !== undefined) zones[cat.id_zona]++;
+                });
+
+                const activeZone = app.state.filters.zone;
+                document.getElementById('zonaStats').innerHTML = `
+                    <div class="filter-item flex items-center justify-between p-3 rounded-lg bg-slate-800/50 ${activeZone === 1 ? 'active' : ''}" onclick="app.toggleZone(1)">
+                        <div class="flex items-center gap-2"><span class="text-lg">🅰️</span> <span class="text-sm font-medium">Zona A</span></div>
+                        <span class="bg-blue-600 text-xs px-2 py-0.5 rounded-full font-bold">${zones[1]}</span>
+                    </div>
+                    <div class="filter-item flex items-center justify-between p-3 rounded-lg bg-slate-800/50 ${activeZone === 2 ? 'active' : ''}" onclick="app.toggleZone(2)">
+                        <div class="flex items-center gap-2"><span class="text-lg">🅱️</span> <span class="text-sm font-medium">Zona B</span></div>
+                        <span class="bg-blue-600 text-xs px-2 py-0.5 rounded-full font-bold">${zones[2]}</span>
+                    </div>
+                `;
+
+                // 2. Stores Legend (Clickable Multi-Select Filters)
+                const visibleStores = app.state.filters.visibleStores;
+                const showAll = visibleStores.length === 0;
+
+                document.getElementById('locationLegend').innerHTML = app.state.data.tiendas.map(t => {
+                    const textColor = app.isLight(t.color_hex) ? '#000' : '#fff';
+                    const isActive = showAll || visibleStores.includes(t.id);
+                    return `
+                        <div class="filter-item flex items-center gap-3 p-2 rounded-lg ${isActive ? 'active' : 'opacity-40'}" onclick="app.toggleStore(${t.id})">
+                            <span class="w-8 h-6 rounded flex items-center justify-center text-[10px] font-bold shadow-sm" style="background:${t.color_hex}; color:${textColor};">
+                                ${t.alias_tienda}
+                            </span>
+                            <span class="text-xs text-slate-400 group-hover:text-white transition truncate">${t.nombre_display}</span>
+                        </div>
+                    `;
+                }).join('');
+
+                // Update toggle button text
+                const allSelected = visibleStores.length === app.state.data.tiendas.length;
+                document.getElementById('toggleAllBtn').textContent = (showAll || allSelected) ? 'Ninguna' : 'Todas';
+            },
+
+            toggleZone: (zoneId) => {
+                // Toggle: click same zone again deselects
+                app.state.filters.zone = app.state.filters.zone === zoneId ? null : zoneId;
+                app.renderSidebar();
+                app.renderCalendar();
+            },
+
+            toggleStore: (storeId) => {
+                // Multi-select: toggle store in array
+                const arr = app.state.filters.visibleStores;
+                const idx = arr.indexOf(storeId);
+                if (idx === -1) {
+                    arr.push(storeId);
+                } else {
+                    arr.splice(idx, 1);
+                }
+                app.renderSidebar();
+                app.renderCalendar();
+            },
+
+            handleSearch: (term) => {
+                app.state.filters.searchTerm = term.toLowerCase();
+                app.renderCalendar();
+            },
+
+            toggleAllStores: () => {
+                const allIds = app.state.data.tiendas.map(t => t.id);
+                // If all are selected (or empty = all visible), deselect all
+                // If some or none are selected, select all
+                if (app.state.filters.visibleStores.length === 0 ||
+                    app.state.filters.visibleStores.length === allIds.length) {
+                    app.state.filters.visibleStores = [];
+                } else {
+                    app.state.filters.visibleStores = [...allIds];
+                }
+                app.renderSidebar();
+                app.renderCalendar();
+            },
+
+            renderStats: () => {
+                document.getElementById('statStaff').textContent = app.state.data.personal.length;
+                document.getElementById('statStores').textContent = app.state.data.tiendas.length;
+                document.getElementById('statCategories').textContent = app.state.data.categorias ? app.state.data.categorias.length : 0;
+
+                const d = app.state.currentDate;
+                const monthName = d.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+                document.getElementById('monthTitle').textContent = monthName.charAt(0).toUpperCase() + monthName.slice(1);
+                document.getElementById('dateRangeDisplay').textContent = app.getFormattedDateRange();
+            },
+
+            toggleView: (mode) => {
+                app.state.viewMode = mode;
+                app.updateViewButtons();
+                app.renderCalendar();
+            },
+
+            updateViewButtons: () => {
+                const detailBtn = document.getElementById('btn-view-detail');
+                const summaryBtn = document.getElementById('btn-view-summary');
+
+                if (app.state.viewMode === 'detail') {
+                    detailBtn.classList.add('bg-white', 'text-slate-700', 'shadow-sm');
+                    detailBtn.classList.remove('text-slate-500', 'hover:text-slate-700');
+                    summaryBtn.classList.remove('bg-white', 'text-slate-700', 'shadow-sm');
+                    summaryBtn.classList.add('text-slate-500', 'hover:text-slate-700');
+                } else {
+                    summaryBtn.classList.add('bg-white', 'text-slate-700', 'shadow-sm');
+                    summaryBtn.classList.remove('text-slate-500', 'hover:text-slate-700');
+                    detailBtn.classList.remove('bg-white', 'text-slate-700', 'shadow-sm');
+                    detailBtn.classList.add('text-slate-500', 'hover:text-slate-700');
+                }
+            },
+
+            renderCalendar: () => {
+                if (app.state.viewMode === 'summary') {
+                    app.renderSummary();
+                    return;
+                }
+
+                const year = app.state.currentDate.getFullYear();
+                const month = app.state.currentDate.getMonth();
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                const filterOnlyAssigned = document.getElementById('filterToggle').checked;
+                const filterZone = app.state.filters.zone;
+                const visibleStores = app.state.filters.visibleStores;
+                const showAllStores = visibleStores.length === 0;
+                const searchTerm = app.state.filters.searchTerm;
+
+                // 1. Prepare Data
+                let staffList = app.state.data.personal.map(p => {
+                    const cat = app.getCategoryInfo(p.idCategoria);
+                    return {
+                        ...p,
+                        zoneId: cat ? cat.id_zona : null,
+                        zone: cat ? (cat.id_zona === 1 ? 'Zona A' : 'Zona B') : 'Sin Zona'
+                    };
+                });
+
+                // Apply Zone Filter
+                if (filterZone !== null) {
+                    staffList = staffList.filter(p => p.zoneId === filterZone);
+                }
+
+                // Apply "Solo con asignaciones" filter
+                if (filterOnlyAssigned) {
+                    const activeStaffIds = new Set(app.state.data.horarios.map(h => h.impulsadora_id));
+                    staffList = staffList.filter(p => activeStaffIds.has(p.id));
+                }
+
+                // Apply Search Filter
+                if (searchTerm) {
+                    staffList = staffList.filter(p =>
+                        p.nombre_completo.toLowerCase().includes(searchTerm) ||
+                        (p.Marca && p.Marca.toLowerCase().includes(searchTerm))
+                    );
+                }
+
+                // Sort: Zone -> Brand -> Name
+                staffList.sort((a, b) => {
+                    if (a.zone !== b.zone) return a.zone.localeCompare(b.zone);
+                    if (a.Marca !== b.Marca) return (a.Marca || '').localeCompare(b.Marca || '');
+                    return a.nombre_completo.localeCompare(b.nombre_completo);
+                });
+
+                // 2. Render Header
+                let headerHtml = `<th class="sticky-col-1 bg-slate-50 border-r p-3 w-[100px] text-left">Marca</th>
+                                  <th class="sticky-col-2 bg-slate-50 border-r p-3 w-[150px] text-left shadow-lg">Nombre</th>`;
+
+                const days = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
+                for (let i = 1; i <= daysInMonth; i++) {
+                    const date = new Date(year, month, i);
+                    const dayName = days[date.getDay()];
+                    const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+                    const bgClass = isWeekend ? 'bg-slate-100 text-slate-400' : 'bg-slate-50 text-slate-600';
+                    headerHtml += `<th class="min-w-[40px] border-r border-slate-100 p-2 text-center ${bgClass}">
+                        <div class="text-lg font-bold leading-none">${i}</div>
+                        <div class="text-[9px] font-medium">${dayName}</div>
+                    </th>`;
+                }
+                document.getElementById('calendarHeader').innerHTML = headerHtml;
+
+                // 3. Render Body
+                let bodyHtml = '';
+                let currentZone = null;
+
+                staffList.forEach(p => {
+                    // Zone Header
+                    if (p.zone !== currentZone) {
+                        currentZone = p.zone;
+                        bodyHtml += `<tr class="bg-blue-50/50"><td colspan="${2 + daysInMonth}" class="p-2 px-4 font-bold text-blue-600 text-xs tracking-wider sticky-col-1 z-[15]">${currentZone.toUpperCase()}</td></tr>`;
+                    }
+
+                    bodyHtml += `<tr class="hover:bg-slate-50 group">`;
+                    bodyHtml += `<td class="sticky-col-1 bg-white p-2 border-r border-slate-100 font-bold text-xs text-slate-600 truncate group-hover:bg-slate-50">${p.Marca || ''}</td>`;
+                    bodyHtml += `<td class="sticky-col-2 bg-white p-2 border-r border-slate-100 text-xs text-slate-500 shadow-lg group-hover:bg-slate-50">
+                        <div class="flex items-center justify-between gap-1">
+                            <span class="truncate" title="${p.nombre_completo}">${p.nombre_completo}</span>
+                            <button onclick="event.stopPropagation(); app.showPersonCalendar(${p.id})" 
+                                class="opacity-0 group-hover:opacity-100 p-1 hover:bg-blue-100 rounded transition-opacity" title="Ver calendario">
+                                <span class="material-icons text-blue-500 text-base">visibility</span>
+                            </button>
+                        </div>
+                    </td>`;
+
+                    // Days
+                    for (let d = 1; d <= daysInMonth; d++) {
+                        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                        const assignment = app.state.data.horarios.find(h => h.impulsadora_id === p.id && h.fecha === dateStr);
+
+                        if (assignment) {
+                            const tienda = app.state.data.tiendas.find(t => t.id === assignment.tienda_id);
+                            // Check if this store should be visible
+                            const storeVisible = showAllStores || visibleStores.includes(assignment.tienda_id);
+
+                            if (tienda && storeVisible) {
+                                const textColor = app.isLight(tienda.color_hex) ? '#000' : '#fff';
+                                bodyHtml += `<td class="p-1 border-r border-slate-100 text-center relative">
+                                    <div class="w-full h-7 rounded flex items-center justify-center text-[10px] font-bold shadow-sm cell-hover transition-all-fast"
+                                         style="background:${tienda.color_hex}; color:${textColor};"
+                                         onclick="app.handleCellClick(${p.id}, '${dateStr}', ${assignment.id})">
+                                        ${tienda.alias_tienda}
+                                    </div>
+                                </td>`;
+                            } else if (tienda) {
+                                // Store hidden by filter - show at 20% opacity
+                                const textColor = app.isLight(tienda.color_hex) ? '#000' : '#fff';
+                                bodyHtml += `<td class="p-1 border-r border-slate-100 text-center relative">
+                                    <div class="w-full h-7 rounded flex items-center justify-center text-[10px] font-bold shadow-sm transition-all-fast"
+                                         style="background:${tienda.color_hex}; color:${textColor}; opacity: 0.2;"
+                                         onclick="app.handleCellClick(${p.id}, '${dateStr}', ${assignment.id})">
+                                        ${tienda.alias_tienda}
+                                    </div>
+                                </td>`;
+                            }
+                        } else {
+                            bodyHtml += `<td class="p-1 border-r border-slate-100 text-center">
+                                <div class="w-full h-7 rounded border border-dashed border-slate-200 empty-cell transition-all-fast"
+                                     onclick="app.handleCellClick(${p.id}, '${dateStr}', null)">
+                                </div>
+                            </td>`;
+                        }
+                    }
+                    bodyHtml += `</tr>`;
+                });
+
+                document.getElementById('calendarBody').innerHTML = bodyHtml;
+            },
+
+            renderSummary: () => {
+                const year = app.state.currentDate.getFullYear();
+                const month = app.state.currentDate.getMonth();
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+                // --- 1. Build Header (Days) ---
+                let headerHtml = `<th class="p-4 text-left border-b border-r border-slate-200 bg-slate-50 min-w-[300px] sticky-col-1 z-50">TIENDA (Ubicación)</th>`;
+                const days = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
+
+                for (let i = 1; i <= daysInMonth; i++) {
+                    const date = new Date(year, month, i);
+                    const dayName = days[date.getDay()];
+                    const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+                    const colorClass = isWeekend ? 'text-blue-500' : 'text-slate-500';
+                    const bgClass = isWeekend ? 'bg-blue-50/50' : '';
+
+                    headerHtml += `
+                        <th class="p-2 text-center border-b border-r border-slate-100 min-w-[40px] ${bgClass}">
+                            <div class="text-xl font-bold ${colorClass}">${i}</div>
+                            <div class="text-[10px] font-medium text-slate-400 mt-1">${dayName}</div>
+                        </th>`;
+                }
+                document.getElementById('calendarHeader').innerHTML = headerHtml;
+
+                // --- 2. Calculate Occupancy ---
+                // Map: storeId -> day -> count
+                const occupancy = {};
+                const zoneTotals = { 'Total': {}, 'Zona A': {}, 'Zona B': {} };
+
+                app.state.data.tiendas.forEach(t => {
+                    occupancy[t.id] = {};
+                    for (let i = 1; i <= daysInMonth; i++) occupancy[t.id][i] = 0;
+                });
+
+                for (let i = 1; i <= daysInMonth; i++) {
+                    zoneTotals['Total'][i] = 0;
+                    zoneTotals['Zona A'][i] = 0;
+                    zoneTotals['Zona B'][i] = 0;
+                }
+
+                // Fill counts - zone is based on the IMPULSADORA's CATEGORY id_zona
+                app.state.data.horarios.forEach(h => {
+                    const d = new Date(h.fecha + 'T00:00:00');
+                    if (d.getMonth() === month && d.getFullYear() === year) {
+                        const day = d.getDate();
+                        const store = app.state.data.tiendas.find(t => t.id === h.tienda_id);
+                        const person = app.state.data.personal.find(p => p.id === h.impulsadora_id);
+
+                        if (store) {
+                            occupancy[store.id][day]++;
+                            zoneTotals['Total'][day]++;
+
+                            // Zone comes from the CATEGORY (Tiendas_Categorias.id_zona)
+                            if (person) {
+                                const category = app.state.data.categorias.find(c => c.id === person.idCategoria);
+                                if (category && parseInt(category.id_zona) === 1) zoneTotals['Zona A'][day]++;
+                                if (category && parseInt(category.id_zona) === 2) zoneTotals['Zona B'][day]++;
+                            }
+                        }
+                    }
+                });
+
+                // --- 3. Build Body ---
+                let bodyHtml = '';
+
+                // Calculate per-store per-zone occupancy
+                const occupancyByZone = { 'Zona A': {}, 'Zona B': {} };
+                app.state.data.tiendas.forEach(t => {
+                    occupancyByZone['Zona A'][t.id] = {};
+                    occupancyByZone['Zona B'][t.id] = {};
+                    for (let i = 1; i <= daysInMonth; i++) {
+                        occupancyByZone['Zona A'][t.id][i] = 0;
+                        occupancyByZone['Zona B'][t.id][i] = 0;
+                    }
+                });
+
+                // Fill zone-specific counts
+                app.state.data.horarios.forEach(h => {
+                    const d = new Date(h.fecha + 'T00:00:00');
+                    if (d.getMonth() === month && d.getFullYear() === year) {
+                        const day = d.getDate();
+                        const store = app.state.data.tiendas.find(t => t.id === h.tienda_id);
+                        const person = app.state.data.personal.find(p => p.id === h.impulsadora_id);
+                        if (store && person) {
+                            const category = app.state.data.categorias.find(c => c.id === person.idCategoria);
+                            if (category && parseInt(category.id_zona) === 1) {
+                                occupancyByZone['Zona A'][store.id][day]++;
+                            }
+                            if (category && parseInt(category.id_zona) === 2) {
+                                occupancyByZone['Zona B'][store.id][day]++;
+                            }
+                        }
+                    }
+                });
+
+                // --- TOTAL ROW ---
+                bodyHtml += `<tr class="bg-slate-800 sticky top-[60px] z-30 font-bold text-white">
+                    <td class="p-3 border-r border-slate-600 sticky-col-1 bg-slate-800 sticky left-0 z-40 text-left pl-4">
+                        📊 TOTAL GENERAL
+                    </td>`;
+                for (let i = 1; i <= daysInMonth; i++) {
+                    const total = zoneTotals['Total'][i];
+                    const date = new Date(year, month, i);
+                    const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+                    const bgClass = isWeekend ? 'bg-slate-700' : '';
+                    bodyHtml += `<td class="p-2 border-r border-slate-600 text-center ${bgClass}">${total}</td>`;
+                }
+                bodyHtml += `</tr>`;
+
+                // --- ZONA A (Collapsible) ---
+                const zonaAExpanded = app.state.expandedZones['Zona A'];
+                bodyHtml += `<tr class="bg-blue-100 font-semibold cursor-pointer hover:bg-blue-200 transition-colors" onclick="app.toggleZone('Zona A')">
+                    <td class="p-2 border-r border-blue-200 sticky-col-1 bg-blue-100 sticky left-0 z-40 text-left pl-4 text-blue-800">
+                        <span class="material-icons text-sm align-middle mr-1">${zonaAExpanded ? 'expand_less' : 'expand_more'}</span>
+                        🅰️ Total Zona A
+                    </td>`;
+                for (let i = 1; i <= daysInMonth; i++) {
+                    const total = zoneTotals['Zona A'][i];
+                    const date = new Date(year, month, i);
+                    const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+                    const bgClass = isWeekend ? 'bg-blue-50' : '';
+                    bodyHtml += `<td class="p-2 border-r border-blue-200 text-center text-blue-800 ${bgClass}">${total}</td>`;
+                }
+                bodyHtml += `</tr>`;
+
+                // Zona A Store Breakdown (if expanded)
+                if (zonaAExpanded) {
+                    app.state.data.tiendas.forEach(store => {
+                        bodyHtml += `<tr class="bg-blue-50/50 hover:bg-blue-100/50 transition-colors text-sm">
+                            <td class="p-2 border-b border-r border-blue-100 sticky-col-1 bg-blue-50/80 sticky left-0 z-20 text-left pl-10">
+                                <span class="text-blue-600">${store.nombre_display}</span>
+                                <span class="text-[10px] text-blue-400 ml-2">Cupo: ${store.cupo_zona_a || 0}</span>
+                            </td>`;
+                        for (let i = 1; i <= daysInMonth; i++) {
+                            const count = occupancyByZone['Zona A'][store.id][i];
+                            const cupo = store.cupo_zona_a || 0;
+                            let cellClass = count === 0 ? 'text-blue-200' : (count >= cupo && cupo > 0 ? 'bg-blue-200 text-blue-800 font-bold' : 'bg-blue-100 text-blue-700');
+                            bodyHtml += `<td class="p-1 border-b border-r border-blue-100 text-center ${cellClass}">${count}</td>`;
+                        }
+                        bodyHtml += `</tr>`;
+                    });
+                }
+
+                // --- ZONA B (Collapsible) ---
+                const zonaBExpanded = app.state.expandedZones['Zona B'];
+                bodyHtml += `<tr class="bg-amber-100 font-semibold cursor-pointer hover:bg-amber-200 transition-colors" onclick="app.toggleZone('Zona B')">
+                    <td class="p-2 border-r border-amber-200 sticky-col-1 bg-amber-100 sticky left-0 z-40 text-left pl-4 text-amber-800">
+                        <span class="material-icons text-sm align-middle mr-1">${zonaBExpanded ? 'expand_less' : 'expand_more'}</span>
+                        🅱️ Total Zona B
+                    </td>`;
+                for (let i = 1; i <= daysInMonth; i++) {
+                    const total = zoneTotals['Zona B'][i];
+                    const date = new Date(year, month, i);
+                    const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+                    const bgClass = isWeekend ? 'bg-amber-50' : '';
+                    bodyHtml += `<td class="p-2 border-r border-amber-200 text-center text-amber-800 ${bgClass}">${total}</td>`;
+                }
+                bodyHtml += `</tr>`;
+
+                // Zona B Store Breakdown (if expanded)
+                if (zonaBExpanded) {
+                    app.state.data.tiendas.forEach(store => {
+                        bodyHtml += `<tr class="bg-amber-50/50 hover:bg-amber-100/50 transition-colors text-sm">
+                            <td class="p-2 border-b border-r border-amber-100 sticky-col-1 bg-amber-50/80 sticky left-0 z-20 text-left pl-10">
+                                <span class="text-amber-600">${store.nombre_display}</span>
+                                <span class="text-[10px] text-amber-400 ml-2">Cupo: ${store.cupo_zona_b || 0}</span>
+                            </td>`;
+                        for (let i = 1; i <= daysInMonth; i++) {
+                            const count = occupancyByZone['Zona B'][store.id][i];
+                            const cupo = store.cupo_zona_b || 0;
+                            let cellClass = count === 0 ? 'text-amber-200' : (count >= cupo && cupo > 0 ? 'bg-amber-200 text-amber-800 font-bold' : 'bg-amber-100 text-amber-700');
+                            bodyHtml += `<td class="p-1 border-b border-r border-amber-100 text-center ${cellClass}">${count}</td>`;
+                        }
+                        bodyHtml += `</tr>`;
+                    });
+                }
+
+                // --- STORE ROWS (all stores - total) ---
+                app.state.data.tiendas.forEach(store => {
+                    bodyHtml += `<tr class="hover:bg-slate-50 transition-colors group">`;
+
+                    // Store Name Column
+                    bodyHtml += `<td class="p-3 border-b border-r border-slate-200 sticky-col-1 bg-white group-hover:bg-slate-50 sticky left-0 z-20">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold shadow-sm"
+                                 style="background-color: ${store.color || '#6366f1'}">
+                                ${store.alias_tienda.substring(0, 2)}
+                            </div>
+                            <div class="flex flex-col text-left">
+                                <span class="text-xs font-bold text-slate-700">${store.nombre_display}</span>
+                                <span class="text-[10px] text-slate-400">Cupo A:${store.cupo_zona_a || 0} / B:${store.cupo_zona_b || 0}</span>
+                            </div>
+                        </div>
+                    </td>`;
+
+                    // Daily Cells
+                    for (let i = 1; i <= daysInMonth; i++) {
+                        const count = occupancy[store.id][i];
+                        const maxCupo = (store.cupo_zona_a || 0) + (store.cupo_zona_b || 0);
+                        const date = new Date(year, month, i);
+                        const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+
+                        // Visual Status
+                        let cellClass = '';
+                        let textClass = 'text-slate-300';
+
+                        if (count > 0) {
+                            textClass = 'text-slate-800 font-bold';
+                            if (count >= maxCupo && maxCupo > 0) {
+                                cellClass = 'bg-green-200'; // Full capacity
+                            } else {
+                                cellClass = 'bg-yellow-100'; // Partial
+                            }
+                        } else {
+                            cellClass = 'bg-red-50';
+                            textClass = 'text-red-300';
+                        }
+
+                        if (isWeekend && count === 0) cellClass = 'bg-slate-100';
+
+                        bodyHtml += `<td class="p-1 border-b border-r border-slate-100 text-center h-10">
+                            <div class="w-full h-full flex items-center justify-center rounded text-xs transition-all ${cellClass} ${textClass}">
+                                ${count}
+                            </div>
+                        </td>`;
+                    }
+                    bodyHtml += `</tr>`;
+                });
+
+                document.getElementById('calendarBody').innerHTML = bodyHtml;
+            },
+
+            toggleView: (mode) => {
+                app.state.viewMode = mode;
+
+                // Update buttons
+                const btnDetail = document.getElementById('btn-view-detail');
+                const btnSummary = document.getElementById('btn-view-summary');
+
+                if (mode === 'detail') {
+                    btnDetail.className = 'px-3 py-1.5 rounded-md text-xs font-bold transition-all shadow-sm bg-white text-slate-700';
+                    btnSummary.className = 'px-3 py-1.5 rounded-md text-xs font-bold transition-all text-slate-500 hover:text-slate-700';
+                } else {
+                    btnDetail.className = 'px-3 py-1.5 rounded-md text-xs font-bold transition-all text-slate-500 hover:text-slate-700';
+                    btnSummary.className = 'px-3 py-1.5 rounded-md text-xs font-bold transition-all shadow-sm bg-white text-slate-700';
+                }
+
+                app.renderCalendar();
+            },
+
+            toggleZone: (zoneName) => {
+                app.state.expandedZones[zoneName] = !app.state.expandedZones[zoneName];
+                app.renderCalendar();
+            },
+
+            // --- HELPERS FOR VIEW MANAGEMENT ---
+            hideAllViews: () => {
+                ['mainCalendarView', 'personCalendarView', 'staffListView', 'storesListView', 'categoriesListView'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.classList.add('hidden');
+                });
+            },
+
+            // --- STAFF LIST VIEW ---
+            showStaffList: () => {
+                if (!app.canEditStaff()) return; // Block access for non-admin/organizador
+                app.hideAllViews();
+                document.getElementById('staffListView').classList.remove('hidden');
+                app.renderStaffList();
+            },
+
+            closeStaffList: () => {
+                document.getElementById('staffListView').classList.add('hidden');
+                document.getElementById('mainCalendarView').classList.remove('hidden');
+            },
+
+            renderStaffList: () => {
+                const { column, direction } = app.state.staffListSort;
+                const year = app.state.currentDate.getFullYear();
+                const month = app.state.currentDate.getMonth();
+
+                // Calculate assignments this month for each person
+                const assignmentCounts = {};
+                app.state.data.personal.forEach(p => assignmentCounts[p.id] = 0);
+                app.state.data.horarios.forEach(h => {
+                    const d = new Date(h.fecha + 'T00:00:00');
+                    if (d.getMonth() === month && d.getFullYear() === year) {
+                        if (assignmentCounts[h.impulsadora_id] !== undefined) {
+                            assignmentCounts[h.impulsadora_id]++;
+                        }
+                    }
+                });
+
+                // Sort staff
+                const sortedStaff = [...app.state.data.personal].sort((a, b) => {
+                    let valA, valB;
+
+                    if (column === 'Habilitado') {
+                        valA = a.Habilitado ? 1 : 0;
+                        valB = b.Habilitado ? 1 : 0;
+                    } else {
+                        valA = (a[column] || '').toString().toLowerCase();
+                        valB = (b[column] || '').toString().toLowerCase();
+                    }
+
+                    if (valA < valB) return direction === 'asc' ? -1 : 1;
+                    if (valA > valB) return direction === 'asc' ? 1 : -1;
+                    return 0;
+                });
+
+                // Update sort icons
+                ['idVendedor', 'nombre_completo', 'Marca', 'Habilitado'].forEach(col => {
+                    const icon = document.getElementById(`sort-icon-${col}`);
+                    if (icon) {
+                        if (col === column) {
+                            icon.textContent = direction === 'asc' ? 'arrow_upward' : 'arrow_downward';
+                        } else {
+                            icon.textContent = '';
+                        }
+                    }
+                });
+
+                let html = '';
+                sortedStaff.forEach(p => {
+                    const isDisabled = !p.Habilitado;
+                    const rowClass = isDisabled ? 'bg-slate-200 text-slate-500' : 'hover:bg-slate-50';
+                    const fechasCount = assignmentCounts[p.id] || 0;
+                    const fechasClass = fechasCount > 0 ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-400';
+                    const cat = app.state.data.categorias.find(c => c.id === p.idCategoria);
+                    const catName = cat ? cat.descripcion : '-';
+
+                    html += `<tr class="${rowClass}">
+                        <td class="p-3 text-sm font-mono">${p.idVendedor || '-'}</td>
+                        <td class="p-3 text-sm font-medium">${p.nombre_completo || '-'}</td>
+                        <td class="p-3 text-sm">${p.Marca || '-'}</td>
+                        <td class="p-3 text-sm text-slate-600">${catName}</td>
+                        <td class="p-3 text-center">
+                            <span class="px-2 py-1 rounded-lg text-xs font-mono font-bold bg-slate-800 text-white">
+                                ${p.pin || '----'}
+                            </span>
+                        </td>
+                        <td class="p-3 text-center">
+                            <span class="px-2 py-1 rounded-full text-xs font-bold ${fechasClass}">
+                                ${fechasCount}
+                            </span>
+                        </td>
+                        <td class="p-3">
+                            <span class="px-2 py-1 rounded-full text-xs font-bold ${isDisabled ? 'bg-slate-400 text-white' : 'bg-green-100 text-green-700'}">
+                                ${isDisabled ? 'Inactivo' : 'Activo'}
+                            </span>
+                        </td>
+                        <td class="p-3 text-center">
+                            <button onclick="app.editStaffFromList(${p.id})" class="p-1 hover:bg-blue-100 rounded transition-colors" title="Editar">
+                                <span class="material-icons text-blue-500 text-sm">edit</span>
+                            </button>
+                            <button onclick="app.deleteStaff(${p.id})" class="p-1 hover:bg-red-100 rounded transition-colors ml-1" title="Eliminar">
+                                <span class="material-icons text-red-500 text-sm">delete</span>
+                            </button>
+                        </td>
+                    </tr>`;
+                });
+
+                document.getElementById('staffListBody').innerHTML = html;
+            },
+
+            sortStaffList: (column) => {
+                const current = app.state.staffListSort;
+                if (current.column === column) {
+                    current.direction = current.direction === 'asc' ? 'desc' : 'asc';
+                } else {
+                    app.state.staffListSort = { column, direction: 'asc' };
+                }
+                app.renderStaffList();
+            },
+
+            editStaffFromList: (personId) => {
+                app.state.selectedPerson = personId;
+                app.openEditPersonModal();
+            },
+
+            deleteStaff: (personId) => {
+                const person = app.state.data.personal.find(p => p.id === personId);
+                if (!person) return;
+
+                Swal.fire({
+                    title: '⚠️ Eliminar Staff',
+                    html: `
+                        <p class="mb-4">Estás a punto de eliminar a <strong>${person.nombre_completo}</strong>.</p>
+                        <p class="text-red-600 font-bold mb-2">Esta acción es irreversible.</p>
+                        <label class="block text-left text-xs font-bold text-slate-500 mb-1">Escribe BORRAR para confirmar:</label>
+                        <input type="text" id="confirm-delete" class="w-full p-2 border rounded-lg text-sm" placeholder="BORRAR">
+                    `,
+                    showCancelButton: true,
+                    confirmButtonText: '🗑️ Eliminar',
+                    cancelButtonText: 'Cancelar',
+                    confirmButtonColor: '#dc2626',
+                    preConfirm: () => {
+                        const input = document.getElementById('confirm-delete').value;
+                        if (input !== 'BORRAR') {
+                            Swal.showValidationMessage('Debes escribir BORRAR exactamente');
+                            return false;
+                        }
+                        return true;
+                    }
+                }).then(async (result) => {
+                    if (result.isConfirmed) {
+                        Swal.fire({ title: 'Eliminando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+
+                        const { error } = await db.from('Tiendas_Impulsadoras').delete().eq('id', personId);
+
+                        if (error) {
+                            Swal.fire('Error', error.message, 'error');
+                        } else {
+                            app.state.data.personal = app.state.data.personal.filter(p => p.id !== personId);
+                            Swal.fire({ icon: 'success', title: '¡Eliminado!', timer: 1500, showConfirmButton: false });
+                            app.renderStaffList();
+                            app.renderStats();
+                        }
+                    }
+                });
+            },
+
+            openAddStaffModal: () => {
+                const marcas = [...new Set(app.state.data.personal.map(p => p.Marca).filter(Boolean))];
+                const marcasOptions = marcas.map(m => `<option value="${m}">`).join('');
+                const catOptions = app.state.data.categorias.map(c => `<option value="${c.id}">${c.descripcion}</option>`).join('');
+
+                Swal.fire({
+                    title: '➕ Agregar Nuevo Staff',
+                    html: `
+                        <div class="text-left space-y-4">
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 mb-1">Código de Venta *</label>
+                                    <input type="text" id="add-idvendedor" class="w-full p-2 border rounded-lg text-sm" required>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 mb-1">Nombre Completo *</label>
+                                    <input type="text" id="add-nombre" class="w-full p-2 border rounded-lg text-sm" required>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Marca *</label>
+                                <input type="text" id="add-marca" list="add-marcas-list" class="w-full p-2 border rounded-lg text-sm" required>
+                                <datalist id="add-marcas-list">${marcasOptions}</datalist>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Categoría</label>
+                                <select id="add-categoria" class="w-full p-2 border rounded-lg text-sm">
+                                    <option value="">Sin Categoría</option>
+                                    ${catOptions}
+                                </select>
+                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 mb-1">WhatsApp</label>
+                                    <input type="tel" id="add-whatsapp" class="w-full p-2 border rounded-lg text-sm" placeholder="+593...">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 mb-1">Correo</label>
+                                    <input type="email" id="add-correo" class="w-full p-2 border rounded-lg text-sm">
+                                </div>
+                            </div>
+                        </div>
+                    `,
+                    showCancelButton: true,
+                    confirmButtonText: '💾 Guardar',
+                    cancelButtonText: 'Cancelar',
+                    confirmButtonColor: '#16a34a',
+                    preConfirm: () => {
+                        const idVendedor = document.getElementById('add-idvendedor').value.trim();
+                        const nombre = document.getElementById('add-nombre').value.trim();
+                        const marca = document.getElementById('add-marca').value.trim();
+
+                        if (!idVendedor || !nombre || !marca) {
+                            Swal.showValidationMessage('Los campos marcados con * son obligatorios');
+                            return false;
+                        }
+
+                        const catVal = document.getElementById('add-categoria').value;
+                        return {
+                            idVendedor,
+                            nombre_completo: nombre,
+                            Marca: marca,
+                            idCategoria: catVal ? parseInt(catVal) : null,
+                            Whatsapp: document.getElementById('add-whatsapp').value,
+                            Correo: document.getElementById('add-correo').value,
+                            Habilitado: true
+                        };
+                    }
+                }).then(async (result) => {
+                    if (result.isConfirmed) {
+                        Swal.fire({ title: 'Generando PIN y Guardando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+
+                        // Generate unique PIN
+                        let pin = null;
+                        let attempts = 0;
+                        while (!pin && attempts < 100) {
+                            const candidate = String(Math.floor(1000 + Math.random() * 9000)); // 4 digits, 1000-9999
+
+                            // Check if PIN exists in Impulsadoras
+                            const { data: impCheck } = await db.from('Tiendas_Impulsadoras').select('id').eq('pin', candidate).single();
+                            // Check if PIN exists in Personal
+                            const { data: perCheck } = await db.from('Tiendas_Personal').select('id').eq('pin', candidate).single();
+
+                            if (!impCheck && !perCheck) {
+                                pin = candidate;
+                            }
+                            attempts++;
+                        }
+
+                        if (!pin) {
+                            Swal.fire('Error', 'No se pudo generar un PIN único. Intenta de nuevo.', 'error');
+                            return;
+                        }
+
+                        // Add PIN to the data
+                        result.value.pin = pin;
+
+                        const { data, error } = await db.from('Tiendas_Impulsadoras').insert(result.value).select();
+
+                        if (error) {
+                            Swal.fire('Error', error.message, 'error');
+                        } else {
+                            if (data && data[0]) {
+                                app.state.data.personal.push(data[0]);
+                                // Log the creation
+                                app.logAction('CREAR', 'Tiendas_Impulsadoras', data[0].id,
+                                    `Creó nuevo staff: ${data[0].nombre_completo} (${data[0].Marca || 'Sin marca'}) - PIN: ${data[0].pin}`,
+                                    { nombre: data[0].nombre_completo, marca: data[0].Marca, idVendedor: data[0].idVendedor, pin: data[0].pin }
+                                );
+                            }
+                            Swal.fire({
+                                icon: 'success',
+                                title: '¡Agregado!',
+                                html: `<p>PIN generado: <span class="font-mono font-bold text-2xl">${pin}</span></p>`,
+                                timer: 3000,
+                                showConfirmButton: true
+                            });
+                            app.renderStaffList();
+                            app.renderStats();
+                        }
+                    }
+                });
+            },
+
+            // --- STORES LIST VIEW ---
+            showStoresList: () => {
+                if (!app.checkAdmin()) return; // Block access for guests
+                app.hideAllViews();
+                document.getElementById('storesListView').classList.remove('hidden');
+                app.renderStoresList();
+            },
+
+            closeStoresList: () => {
+                document.getElementById('storesListView').classList.add('hidden');
+                document.getElementById('mainCalendarView').classList.remove('hidden');
+            },
+
+            renderStoresList: () => {
+                const { column, direction } = app.state.storesListSort;
+                const year = app.state.currentDate.getFullYear();
+                const month = app.state.currentDate.getMonth();
+
+                // Calculate active impulso count per store this month
+                const impulsoCounts = {};
+                app.state.data.tiendas.forEach(t => impulsoCounts[t.id] = 0);
+                app.state.data.horarios.forEach(h => {
+                    const d = new Date(h.fecha + 'T00:00:00');
+                    if (d.getMonth() === month && d.getFullYear() === year) {
+                        if (impulsoCounts[h.tienda_id] !== undefined) {
+                            impulsoCounts[h.tienda_id]++;
+                        }
+                    }
+                });
+
+                // Sort stores
+                const sortedStores = [...app.state.data.tiendas].sort((a, b) => {
+                    let valA, valB;
+                    if (column === 'activo') {
+                        valA = a.activo ? 1 : 0;
+                        valB = b.activo ? 1 : 0;
+                    } else {
+                        valA = (a[column] || '').toString().toLowerCase();
+                        valB = (b[column] || '').toString().toLowerCase();
+                    }
+                    if (valA < valB) return direction === 'asc' ? -1 : 1;
+                    if (valA > valB) return direction === 'asc' ? 1 : -1;
+                    return 0;
+                });
+
+                // Update sort icons
+                ['nombre_display', 'alias_tienda', 'activo'].forEach(col => {
+                    const icon = document.getElementById(`sort-icon-store-${col}`);
+                    if (icon) {
+                        icon.textContent = col === column ? (direction === 'asc' ? 'arrow_upward' : 'arrow_downward') : '';
+                    }
+                });
+
+                let html = '';
+                sortedStores.forEach(store => {
+                    const isInactive = !store.activo;
+                    const rowClass = isInactive ? 'bg-slate-200 text-slate-500' : 'hover:bg-slate-50';
+                    const impulsoCount = impulsoCounts[store.id] || 0;
+                    const impulsoClass = impulsoCount > 0 ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-400';
+
+                    html += `<tr class="${rowClass}">
+                        <td class="p-3 text-sm font-medium">${store.nombre_display || '-'}</td>
+                        <td class="p-3 text-sm font-mono">${store.alias_tienda || '-'}</td>
+                        <td class="p-3 text-center text-sm">${store.cupo_zona_a || 0}</td>
+                        <td class="p-3 text-center text-sm">${store.cupo_zona_b || 0}</td>
+                        <td class="p-3 text-center text-sm font-bold">${store.cupo_total || 0}</td>
+                        <td class="p-3 text-center">
+                            <span class="px-2 py-1 rounded-full text-xs font-bold ${impulsoClass}">${impulsoCount}</span>
+                        </td>
+                        <td class="p-3">
+                            <span class="px-2 py-1 rounded-full text-xs font-bold ${isInactive ? 'bg-slate-400 text-white' : 'bg-green-100 text-green-700'}">
+                                ${isInactive ? 'Inactivo' : 'Activo'}
+                            </span>
+                        </td>
+                        <td class="p-3 text-center">
+                            <div class="w-8 h-8 rounded-lg mx-auto border-2 border-slate-300" style="background-color: ${store.color_hex || '#cccccc'}"></div>
+                        </td>
+                        <td class="p-3 text-center">
+                            <button onclick="app.editStore(${store.id})" class="p-1 hover:bg-blue-100 rounded transition-colors" title="Editar">
+                                <span class="material-icons text-blue-500 text-sm">edit</span>
+                            </button>
+                            <button onclick="app.deleteStore(${store.id})" class="p-1 hover:bg-red-100 rounded transition-colors ml-1" title="Eliminar">
+                                <span class="material-icons text-red-500 text-sm">delete</span>
+                            </button>
+                        </td>
+                    </tr>`;
+                });
+
+                document.getElementById('storesListBody').innerHTML = html;
+            },
+
+            sortStoresList: (column) => {
+                const current = app.state.storesListSort;
+                if (current.column === column) {
+                    current.direction = current.direction === 'asc' ? 'desc' : 'asc';
+                } else {
+                    app.state.storesListSort = { column, direction: 'asc' };
+                }
+                app.renderStoresList();
+            },
+
+            editStore: (storeId) => {
+                const store = app.state.data.tiendas.find(t => t.id === storeId);
+                if (!store) return;
+
+                Swal.fire({
+                    title: '✏️ Editar Tienda',
+                    html: `
+                        <div class="text-left space-y-4">
+                            <div class="grid grid-cols-3 gap-4">
+                                <div class="col-span-2">
+                                    <label class="block text-xs font-bold text-slate-500 mb-1">Nombre Display</label>
+                                    <input type="text" id="edit-store-nombre" value="${store.nombre_display || ''}" class="w-full p-2 border rounded-lg text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 mb-1">Bodega ID</label>
+                                    <input type="number" id="edit-store-bodegaId" value="${store.bodega_id || ''}" class="w-full p-2 border rounded-lg text-sm">
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 mb-1">Alias</label>
+                                    <input type="text" id="edit-store-alias" value="${store.alias_tienda || ''}" class="w-full p-2 border rounded-lg text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 mb-1">Color</label>
+                                    <input type="color" id="edit-store-color" value="${store.color_hex || '#cccccc'}" class="w-full h-10 rounded-lg cursor-pointer">
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-3 gap-4">
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 mb-1">Cupo Zona A</label>
+                                    <input type="number" id="edit-store-cupoA" value="${store.cupo_zona_a || 0}" class="w-full p-2 border rounded-lg text-sm" min="0">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 mb-1">Cupo Zona B</label>
+                                    <input type="number" id="edit-store-cupoB" value="${store.cupo_zona_b || 0}" class="w-full p-2 border rounded-lg text-sm" min="0">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 mb-1">Cupo Total</label>
+                                    <input type="number" id="edit-store-cupoTotal" value="${store.cupo_total || 0}" class="w-full p-2 border rounded-lg text-sm" min="0">
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <input type="checkbox" id="edit-store-activo" ${store.activo ? 'checked' : ''} class="w-4 h-4">
+                                <label for="edit-store-activo" class="text-sm text-slate-700">Activo</label>
+                            </div>
+                        </div>
+                    `,
+                    showCancelButton: true,
+                    confirmButtonText: '💾 Guardar',
+                    cancelButtonText: 'Cancelar',
+                    confirmButtonColor: '#2563eb',
+                    preConfirm: () => ({
+                        nombre_display: document.getElementById('edit-store-nombre').value,
+                        bodega_id: parseInt(document.getElementById('edit-store-bodegaId').value) || 0,
+                        alias_tienda: document.getElementById('edit-store-alias').value,
+                        color_hex: document.getElementById('edit-store-color').value,
+                        cupo_zona_a: parseInt(document.getElementById('edit-store-cupoA').value) || 0,
+                        cupo_zona_b: parseInt(document.getElementById('edit-store-cupoB').value) || 0,
+                        cupo_total: parseInt(document.getElementById('edit-store-cupoTotal').value) || 0,
+                        activo: document.getElementById('edit-store-activo').checked
+                    })
+                }).then(async (result) => {
+                    if (result.isConfirmed) {
+                        Swal.fire({ title: 'Guardando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                        const { error } = await db.from('Tiendas_Razonamiento').update(result.value).eq('id', storeId);
+                        if (error) {
+                            Swal.fire('Error', error.message, 'error');
+                        } else {
+                            const idx = app.state.data.tiendas.findIndex(t => t.id === storeId);
+                            if (idx !== -1) app.state.data.tiendas[idx] = { ...app.state.data.tiendas[idx], ...result.value };
+                            Swal.fire({ icon: 'success', title: '¡Guardado!', timer: 1500, showConfirmButton: false });
+                            app.renderStoresList();
+                            app.renderStats();
+                        }
+                    }
+                });
+            },
+
+            deleteStore: (storeId) => {
+                const store = app.state.data.tiendas.find(t => t.id === storeId);
+                if (!store) return;
+
+                Swal.fire({
+                    title: '⚠️ Eliminar Tienda',
+                    html: `
+                        <p class="mb-4">Estás a punto de eliminar <strong>${store.nombre_display}</strong>.</p>
+                        <p class="text-red-600 font-bold mb-2">Esta acción es irreversible.</p>
+                        <label class="block text-left text-xs font-bold text-slate-500 mb-1">Escribe BORRAR para confirmar:</label>
+                        <input type="text" id="confirm-delete-store" class="w-full p-2 border rounded-lg text-sm" placeholder="BORRAR">
+                    `,
+                    showCancelButton: true,
+                    confirmButtonText: '🗑️ Eliminar',
+                    cancelButtonText: 'Cancelar',
+                    confirmButtonColor: '#dc2626',
+                    preConfirm: () => {
+                        if (document.getElementById('confirm-delete-store').value !== 'BORRAR') {
+                            Swal.showValidationMessage('Debes escribir BORRAR exactamente');
+                            return false;
+                        }
+                        return true;
+                    }
+                }).then(async (result) => {
+                    if (result.isConfirmed) {
+                        Swal.fire({ title: 'Eliminando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                        const { error } = await db.from('Tiendas_Razonamiento').delete().eq('id', storeId);
+                        if (error) {
+                            Swal.fire('Error', error.message, 'error');
+                        } else {
+                            app.state.data.tiendas = app.state.data.tiendas.filter(t => t.id !== storeId);
+                            Swal.fire({ icon: 'success', title: '¡Eliminado!', timer: 1500, showConfirmButton: false });
+                            app.renderStoresList();
+                            app.renderStats();
+                        }
+                    }
+                });
+            },
+
+            openAddStoreModal: () => {
+                Swal.fire({
+                    title: '➕ Agregar Nueva Tienda',
+                    html: `
+                        <div class="text-left space-y-4">
+                            <div class="grid grid-cols-3 gap-4">
+                                <div class="col-span-2">
+                                    <label class="block text-xs font-bold text-slate-500 mb-1">Nombre Display *</label>
+                                    <input type="text" id="add-store-nombre" class="w-full p-2 border rounded-lg text-sm" required>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 mb-1">Bodega ID *</label>
+                                    <input type="number" id="add-store-bodegaId" class="w-full p-2 border rounded-lg text-sm" required>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 mb-1">Alias *</label>
+                                    <input type="text" id="add-store-alias" class="w-full p-2 border rounded-lg text-sm" required maxlength="5">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 mb-1">Color</label>
+                                    <input type="color" id="add-store-color" value="#6366f1" class="w-full h-10 rounded-lg cursor-pointer">
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-3 gap-4">
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 mb-1">Cupo Zona A</label>
+                                    <input type="number" id="add-store-cupoA" value="0" class="w-full p-2 border rounded-lg text-sm" min="0">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 mb-1">Cupo Zona B</label>
+                                    <input type="number" id="add-store-cupoB" value="0" class="w-full p-2 border rounded-lg text-sm" min="0">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 mb-1">Cupo Total</label>
+                                    <input type="number" id="add-store-cupoTotal" value="0" class="w-full p-2 border rounded-lg text-sm" min="0">
+                                </div>
+                            </div>
+                        </div>
+                    `,
+                    showCancelButton: true,
+                    confirmButtonText: '💾 Guardar',
+                    cancelButtonText: 'Cancelar',
+                    confirmButtonColor: '#16a34a',
+                    preConfirm: () => {
+                        const nombre = document.getElementById('add-store-nombre').value.trim();
+                        const alias = document.getElementById('add-store-alias').value.trim();
+                        const bodegaId = document.getElementById('add-store-bodegaId').value.trim();
+
+                        if (!nombre || !alias || !bodegaId) {
+                            Swal.showValidationMessage('Nombre, Bodega ID y Alias son obligatorios');
+                            return false;
+                        }
+
+                        return {
+                            nombre_display: nombre,
+                            bodega_id: parseInt(bodegaId),
+                            alias_tienda: alias,
+                            color_hex: document.getElementById('add-store-color').value,
+                            cupo_zona_a: parseInt(document.getElementById('add-store-cupoA').value) || 0,
+                            cupo_zona_b: parseInt(document.getElementById('add-store-cupoB').value) || 0,
+                            cupo_total: parseInt(document.getElementById('add-store-cupoTotal').value) || 0,
+                            activo: true
+                        };
+                    }
+                }).then(async (result) => {
+                    if (result.isConfirmed) {
+                        Swal.fire({ title: 'Guardando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                        const { data, error } = await db.from('Tiendas_Razonamiento').insert(result.value).select();
+                        if (error) {
+                            Swal.fire('Error', error.message, 'error');
+                        } else {
+                            if (data && data[0]) app.state.data.tiendas.push(data[0]);
+                            Swal.fire({ icon: 'success', title: '¡Agregado!', timer: 1500, showConfirmButton: false });
+                            app.renderStoresList();
+                            app.renderStats();
+                        }
+                    }
+                });
+            },
+
+            // --- CATEGORIES LIST VIEW ---
+            showCategoriesList: () => {
+                if (!app.checkAdmin()) return; // Block access for guests
+                app.hideAllViews();
+                document.getElementById('categoriesListView').classList.remove('hidden');
+                app.renderCategoriesList();
+            },
+
+            closeCategoriesList: () => {
+                document.getElementById('categoriesListView').classList.add('hidden');
+                document.getElementById('mainCalendarView').classList.remove('hidden');
+            },
+
+            renderCategoriesList: () => {
+                if (!app.state.data.categorias) return; // Safety check
+
+                const year = app.state.currentDate.getFullYear();
+                const month = app.state.currentDate.getMonth();
+
+                // Calculate schedule counts for this month per category
+                // Logic: Iterate schedules -> get person -> get category -> increment
+                const categoryCounts = {};
+                app.state.data.categorias.forEach(c => categoryCounts[c.id] = 0);
+
+                app.state.data.horarios.forEach(h => {
+                    const d = new Date(h.fecha + 'T00:00:00');
+                    if (d.getMonth() === month && d.getFullYear() === year) {
+                        const person = app.state.data.personal.find(p => p.id === h.impulsadora_id);
+                        if (person && person.idCategoria) {
+                            // Only increment if the category exists in our tracking object
+                            if (categoryCounts[person.idCategoria] !== undefined) {
+                                categoryCounts[person.idCategoria]++;
+                            }
+                        }
+                    }
+                });
+
+                let html = '';
+                app.state.data.categorias.forEach(cat => {
+                    const count = categoryCounts[cat.id] || 0;
+                    const countClass = count > 0 ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-400';
+                    const zonaName = cat.id_zona === 1 ? 'Zona A' : (cat.id_zona === 2 ? 'Zona B' : 'N/A');
+                    const zonaClass = cat.id_zona === 1 ? 'bg-blue-100 text-blue-700' : (cat.id_zona === 2 ? 'bg-purple-100 text-purple-700' : 'bg-slate-100');
+
+                    html += `<tr class="hover:bg-slate-50">
+                        <td class="p-3 text-sm font-mono text-slate-500">#${cat.id}</td>
+                        <td class="p-3 text-sm font-medium text-slate-800">${cat.descripcion}</td>
+                        <td class="p-3 text-center">
+                            <span class="px-2 py-1 rounded-full text-xs font-bold ${zonaClass}">${zonaName}</span>
+                        </td>
+                        <td class="p-3 text-center">
+                            <span class="px-2 py-1 rounded-full text-xs font-bold ${countClass}">${count}</span>
+                        </td>
+                        <td class="p-3 text-center">
+                            <button onclick="app.editCategory(${cat.id})" class="p-1 hover:bg-blue-100 rounded transition-colors" title="Editar">
+                                <span class="material-icons text-blue-500 text-sm">edit</span>
+                            </button>
+                            <button onclick="app.deleteCategory(${cat.id})" class="p-1 hover:bg-red-100 rounded transition-colors ml-1" title="Eliminar">
+                                <span class="material-icons text-red-500 text-sm">delete</span>
+                            </button>
+                        </td>
+                    </tr>`;
+                });
+
+                document.getElementById('categoriesListBody').innerHTML = html;
+            },
+
+            editCategory: (catId) => {
+                const cat = app.state.data.categorias.find(c => c.id === catId);
+                if (!cat) return;
+
+                Swal.fire({
+                    title: '✏️ Editar Categoría',
+                    html: `
+                        <div class="text-left space-y-4">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Nombre (Descripción)</label>
+                                <input type="text" id="edit-cat-desc" value="${cat.descripcion}" class="w-full p-2 border rounded-lg text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Zona Vinculada</label>
+                                <select id="edit-cat-zona" class="w-full p-2 border rounded-lg text-sm">
+                                    <option value="1" ${cat.id_zona === 1 ? 'selected' : ''}>Zona A</option>
+                                    <option value="2" ${cat.id_zona === 2 ? 'selected' : ''}>Zona B</option>
+                                </select>
+                            </div>
+                        </div>
+                    `,
+                    showCancelButton: true,
+                    confirmButtonText: '💾 Guardar',
+                    cancelButtonText: 'Cancelar',
+                    confirmButtonColor: '#2563eb',
+                    preConfirm: () => ({
+                        descripcion: document.getElementById('edit-cat-desc').value.trim(),
+                        id_zona: parseInt(document.getElementById('edit-cat-zona').value)
+                    })
+                }).then(async (result) => {
+                    if (result.isConfirmed) {
+                        const { descripcion, id_zona } = result.value;
+                        if (!descripcion) {
+                            Swal.fire('Error', 'El nombre es obligatorio', 'error');
+                            return;
+                        }
+
+                        Swal.fire({ title: 'Guardando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                        const { error } = await db.from('Tiendas_Categorias').update({ descripcion, id_zona }).eq('id', catId);
+
+                        if (error) {
+                            Swal.fire('Error', error.message, 'error');
+                        } else {
+                            const idx = app.state.data.categorias.findIndex(c => c.id === catId);
+                            if (idx !== -1) app.state.data.categorias[idx] = { ...app.state.data.categorias[idx], descripcion, id_zona };
+                            Swal.fire({ icon: 'success', title: '¡Guardado!', timer: 1500, showConfirmButton: false });
+                            app.renderCategoriesList();
+                            app.renderStats();
+                        }
+                    }
+                });
+            },
+
+            deleteCategory: (catId) => {
+                const cat = app.state.data.categorias.find(c => c.id === catId);
+                if (!cat) return;
+
+                Swal.fire({
+                    title: '⚠️ Eliminar Categoría',
+                    html: `
+                        <p class="mb-4">Estás a punto de eliminar <strong>${cat.descripcion}</strong>.</p>
+                        <p class="text-red-600 font-bold mb-2">Esta acción es irreversible.</p>
+                        <p class="text-xs text-slate-500 mb-2">Asegúrate de que no haya personal asignado a esta categoría.</p>
+                        <label class="block text-left text-xs font-bold text-slate-500 mb-1">Escribe BORRAR para confirmar:</label>
+                        <input type="text" id="confirm-delete-cat" class="w-full p-2 border rounded-lg text-sm" placeholder="BORRAR">
+                    `,
+                    showCancelButton: true,
+                    confirmButtonText: '🗑️ Eliminar',
+                    cancelButtonText: 'Cancelar',
+                    confirmButtonColor: '#dc2626',
+                    preConfirm: () => {
+                        if (document.getElementById('confirm-delete-cat').value !== 'BORRAR') {
+                            Swal.showValidationMessage('Debes escribir BORRAR exactamente');
+                            return false;
+                        }
+                        return true;
+                    }
+                }).then(async (result) => {
+                    if (result.isConfirmed) {
+                        Swal.fire({ title: 'Eliminando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                        const { error } = await db.from('Tiendas_Categorias').delete().eq('id', catId);
+                        if (error) {
+                            Swal.fire('Error', error.message, 'error');
+                        } else {
+                            app.state.data.categorias = app.state.data.categorias.filter(c => c.id !== catId);
+                            Swal.fire({ icon: 'success', title: '¡Eliminado!', timer: 1500, showConfirmButton: false });
+                            app.renderCategoriesList();
+                        }
+                    }
+                });
+            },
+
+            openAddCategoryModal: () => {
+                Swal.fire({
+                    title: '➕ Agregar Nueva Categoría',
+                    html: `
+                        <div class="text-left space-y-4">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Nombre (Descripción) *</label>
+                                <input type="text" id="add-cat-desc" class="w-full p-2 border rounded-lg text-sm" required>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Zona Vinculada</label>
+                                <select id="add-cat-zona" class="w-full p-2 border rounded-lg text-sm">
+                                    <option value="1">Zona A</option>
+                                    <option value="2">Zona B</option>
+                                </select>
+                            </div>
+                        </div>
+                    `,
+                    showCancelButton: true,
+                    confirmButtonText: '💾 Guardar',
+                    cancelButtonText: 'Cancelar',
+                    confirmButtonColor: '#16a34a',
+                    preConfirm: () => {
+                        const descripcion = document.getElementById('add-cat-desc').value.trim();
+                        if (!descripcion) {
+                            Swal.showValidationMessage('El nombre es obligatorio');
+                            return false;
+                        }
+                        return {
+                            descripcion,
+                            id_zona: parseInt(document.getElementById('add-cat-zona').value)
+                        };
+                    }
+                }).then(async (result) => {
+                    if (result.isConfirmed) {
+                        Swal.fire({ title: 'Guardando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                        const { data, error } = await db.from('Tiendas_Categorias').insert(result.value).select();
+                        if (error) {
+                            Swal.fire('Error', error.message, 'error');
+                        } else {
+                            if (data && data[0]) app.state.data.categorias.push(data[0]);
+                            Swal.fire({ icon: 'success', title: '¡Agregado!', timer: 1500, showConfirmButton: false });
+                            app.renderCategoriesList();
+                            app.renderStats();
+                        }
+                    }
+                });
+            },
+
+            // --- PERSON CALENDAR VIEW ---
+            showPersonCalendar: (personId) => {
+                app.state.selectedPerson = personId;
+                document.getElementById('mainCalendarView').classList.add('hidden');
+                document.getElementById('personCalendarView').classList.remove('hidden');
+                app.renderPersonCalendar();
+            },
+
+            closePersonCalendar: () => {
+                app.state.selectedPerson = null;
+                document.getElementById('personCalendarView').classList.add('hidden');
+                document.getElementById('mainCalendarView').classList.remove('hidden');
+            },
+
+            renderPersonCalendar: () => {
+                const personId = app.state.selectedPerson;
+                if (!personId) return;
+
+                const person = app.state.data.personal.find(p => p.id === personId);
+                if (!person) return;
+
+                const category = app.state.data.categorias.find(c => c.id === person.idCategoria);
+                const year = app.state.currentDate.getFullYear();
+                const month = app.state.currentDate.getMonth();
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                const firstDayOfMonth = new Date(year, month, 1).getDay(); // 0=Sun
+
+                // Get assignments for this person this month
+                const personAssignments = app.state.data.horarios.filter(h => {
+                    const d = new Date(h.fecha + 'T00:00:00');
+                    return h.impulsadora_id === personId && d.getMonth() === month && d.getFullYear() === year;
+                });
+
+                // Update Header
+                const initials = person.nombre_completo.split(' ').map(n => n[0]).join('').substring(0, 2);
+                const catColor = category ? (category.id_zona === 1 ? '#3b82f6' : '#f59e0b') : '#64748b';
+                document.getElementById('personAvatar').innerHTML = initials;
+                document.getElementById('personAvatar').style.backgroundColor = catColor;
+                document.getElementById('personName').textContent = person.nombre_completo;
+                document.getElementById('personCategory').textContent = `• ${category?.descripcion || 'Sin categoría'} | ${person.Marca || 'Sin marca'}`;
+
+                // Show PIN badge if available
+                const pinBadge = document.getElementById('personPinBadge');
+                if (person.pin) {
+                    document.getElementById('personPin').textContent = person.pin;
+                    pinBadge.classList.remove('hidden');
+                } else {
+                    pinBadge.classList.add('hidden');
+                }
+
+                const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+                document.getElementById('personMonthDisplay').textContent = `${monthNames[month]} ${year}`;
+
+                // --- Desktop Calendar Grid ---
+                let gridHtml = '<table class="w-full border-collapse">';
+                gridHtml += '<thead><tr>';
+                const dayNames = ['LUNES', 'MARTES', 'MIÉRCOLES', 'JUEVES', 'VIERNES', 'SÁBADO', 'DOMINGO'];
+                dayNames.forEach((d, i) => {
+                    const isWeekend = i >= 5;
+                    gridHtml += `<th class="p-2 text-xs font-bold ${isWeekend ? 'text-blue-500' : 'text-slate-500'} border-b border-slate-200">${d}</th>`;
+                });
+                gridHtml += '</tr></thead><tbody>';
+
+                // Adjust first day (JS: 0=Sun, we want 0=Mon)
+                let startDay = firstDayOfMonth === 0 ? 6 : firstDayOfMonth - 1;
+
+                let currentDay = 1;
+                for (let week = 0; week < 6; week++) {
+                    if (currentDay > daysInMonth) break;
+                    gridHtml += '<tr>';
+                    for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
+                        if ((week === 0 && dayOfWeek < startDay) || currentDay > daysInMonth) {
+                            // Empty cell (prev/next month)
+                            gridHtml += '<td class="p-2 h-24 border border-slate-100 bg-slate-50/50 align-top"></td>';
+                        } else {
+                            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(currentDay).padStart(2, '0')}`;
+                            const assignment = personAssignments.find(a => a.fecha === dateStr);
+                            const isWeekend = dayOfWeek >= 5;
+
+                            gridHtml += `<td class="p-2 h-24 border border-slate-100 ${isWeekend ? 'bg-amber-50/30' : ''} align-top">`;
+                            gridHtml += `<div class="text-sm font-bold text-slate-400 mb-1">${currentDay}</div>`;
+
+                            if (assignment) {
+                                const store = app.state.data.tiendas.find(t => t.id === assignment.tienda_id);
+                                if (store) {
+                                    gridHtml += `<div class="p-2 rounded-lg text-xs" style="background-color: ${store.color_hex}20;">
+                                        <div class="font-bold text-slate-700">${store.nombre_display}</div>
+                                        <span class="inline-block w-5 h-5 rounded text-center text-white text-[10px] font-bold leading-5 mt-1" style="background-color: ${store.color_hex}">${store.alias_tienda}</span>
+                                    </div>`;
+                                }
+                            } else {
+                                // Free day
+                                if (isWeekend) {
+                                    gridHtml += `<div class="text-xs text-amber-400 italic">Día Libre</div>`;
+                                }
+                            }
+                            gridHtml += '</td>';
+                            currentDay++;
+                        }
+                    }
+                    gridHtml += '</tr>';
+                }
+                gridHtml += '</tbody></table>';
+                document.getElementById('personCalendarGrid').innerHTML = gridHtml;
+
+                // --- Mobile List View ---
+                let listHtml = '<div class="divide-y divide-slate-100">';
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                    const dateObj = new Date(year, month, d);
+                    const dayName = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'][dateObj.getDay()];
+                    const isWeekend = dateObj.getDay() === 0 || dateObj.getDay() === 6;
+                    const assignment = personAssignments.find(a => a.fecha === dateStr);
+
+                    listHtml += `<div class="flex items-center p-4 ${isWeekend ? 'bg-amber-50/50' : ''}">`;
+                    listHtml += `<div class="w-12 text-center mr-4">
+                        <div class="text-[10px] font-bold ${isWeekend ? 'text-blue-500' : 'text-slate-400'}">${dayName}</div>
+                        <div class="text-2xl font-bold text-slate-700">${d}</div>
+                    </div>`;
+
+                    if (assignment) {
+                        const store = app.state.data.tiendas.find(t => t.id === assignment.tienda_id);
+                        if (store) {
+                            listHtml += `<div class="flex-1">
+                                <div class="font-bold text-slate-800">${store.nombre_display}</div>
+                            </div>
+                            <span class="w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold" style="background-color: ${store.color_hex}">${store.alias_tienda}</span>
+                            <div class="w-1 h-10 rounded-full ml-3" style="background-color: ${store.color_hex}"></div>`;
+                        }
+                    } else {
+                        listHtml += `<div class="flex-1 text-slate-400 italic">
+                            <span class="material-icons text-sm align-middle mr-1">event_busy</span> Día Libre
+                        </div>`;
+                    }
+                    listHtml += '</div>';
+                }
+                listHtml += '</div>';
+                document.getElementById('personCalendarList').innerHTML = listHtml;
+            },
+
+            openEditPersonModal: () => {
+                const personId = app.state.selectedPerson;
+                if (!personId) return;
+
+                const person = app.state.data.personal.find(p => p.id === personId);
+                if (!person) return;
+
+                // Get unique marcas for autocomplete
+                const marcas = [...new Set(app.state.data.personal.map(p => p.Marca).filter(Boolean))];
+                const marcasOptions = marcas.map(m => `<option value="${m}">`).join('');
+
+                // Categories dropdown
+                const catOptions = app.state.data.categorias.map(c =>
+                    `<option value="${c.id}" ${c.id === person.idCategoria ? 'selected' : ''}>${c.descripcion}</option>`
+                ).join('');
+
+                Swal.fire({
+                    title: '✏️ Editar Perfil',
+                    html: `
+                        <div class="text-left space-y-4">
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 mb-1">Código de Venta</label>
+                                    <input type="text" id="edit-idvendedor" value="${person.idVendedor || ''}" 
+                                        class="w-full p-2 border rounded-lg text-sm" placeholder="Código...">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 mb-1">Nombre Completo</label>
+                                    <input type="text" id="edit-nombre" value="${person.nombre_completo || ''}" 
+                                        class="w-full p-2 border rounded-lg text-sm">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Marca</label>
+                                <input type="text" id="edit-marca" value="${person.Marca || ''}" list="marcas-list"
+                                    class="w-full p-2 border rounded-lg text-sm" placeholder="Escribe o selecciona...">
+                                <datalist id="marcas-list">${marcasOptions}</datalist>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Categoría</label>
+                                <select id="edit-categoria" class="w-full p-2 border rounded-lg text-sm">
+                                    <option value="">Sin Categoría</option>
+                                    ${catOptions}
+                                </select>
+                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 mb-1">WhatsApp</label>
+                                    <input type="tel" id="edit-whatsapp" value="${person.Whatsapp || ''}" 
+                                        class="w-full p-2 border rounded-lg text-sm" placeholder="+593...">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-500 mb-1">Correo</label>
+                                    <input type="email" id="edit-correo" value="${person.Correo || ''}" 
+                                        class="w-full p-2 border rounded-lg text-sm" placeholder="email@...">
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <input type="checkbox" id="edit-habilitado" ${person.Habilitado ? 'checked' : ''} class="w-4 h-4">
+                                <label for="edit-habilitado" class="text-sm text-slate-700">Habilitado</label>
+                            </div>
+                        </div>
+                    `,
+                    showCancelButton: true,
+                    confirmButtonText: '💾 Guardar',
+                    cancelButtonText: 'Cancelar',
+                    confirmButtonColor: '#2563eb',
+                    preConfirm: () => {
+                        const catVal = document.getElementById('edit-categoria').value;
+                        return {
+                            idVendedor: document.getElementById('edit-idvendedor').value,
+                            nombre_completo: document.getElementById('edit-nombre').value,
+                            Marca: document.getElementById('edit-marca').value,
+                            idCategoria: catVal ? parseInt(catVal) : null,
+                            Whatsapp: document.getElementById('edit-whatsapp').value,
+                            Correo: document.getElementById('edit-correo').value,
+                            Habilitado: document.getElementById('edit-habilitado').checked
+                        };
+                    }
+                }).then(async (result) => {
+                    if (result.isConfirmed) {
+                        await app.savePersonProfile(personId, result.value);
+                    }
+                });
+            },
+
+            savePersonProfile: async (personId, data) => {
+                Swal.fire({ title: 'Guardando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+
+                const { error } = await db.from('Tiendas_Impulsadoras').update(data).eq('id', personId);
+
+                if (error) {
+                    Swal.fire('Error', error.message, 'error');
+                } else {
+                    // Update local data
+                    const idx = app.state.data.personal.findIndex(p => p.id === personId);
+                    if (idx !== -1) {
+                        app.state.data.personal[idx] = { ...app.state.data.personal[idx], ...data };
+                    }
+                    Swal.fire({ icon: 'success', title: '¡Guardado!', timer: 1500, showConfirmButton: false });
+                    app.renderPersonCalendar();
+                }
+            },
+
+            exportPersonPdf: async () => {
+                const personId = app.state.selectedPerson;
+                if (!personId) return;
+
+                const person = app.state.data.personal.find(p => p.id === personId);
+                if (!person) return;
+
+                Swal.fire({ title: 'Generando PDF...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+
+                const gridElement = document.getElementById('personCalendarGrid');
+                const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+                const month = app.state.currentDate.getMonth();
+                const year = app.state.currentDate.getFullYear();
+
+                try {
+                    const canvas = await html2canvas(gridElement, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+                    const imgData = canvas.toDataURL('image/png');
+                    const { jsPDF } = window.jspdf;
+
+                    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+                    const pdfWidth = pdf.internal.pageSize.getWidth();
+                    const pdfHeight = pdf.internal.pageSize.getHeight();
+
+                    // Add header
+                    pdf.setFontSize(16);
+                    pdf.text(`${person.nombre_completo} - ${monthNames[month]} ${year}`, 10, 15);
+
+                    // Add calendar image
+                    const imgWidth = pdfWidth - 20;
+                    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+                    pdf.addImage(imgData, 'PNG', 10, 25, imgWidth, Math.min(imgHeight, pdfHeight - 35));
+
+                    pdf.save(`Calendario_${person.nombre_completo.replace(/\\s+/g, '_')}_${monthNames[month]}_${year}.pdf`);
+                    Swal.close();
+                } catch (err) {
+                    Swal.fire('Error', 'No se pudo generar el PDF', 'error');
+                    console.error(err);
+                }
+            },
+
+            // --- INTERACTIONS ---
+            handleCellClick: (pId, dateStr, assignmentId) => {
+                // ROLE-BASED ACCESS CONTROL
+                const roleId = parseInt(sessionStorage.getItem('staffPlannerRoleId') || '0');
+
+                // Role 4 (Impulsadora) and guests cannot access
+                if (roleId === 4 || roleId === 0) return;
+
+                const person = app.state.data.personal.find(p => p.id === pId);
+                // Create friendly date string
+                const dateObj = new Date(dateStr + 'T00:00:00');
+                const friendlyDate = dateObj.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
+                // Capitalize first letter of month
+                const friendlyDateCap = friendlyDate.replace(/\b\w/g, l => l.toUpperCase());
+
+                // Save scroll position before modal opens
+                const scrollContainer = document.querySelector('.custom-scroll');
+                const savedScrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
+                const savedScrollLeft = scrollContainer ? scrollContainer.scrollLeft : 0;
+
+                const restoreScroll = () => {
+                    if (scrollContainer) {
+                        scrollContainer.scrollTop = savedScrollTop;
+                        scrollContainer.scrollLeft = savedScrollLeft;
+                    }
+                };
+
+                if (assignmentId) {
+                    // EDIT MODE
+                    const assignment = app.state.data.horarios.find(h => h.id === assignmentId);
+                    const currentStore = app.state.data.tiendas.find(t => t.id === assignment.tienda_id);
+
+                    // PUNTO DE VENTA (roleId=3): Only show incidence report button
+                    if (roleId === 3) {
+                        Swal.fire({
+                            title: 'Reportar Incidencia',
+                            html: `
+                                <div class="text-left text-sm mb-4">
+                                    <p><strong>Personal:</strong> ${person.nombre_completo}</p>
+                                    <p><strong>Fecha:</strong> ${friendlyDateCap}</p>
+                                    <p><strong>Tienda:</strong> ${currentStore.nombre_display}</p>
+                                </div>
+                                <button type="button" onclick="Swal.close(); app.openIncidenceModal(${assignmentId}, '${person.nombre_completo.replace(/'/g, "\\'")}', '${friendlyDateCap}', '${currentStore.nombre_display.replace(/'/g, "\\'")}')" 
+                                    class="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2">
+                                    <span>⚠</span> Reportar Incidencia
+                                </button>
+                            `,
+                            showConfirmButton: false,
+                            showCancelButton: true,
+                            cancelButtonText: 'Cerrar',
+                            heightAuto: false,
+                            scrollbarPadding: false,
+                            didOpen: restoreScroll
+                        });
+                        return;
+                    }
+
+                    // ADMIN (roleId=1) and ORGANIZADOR (roleId=2): Full access
+                    Swal.fire({
+                        title: `Editar Asignación`,
+                        html: `
+                            <div class="text-left text-sm mb-4">
+                                <p><strong>Personal:</strong> ${person.nombre_completo}</p>
+                                <p><strong>Fecha:</strong> ${friendlyDateCap}</p>
+                                <p><strong>Actual:</strong> ${currentStore.nombre_display}</p>
+                            </div>
+                            <label class="block text-left text-xs font-bold text-slate-500 mb-1">Cambiar a Tienda:</label>
+                            <select id="swal-store" class="w-full p-2 border rounded mb-4">
+                                ${app.state.data.tiendas.map(t => `<option value="${t.id}" ${t.id === currentStore.id ? 'selected' : ''}>${t.nombre_display}</option>`).join('')}
+                            </select>
+                            <div class="border-t pt-4 mt-2">
+                                <button type="button" onclick="Swal.close(); app.openIncidenceModal(${assignmentId}, '${person.nombre_completo.replace(/'/g, "\\'")}', '${friendlyDateCap}', '${currentStore.nombre_display.replace(/'/g, "\\'")}')" 
+                                    class="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2">
+                                    <span>⚠</span> Reportar Incidencia
+                                </button>
+                            </div>
+                        `,
+                        showDenyButton: true,
+                        showCancelButton: true,
+                        confirmButtonText: '💾 Actualizar',
+                        denyButtonText: '🗑️ Eliminar',
+                        cancelButtonText: 'Cancelar',
+                        confirmButtonColor: '#2563eb',
+                        denyButtonColor: '#ef4444',
+                        heightAuto: false,
+                        scrollbarPadding: false,
+                        didOpen: restoreScroll,
+                        preConfirm: () => {
+                            const newStoreId = parseInt(document.getElementById('swal-store').value);
+                            if (newStoreId === currentStore.id) return true; // No change
+                            return app.validateAndSave(dateStr, pId, newStoreId, assignmentId); // Update
+                        },
+                        preDeny: () => {
+                            return app.deleteAssignment(assignmentId);
+                        }
+                    });
+
+                } else {
+                    // ADD MODE - Only Admin (1) and Organizador (2) can add
+                    if (roleId === 3) {
+                        // PdV cannot add new assignments
+                        return;
+                    }
+
+                    Swal.fire({
+                        title: `Nueva Asignación`,
+                        html: `
+                            <div class="text-left text-sm mb-4">
+                                <p><strong>Personal:</strong> ${person.nombre_completo}</p>
+                                <p><strong>Fecha:</strong> ${friendlyDateCap}</p>
+                            </div>
+                            <label class="block text-left text-xs font-bold text-slate-500 mb-1">Seleccionar Tienda:</label>
+                            <select id="swal-store" class="w-full p-2 border rounded mb-4 focus:ring-2 ring-blue-500">
+                                <option value="">Seleccione...</option>
+                                ${app.state.data.tiendas.map(t => `<option value="${t.id}">${t.nombre_display}</option>`).join('')}
+                            </select>
+                        `,
+                        showCancelButton: true,
+                        confirmButtonText: '💾 Guardar',
+                        confirmButtonText: '💾 Guardar',
+                        confirmButtonColor: '#2563eb',
+                        heightAuto: false, // Prevent body height change
+                        scrollbarPadding: false, // Prevent body padding change
+                        didOpen: restoreScroll,
+                        preConfirm: () => {
+                            const storeId = document.getElementById('swal-store').value;
+                            if (!storeId) Swal.showValidationMessage('Seleccione una tienda');
+                            return app.validateAndSave(dateStr, pId, parseInt(storeId), null);
+                        }
+                    });
+                }
+            },
+
+            validateAndSave: async (dateStr, pId, tId, assignmentId) => {
+                // 1. Local Quota Validation
+                const person = app.state.data.personal.find(p => p.id === pId);
+                const store = app.state.data.tiendas.find(t => t.id === tId);
+                const catInfo = app.getCategoryInfo(person.idCategoria);
+                const isZoneA = catInfo.id_zona === 1;
+
+                // Count existing assignments for this store/date
+                // Exclude current assignment if editing
+                const otherAssignments = app.state.data.horarios.filter(h =>
+                    h.fecha === dateStr &&
+                    h.tienda_id === tId &&
+                    h.id !== assignmentId
+                );
+
+                const countTotal = otherAssignments.length;
+                const countZone = otherAssignments.filter(h => {
+                    const p = app.state.data.personal.find(x => x.id === h.impulsadora_id);
+                    const c = app.getCategoryInfo(p.idCategoria);
+                    return c.id_zona === catInfo.id_zona;
+                }).length;
+
+                const limitZone = isZoneA ? store.cupo_zona_a : store.cupo_zona_b;
+                const limitTotal = store.cupo_total;
+
+                if (countZone >= limitZone) {
+                    Swal.showValidationMessage(`⛔ Cupo Lleno para ${isZoneA ? 'Zona A' : 'Zona B'} (${countZone}/${limitZone})`);
+                    return false;
+                }
+                if (countTotal >= limitTotal) {
+                    Swal.showValidationMessage(`⛔ Cupo Total de Tienda Lleno (${countTotal}/${limitTotal})`);
+                    return false;
+                }
+
+                // 2. Perform DB Action
+                try {
+                    if (assignmentId) {
+                        // UPDATE
+                        const oldAssignment = app.state.data.horarios.find(h => h.id === assignmentId);
+                        const oldStore = app.state.data.tiendas.find(t => t.id === oldAssignment?.tienda_id);
+
+                        const { error } = await db.from('Tiendas_Horario')
+                            .update({ tienda_id: tId })
+                            .eq('id', assignmentId);
+                        if (error) throw error;
+
+                        // Log the edit
+                        app.logAction('EDITAR', 'Tiendas_Horario', assignmentId,
+                            `Cambió asignación de ${person.nombre_completo} de ${oldStore?.nombre_display || 'N/A'} a ${store.nombre_display} (${dateStr})`,
+                            { tienda_anterior: oldAssignment?.tienda_id, tienda_nueva: tId, fecha: dateStr, impulsadora_id: pId }
+                        );
+                    } else {
+                        // INSERT
+                        const { data: newData, error } = await db.from('Tiendas_Horario')
+                            .insert({
+                                fecha: dateStr,
+                                tienda_id: tId,
+                                impulsadora_id: pId,
+                                categoria_asignada_id: person.idCategoria
+                            })
+                            .select();
+                        if (error) throw error;
+
+                        // Log the creation
+                        const newId = newData?.[0]?.id;
+                        app.logAction('ASIGNAR', 'Tiendas_Horario', newId,
+                            `Asignó a ${person.nombre_completo} en ${store.nombre_display} el ${dateStr}`,
+                            { tienda_id: tId, impulsadora_id: pId, fecha: dateStr }
+                        );
+                    }
+
+                    app.refreshDataOnly(); // Refresh without losing scroll
+                    return true;
+                } catch (e) {
+                    Swal.showValidationMessage(`Error en base de datos: ${e.message}`);
+                    return false;
+                }
+            },
+
+            deleteAssignment: async (assignmentId) => {
+                // Get assignment info before deleting for logging
+                const assignment = app.state.data.horarios.find(h => h.id === assignmentId);
+                const person = assignment ? app.state.data.personal.find(p => p.id === assignment.impulsadora_id) : null;
+                const store = assignment ? app.state.data.tiendas.find(t => t.id === assignment.tienda_id) : null;
+
+                const { error } = await db.from('Tiendas_Horario').delete().eq('id', assignmentId);
+                if (error) {
+                    Swal.fire('Error', error.message, 'error');
+                    return false;
+                }
+
+                // Log the deletion
+                app.logAction('ELIMINAR', 'Tiendas_Horario', assignmentId,
+                    `Eliminó asignación de ${person?.nombre_completo || 'N/A'} en ${store?.nombre_display || 'N/A'} (${assignment?.fecha || 'N/A'})`,
+                    { tienda_id: assignment?.tienda_id, impulsadora_id: assignment?.impulsadora_id, fecha: assignment?.fecha }
+                );
+
+                app.refreshDataOnly();
+                return true;
+            },
+
+            // --- INCIDENCE MODAL ---
+            openIncidenceModal: (assignmentId, personName, dateStr, storeName) => {
+                Swal.fire({
+                    title: '⚠️ Reportar Incidencia',
+                    html: `
+                        <div class="text-left text-sm mb-4">
+                            <p><strong>Personal:</strong> ${personName}</p>
+                            <p><strong>Fecha:</strong> ${dateStr}</p>
+                            <p><strong>Tienda:</strong> ${storeName}</p>
+                        </div>
+                        <label class="block text-left text-xs font-bold text-slate-500 mb-1">Tipo de Incidencia:</label>
+                        <select id="incidence-type" class="w-full p-2 border rounded mb-4">
+                            <option value="FALTA">No se presentó (Falta)</option>
+                            <option value="TARDANZA">Llegó tarde</option>
+                            <option value="SALIDA_TEMPRANA">Salió antes de tiempo</option>
+                            <option value="OTRO">Otro</option>
+                        </select>
+                        <label class="block text-left text-xs font-bold text-slate-500 mb-1">Observación:</label>
+                        <textarea id="incidence-obs" class="w-full p-2 border rounded mb-4" rows="3" placeholder="Describe la incidencia..."></textarea>
+                    `,
+                    showCancelButton: true,
+                    confirmButtonText: '📝 Registrar',
+                    confirmButtonColor: '#f97316',
+                    cancelButtonText: 'Cancelar',
+                    heightAuto: false,
+                    scrollbarPadding: false,
+                    preConfirm: async () => {
+                        const tipo = document.getElementById('incidence-type').value;
+                        const obs = document.getElementById('incidence-obs').value.trim();
+
+                        if (!obs) {
+                            Swal.showValidationMessage('Por favor ingresa una observación');
+                            return false;
+                        }
+
+                        try {
+                            // Get current user info
+                            const userEmail = JSON.parse(sessionStorage.getItem('staffPlannerUser') || '{}').email || 'Sistema';
+
+                            // 1. Save incidence to database
+                            const { data, error } = await db.from('Tiendas_Faltas').insert({
+                                id_horario: assignmentId,
+                                asunto: tipo,
+                                observacion: obs,
+                                email_usuario: userEmail
+                            }).select();
+
+                            if (error) throw error;
+
+                            // 2. Get Admin and Organizador emails from Tiendas_Usuarios
+                            const { data: admins } = await db
+                                .from('Tiendas_Usuarios')
+                                .select('email')
+                                .in('id_rol', [1, 2]) // Admin (1) and Organizador (2)
+                                .eq('activo', true);
+
+                            const recipientEmails = admins?.map(u => u.email).filter(Boolean) || [];
+
+                            // 3. Send email notification via Edge Function (if recipients exist)
+                            if (recipientEmails.length > 0) {
+                                try {
+                                    await db.functions.invoke('send-incidence-email', {
+                                        body: {
+                                            incidenceType: tipo,
+                                            observation: obs,
+                                            personName: personName,
+                                            dateStr: dateStr,
+                                            storeName: storeName,
+                                            reportedBy: userEmail,
+                                            recipientEmails: recipientEmails
+                                        }
+                                    });
+                                    console.log('Email notification sent to:', recipientEmails);
+                                } catch (emailErr) {
+                                    console.error('Error sending email notification:', emailErr);
+                                    // Don't fail the whole operation if email fails
+                                }
+                            }
+
+                            Swal.fire({
+                                icon: 'success',
+                                title: 'Incidencia Registrada',
+                                text: recipientEmails.length > 0
+                                    ? 'Incidencia guardada y notificación enviada por email'
+                                    : 'Incidencia guardada correctamente',
+                                timer: 2500,
+                                showConfirmButton: false
+                            });
+
+                            return true;
+                        } catch (e) {
+                            Swal.showValidationMessage(`Error: ${e.message}`);
+                            return false;
+                        }
+                    }
+                });
+            },
+
+            // --- UTILS ---
+            exportToPdf: async () => {
+                Swal.fire({
+                    title: 'Generando PDF...',
+                    text: 'Capturando la tabla, espere...',
+                    allowOutsideClick: false,
+                    didOpen: () => Swal.showLoading()
+                });
+
+                // Get the table element
+                const tableContainer = document.querySelector('.bg-white.rounded-xl.shadow.border');
+                const table = tableContainer.querySelector('table');
+
+                const monthName = app.state.currentDate.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+                const filename = `Horario_${monthName.replace(' ', '_')}.pdf`;
+
+                // Temporarily remove sticky positioning
+                const stickyCols1 = document.querySelectorAll('.sticky-col-1');
+                const stickyCols2 = document.querySelectorAll('.sticky-col-2');
+                const thead = document.querySelector('thead');
+
+                stickyCols1.forEach(el => { el.dataset.origPos = el.style.position; el.style.position = 'static'; });
+                stickyCols2.forEach(el => { el.dataset.origPos = el.style.position; el.style.position = 'static'; });
+                thead.style.position = 'static';
+
+                // --- FIX FOR PDF: Expand truncated names & Center text ---
+                // 1. Expand names (remove truncate)
+                const truncatedElements = table.querySelectorAll('.truncate');
+                truncatedElements.forEach(el => {
+                    el.classList.remove('truncate');
+                    el.classList.add('whitespace-normal', 'text-wrap-fix'); // Add temporay class
+                    el.style.whiteSpace = 'normal';
+                });
+
+                // 2. Ensure Centering (add specific flex/alignment styles for html2canvas)
+                const centeredCells = table.querySelectorAll('.flex.items-center.justify-center');
+                centeredCells.forEach(el => {
+                    el.style.display = 'flex';
+                    el.style.justifyContent = 'center'; // Explicit for html2canvas
+                    el.style.alignItems = 'center';     // Explicit for html2canvas
+                    el.style.textAlign = 'center';
+                });
+
+                try {
+                    // Use html2canvas to capture the table as an image
+                    const canvas = await html2canvas(table, {
+                        scale: 2,
+                        useCORS: true,
+                        logging: false,
+                        backgroundColor: '#ffffff'
+                    });
+
+                    // Create PDF with jsPDF
+                    const imgData = canvas.toDataURL('image/png');
+                    const imgWidth = canvas.width;
+                    const imgHeight = canvas.height;
+
+                    // Calculate PDF dimensions (convert pixels to mm at 96dpi)
+                    const pxToMm = 0.264583; // 1px = 0.264583mm at 96dpi
+                    const pdfWidth = imgWidth * pxToMm / 2; // /2 because scale:2
+                    const pdfHeight = imgHeight * pxToMm / 2;
+
+                    const { jsPDF } = window.jspdf;
+                    const pdf = new jsPDF({
+                        orientation: pdfWidth > pdfHeight ? 'landscape' : 'portrait',
+                        unit: 'mm',
+                        format: [pdfWidth + 20, pdfHeight + 20] // +20mm margin
+                    });
+
+                    pdf.addImage(imgData, 'PNG', 10, 10, pdfWidth, pdfHeight);
+                    pdf.save(filename);
+
+                    Swal.fire({
+                        icon: 'success',
+                        title: '¡PDF Generado!',
+                        text: filename,
+                        timer: 2000,
+                        showConfirmButton: false
+                    });
+                } catch (err) {
+                    console.error('PDF Error:', err);
+                    Swal.fire('Error', 'No se pudo generar el PDF: ' + err.message, 'error');
+                } finally {
+                    // Restore sticky positioning
+                    stickyCols1.forEach(el => el.style.position = 'sticky');
+                    stickyCols2.forEach(el => el.style.position = 'sticky');
+                    thead.style.position = 'sticky';
+
+                    // Restore truncated names
+                    truncatedElements.forEach(el => {
+                        el.classList.add('truncate');
+                        el.classList.remove('whitespace-normal', 'text-wrap-fix');
+                        el.style.whiteSpace = '';
+                    });
+
+                    // Restore cells (optional, mainly cleaning up inline styles if needed, but not critical)
+                    centeredCells.forEach(el => {
+                        el.style.display = '';
+                        el.style.justifyContent = '';
+                        el.style.alignItems = '';
+                        el.style.textAlign = '';
+                    });
+                }
+            },
+
+            showUserGuide: () => {
+                Swal.fire({
+                    title: '📚 Guía de Uso Rápida',
+                    width: '800px',
+                    html: `
+                        <div class="text-left space-y-6 text-slate-700">
+                            <!-- Section 1: Navigation -->
+                            <div class="flex gap-4">
+                                <div class="text-3xl">🔍</div>
+                                <div>
+                                    <h3 class="font-bold text-lg text-slate-800">1. Filtros y Búsqueda</h3>
+                                    <p class="text-sm">Usa el panel izquierdo para filtrar por <strong>Zona</strong> (A/B), seleccionar tiendas específicas o buscar personal por nombre/marca.</p>
+                                </div>
+                            </div>
+
+                            <!-- Section 2: Management -->
+                            <div class="flex gap-4">
+                                <div class="text-3xl">⚙️</div>
+                                <div>
+                                    <h3 class="font-bold text-lg text-slate-800">2. Gestión (Tarjetas Superiores)</h3>
+                                    <ul class="text-sm list-disc pl-4 space-y-1">
+                                        <li><strong>Staff Activo:</strong> Click para gestionar Personal (Agregar, Editar, Activar/Desactivar).</li>
+                                        <li><strong>Tiendas:</strong> Click para gestionar Tiendas y sus cupos.</li>
+                                        <li><strong>Categorías:</strong> Click para gestionar Categorías y zonas.</li>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <!-- Section 3: Calendar -->
+                            <div class="flex gap-4">
+                                <div class="text-3xl">📅</div>
+                                <div>
+                                    <h3 class="font-bold text-lg text-slate-800">3. Calendario e Interacción</h3>
+                                    <ul class="text-sm list-disc pl-4 space-y-1">
+                                        <li><strong>Asignar Tienda:</strong> Haz click en cualquier celda vacía o llena para asignar/cambiar una tienda.</li>
+                                        <li><strong>Vista Individual:</strong> Haz click en el icono de "ojo" 👁️ junto al nombre de la impulsadora para ver solo su calendario.</li>
+                                        <li><strong>Meses:</strong> Usa las flechas < > arriba a la derecha para cambiar de mes.</li>
+                                    </ul>
+                                </div>
+                            </div>
+
+                             <!-- Section 4: Export -->
+                            <div class="flex gap-4">
+                                <div class="text-3xl">📄</div>
+                                <div>
+                                    <h3 class="font-bold text-lg text-slate-800">4. Reportes</h3>
+                                    <p class="text-sm">Usa el botón azul <strong>Exportar PDF</strong> para descargar la vista actual del calendario tal como se ve en pantalla.</p>
+                                </div>
+                            </div>
+                        </div>
+                    `,
+                    confirmButtonText: '¡Entendido!',
+                    confirmButtonColor: '#2563eb'
+                });
+            },
+
+            // --- INCIDENCE REPORTING ---
+            openIncidenceModal: (horarioId, personName, dateStr, storeName) => {
+                const asuntoOptions = [
+                    'Falta Injustificada',
+                    'Falta Justificada',
+                    'Impuntualidad',
+                    'Presentación',
+                    'Actitud',
+                    'Queja de Cliente',
+                    'Otros'
+                ];
+
+                Swal.fire({
+                    title: '⚠️ Reportar Incidencia',
+                    html: `
+                        <div class="text-left text-sm mb-4 bg-slate-100 p-3 rounded-lg">
+                            <p><strong>Personal:</strong> ${personName}</p>
+                            <p><strong>Fecha:</strong> ${dateStr}</p>
+                            <p><strong>Tienda:</strong> ${storeName}</p>
+                        </div>
+                        <label class="block text-left text-xs font-bold text-slate-500 mb-1">Tipo de Incidencia *</label>
+                        <select id="incidencia-asunto" class="w-full p-2 border rounded-lg mb-4 focus:ring-2 ring-orange-500">
+                            <option value="">Seleccione...</option>
+                            ${asuntoOptions.map(a => `<option value="${a}">${a}</option>`).join('')}
+                        </select>
+                        <label class="block text-left text-xs font-bold text-slate-500 mb-1">Observación (opcional)</label>
+                        <textarea id="incidencia-observacion" class="w-full p-2 border rounded-lg h-24 resize-none focus:ring-2 ring-orange-500" placeholder="Describe el detalle de la incidencia..."></textarea>
+                    `,
+                    showCancelButton: true,
+                    confirmButtonText: '💾 Guardar Reporte',
+                    cancelButtonText: 'Cancelar',
+                    confirmButtonColor: '#f97316',
+                    preConfirm: () => {
+                        const asunto = document.getElementById('incidencia-asunto').value;
+                        const observacion = document.getElementById('incidencia-observacion').value;
+
+                        if (!asunto) {
+                            Swal.showValidationMessage('Selecciona un tipo de incidencia');
+                            return false;
+                        }
+
+                        return { asunto, observacion };
+                    }
+                }).then(async (result) => {
+                    if (result.isConfirmed) {
+                        await app.saveIncidence(horarioId, result.value.asunto, result.value.observacion);
+                    }
+                });
+            },
+
+            saveIncidence: async (horarioId, asunto, observacion) => {
+                Swal.fire({ title: 'Guardando reporte...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+
+                try {
+                    // 1. Get horario details for email
+                    const horario = app.state.data.horarios.find(h => h.id === horarioId);
+                    const person = horario ? app.state.data.personal.find(i => i.id === horario.impulsadora_id) : null;
+                    const store = horario ? app.state.data.tiendas.find(t => t.id === horario.tienda_id) : null;
+                    const personName = person?.nombre_completo || 'Desconocido';
+                    const storeName = store?.nombre_display || 'Desconocida';
+                    const dateStr = horario?.fecha || 'Desconocida';
+
+                    // 2. Save incidence to database
+                    const { error } = await db.from('Tiendas_Faltas').insert({
+                        id_horario: horarioId,
+                        asunto: asunto,
+                        observacion: observacion || null
+                    });
+
+                    if (error) throw error;
+
+                    // 3. Get Admin and Organizador emails
+                    const { data: admins } = await db
+                        .from('Tiendas_Usuarios')
+                        .select('email')
+                        .in('id_rol', [1, 2])
+                        .eq('activo', true);
+
+                    let recipientEmails = admins?.map(u => u.email).filter(Boolean) || [];
+
+                    // 4. Get employee email from Tiendas_Impulsadoras (if exists and valid)
+                    if (horario?.impulsadora_id) {
+                        const { data: empleado } = await db
+                            .from('Tiendas_Impulsadoras')
+                            .select('Correo')
+                            .eq('id', horario.impulsadora_id)
+                            .single();
+
+                        const empleadoEmail = empleado?.Correo;
+                        // Validate email has @ symbol
+                        if (empleadoEmail && empleadoEmail.includes('@')) {
+                            recipientEmails.push(empleadoEmail);
+                        }
+                    }
+
+                    // Remove duplicates
+                    recipientEmails = [...new Set(recipientEmails)];
+
+                    // 5. Send email notification
+                    if (recipientEmails.length > 0) {
+                        try {
+                            const userEmail = JSON.parse(sessionStorage.getItem('staffPlannerUser') || '{}').email || 'Sistema';
+
+                            await db.functions.invoke('send-incidence-email', {
+                                body: {
+                                    incidenceType: asunto,
+                                    observation: observacion || 'Sin observación',
+                                    personName: personName,
+                                    dateStr: dateStr,
+                                    storeName: storeName,
+                                    reportedBy: userEmail,
+                                    recipientEmails: recipientEmails
+                                }
+                            });
+                            console.log('Email sent to:', recipientEmails);
+                        } catch (emailErr) {
+                            console.error('Error sending email:', emailErr);
+                        }
+                    }
+
+                    Swal.fire({
+                        icon: 'success',
+                        title: '¡Reporte Guardado!',
+                        text: recipientEmails.length > 0
+                            ? 'Incidencia registrada y notificación enviada'
+                            : 'La incidencia ha sido registrada.',
+                        timer: 2000,
+                        showConfirmButton: false
+                    });
+                } catch (e) {
+                    Swal.fire('Error', e.message, 'error');
+                }
+            },
+
+            // --- AUDIT LOGGING ---
+            logAction: async (accion, entidad, idRegistro, descripcion, datosJson = null) => {
+                try {
+                    const userId = sessionStorage.getItem('staffPlannerUserId');
+                    const userStr = sessionStorage.getItem('staffPlannerUser');
+                    const userEmail = userStr ? JSON.parse(userStr).email : null;
+
+                    await db.from('Tiendas_Registros').insert({
+                        id_usuario: userId ? parseInt(userId) : null,
+                        email_usuario: userEmail,
+                        accion: accion,
+                        entidad: entidad,
+                        id_registro: idRegistro,
+                        descripcion: descripcion,
+                        datos_json: datosJson
+                    });
+                } catch (e) {
+                    console.error('Error logging action:', e);
+                    // Don't fail the main operation if logging fails
+                }
+            },
+
+            isLight: (colorHex) => {
+                if (!colorHex) return true;
+                const hex = colorHex.replace('#', '');
+                const r = parseInt(hex.substr(0, 2), 16);
+                const g = parseInt(hex.substr(2, 2), 16);
+                const b = parseInt(hex.substr(4, 2), 16);
+                return ((r * 299) + (g * 587) + (b * 114)) / 1000 > 155;
+            }
+        };
+
+        // Init App
+        document.addEventListener('DOMContentLoaded', app.init);
+    </script>
+</body>
+
+</html>

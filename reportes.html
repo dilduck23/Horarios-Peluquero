@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reportes de Incidencias - StaffPlanner</title>
+
+    <!-- Tailwind & Icons -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+        }
+
+        .custom-scroll::-webkit-scrollbar {
+            height: 8px;
+            width: 8px;
+        }
+
+        .custom-scroll::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+
+        .custom-scroll::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+    </style>
+</head>
+
+<body class="text-slate-800 min-h-screen">
+
+    <!-- SUPABASE CLIENT -->
+    <script>
+        const SUPABASE_URL = 'https://cectqtufttubsepyiolr.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_Ow2zQpNDPsLA6on9VBWFgg_Q0_LAc1D';
+        const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    </script>
+
+    <!-- HEADER -->
+    <header class="bg-white border-b border-slate-200 shadow-sm">
+        <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <a href="index.html" class="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                    title="Volver al Calendario">
+                    <span class="material-icons text-slate-500">arrow_back</span>
+                </a>
+                <div class="flex items-center gap-3">
+                    <span class="material-icons text-orange-500 text-3xl">report_problem</span>
+                    <h1 class="text-xl font-bold text-slate-800">Reportes de Incidencias</h1>
+                </div>
+            </div>
+            <button onclick="exportTableToCSV()"
+                class="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm">
+                <span class="material-icons text-base">download</span>
+                <span>Exportar CSV</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- MAIN CONTENT -->
+    <main class="max-w-7xl mx-auto px-6 py-8">
+
+        <!-- FILTERS -->
+        <div class="bg-white rounded-xl shadow border border-slate-200 p-6 mb-6">
+            <h2 class="text-sm font-bold text-slate-500 uppercase mb-4">Filtros</h2>
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <!-- Vendedora Filter -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1">Vendedora</label>
+                    <select id="filter-vendedora"
+                        class="w-full p-2 border rounded-lg text-sm focus:ring-2 ring-blue-500"
+                        onchange="applyFilters()">
+                        <option value="">Todas</option>
+                    </select>
+                </div>
+
+                <!-- Fecha Desde -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1">Desde</label>
+                    <input type="date" id="filter-desde"
+                        class="w-full p-2 border rounded-lg text-sm focus:ring-2 ring-blue-500"
+                        onchange="applyFilters()">
+                </div>
+
+                <!-- Fecha Hasta -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1">Hasta</label>
+                    <input type="date" id="filter-hasta"
+                        class="w-full p-2 border rounded-lg text-sm focus:ring-2 ring-blue-500"
+                        onchange="applyFilters()">
+                </div>
+
+                <!-- Tipo de Incidencia -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1">Tipo de Incidencia</label>
+                    <select id="filter-asunto" class="w-full p-2 border rounded-lg text-sm focus:ring-2 ring-blue-500"
+                        onchange="applyFilters()">
+                        <option value="">Todos</option>
+                        <option value="Falta Injustificada">Falta Injustificada</option>
+                        <option value="Falta Justificada">Falta Justificada</option>
+                        <option value="Impuntualidad">Impuntualidad</option>
+                        <option value="Presentación">Presentación</option>
+                        <option value="Actitud">Actitud</option>
+                        <option value="Queja de Cliente">Queja de Cliente</option>
+                        <option value="Otros">Otros</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Clear Filters -->
+            <div class="mt-4 flex justify-end">
+                <button onclick="clearFilters()" class="text-sm text-blue-600 hover:text-blue-800 font-medium">
+                    Limpiar Filtros
+                </button>
+            </div>
+        </div>
+
+        <!-- STATS CARDS -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6" id="statsCards">
+            <div class="bg-white p-4 rounded-xl shadow border border-slate-200">
+                <div class="text-xs font-bold text-slate-400 uppercase">Total Incidencias</div>
+                <div class="text-2xl font-bold text-slate-800" id="stat-total">0</div>
+            </div>
+            <div class="bg-white p-4 rounded-xl shadow border border-red-200">
+                <div class="text-xs font-bold text-red-400 uppercase">Faltas Injustificadas</div>
+                <div class="text-2xl font-bold text-red-600" id="stat-injustificadas">0</div>
+            </div>
+            <div class="bg-white p-4 rounded-xl shadow border border-orange-200">
+                <div class="text-xs font-bold text-orange-400 uppercase">Impuntualidades</div>
+                <div class="text-2xl font-bold text-orange-600" id="stat-impuntualidad">0</div>
+            </div>
+            <div class="bg-white p-4 rounded-xl shadow border border-purple-200">
+                <div class="text-xs font-bold text-purple-400 uppercase">Quejas de Cliente</div>
+                <div class="text-2xl font-bold text-purple-600" id="stat-quejas">0</div>
+            </div>
+        </div>
+
+        <!-- INCIDENCES TABLE -->
+        <div class="bg-white rounded-xl shadow border border-slate-200 overflow-hidden">
+            <div class="overflow-x-auto custom-scroll">
+                <table class="w-full" id="incidenciasTable">
+                    <thead class="bg-slate-100">
+                        <tr>
+                            <th class="p-3 text-left text-xs font-bold text-slate-500 uppercase">Fecha Reporte</th>
+                            <th class="p-3 text-left text-xs font-bold text-slate-500 uppercase">Vendedora</th>
+                            <th class="p-3 text-left text-xs font-bold text-slate-500 uppercase">Marca</th>
+                            <th class="p-3 text-left text-xs font-bold text-slate-500 uppercase">Tienda</th>
+                            <th class="p-3 text-left text-xs font-bold text-slate-500 uppercase">Fecha Turno</th>
+                            <th class="p-3 text-left text-xs font-bold text-slate-500 uppercase">Tipo Incidencia</th>
+                            <th class="p-3 text-left text-xs font-bold text-slate-500 uppercase">Observación</th>
+                            <th class="p-3 text-center text-xs font-bold text-slate-500 uppercase">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="incidenciasBody" class="divide-y divide-slate-100">
+                        <tr>
+                            <td colspan="8" class="p-10 text-center text-slate-400">Cargando datos...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <!-- JAVASCRIPT -->
+    <script>
+        // Global State
+        let allIncidencias = [];
+        let allPersonal = [];
+        let allTiendas = [];
+        let filteredIncidencias = [];
+
+        // Load Data on Page Load
+        document.addEventListener('DOMContentLoaded', async () => {
+            await loadData();
+        });
+
+        async function loadData() {
+            try {
+                // Fetch all needed data in parallel
+                const [faltasRes, personalRes, tiendasRes, horariosRes] = await Promise.all([
+                    db.from('Tiendas_Faltas').select('*').order('creado_en', { ascending: false }),
+                    db.from('Tiendas_Impulsadoras').select('*'),
+                    db.from('Tiendas_Razonamiento').select('*'),
+                    db.from('Tiendas_Horario').select('*')
+                ]);
+
+                allPersonal = personalRes.data || [];
+                allTiendas = tiendasRes.data || [];
+                const horarios = horariosRes.data || [];
+
+                // Enrich faltas with related data
+                allIncidencias = (faltasRes.data || []).map(f => {
+                    const horario = horarios.find(h => h.id === f.id_horario);
+                    const persona = horario ? allPersonal.find(p => p.id === horario.impulsadora_id) : null;
+                    const tienda = horario ? allTiendas.find(t => t.id === horario.tienda_id) : null;
+
+                    return {
+                        ...f,
+                        persona_nombre: persona?.nombre_completo || 'Desconocido',
+                        persona_marca: persona?.Marca || '-',
+                        tienda_nombre: tienda?.nombre_display || 'Desconocida',
+                        fecha_turno: horario?.fecha || '-'
+                    };
+                });
+
+                // Populate vendedora filter
+                populateVendedoraFilter();
+
+                // Apply initial filters (show all)
+                applyFilters();
+
+            } catch (err) {
+                console.error('Error loading data:', err);
+                Swal.fire('Error', 'No se pudieron cargar los datos', 'error');
+            }
+        }
+
+        function populateVendedoraFilter() {
+            const select = document.getElementById('filter-vendedora');
+            const uniqueNames = [...new Set(allIncidencias.map(i => i.persona_nombre))].sort();
+
+            uniqueNames.forEach(name => {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                select.appendChild(option);
+            });
+        }
+
+        function applyFilters() {
+            const vendedora = document.getElementById('filter-vendedora').value;
+            const desde = document.getElementById('filter-desde').value;
+            const hasta = document.getElementById('filter-hasta').value;
+            const asunto = document.getElementById('filter-asunto').value;
+
+            filteredIncidencias = allIncidencias.filter(i => {
+                // Vendedora filter
+                if (vendedora && i.persona_nombre !== vendedora) return false;
+
+                // Date range filter - extract only date part (YYYY-MM-DD)
+                const createdDate = new Date(i.creado_en).toISOString().split('T')[0];
+
+                if (desde && createdDate < desde) return false;
+                if (hasta && createdDate > hasta) return false;
+
+                // Asunto filter
+                if (asunto && i.asunto !== asunto) return false;
+
+                return true;
+            });
+
+            renderTable();
+            updateStats();
+        }
+
+        function clearFilters() {
+            document.getElementById('filter-vendedora').value = '';
+            document.getElementById('filter-desde').value = '';
+            document.getElementById('filter-hasta').value = '';
+            document.getElementById('filter-asunto').value = '';
+            applyFilters();
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('incidenciasBody');
+
+            if (filteredIncidencias.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" class="p-10 text-center text-slate-400">No hay incidencias que coincidan con los filtros</td></tr>';
+                return;
+            }
+
+            let html = '';
+            filteredIncidencias.forEach(inc => {
+                const fechaReporte = new Date(inc.creado_en).toLocaleDateString('es-ES', {
+                    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+                });
+
+                const fechaTurno = inc.fecha_turno !== '-'
+                    ? new Date(inc.fecha_turno + 'T00:00:00').toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })
+                    : '-';
+
+                // Color badge based on asunto type
+                let badgeClass = 'bg-slate-100 text-slate-700';
+                if (inc.asunto === 'Falta Injustificada') badgeClass = 'bg-red-100 text-red-700';
+                else if (inc.asunto === 'Falta Justificada') badgeClass = 'bg-yellow-100 text-yellow-700';
+                else if (inc.asunto === 'Impuntualidad') badgeClass = 'bg-orange-100 text-orange-700';
+                else if (inc.asunto === 'Queja de Cliente') badgeClass = 'bg-purple-100 text-purple-700';
+                else if (inc.asunto === 'Actitud' || inc.asunto === 'Presentación') badgeClass = 'bg-blue-100 text-blue-700';
+
+                html += `
+                    <tr class="hover:bg-slate-50">
+                        <td class="p-3 text-sm text-slate-600">${fechaReporte}</td>
+                        <td class="p-3 text-sm font-medium text-slate-800">${inc.persona_nombre}</td>
+                        <td class="p-3 text-sm text-slate-500">${inc.persona_marca}</td>
+                        <td class="p-3 text-sm text-slate-600">${inc.tienda_nombre}</td>
+                        <td class="p-3 text-sm text-slate-600">${fechaTurno}</td>
+                        <td class="p-3">
+                            <span class="px-2 py-1 rounded-full text-xs font-bold ${badgeClass}">${inc.asunto}</span>
+                        </td>
+                        <td class="p-3 text-sm text-slate-500 max-w-xs truncate" title="${inc.observacion || ''}">${inc.observacion || '-'}</td>
+                        <td class="p-3 text-center">
+                            <button onclick="deleteIncidence(${inc.id})" class="p-1 hover:bg-red-100 rounded transition-colors" title="Eliminar">
+                                <span class="material-icons text-red-500 text-sm">delete</span>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            tbody.innerHTML = html;
+        }
+
+        function updateStats() {
+            document.getElementById('stat-total').textContent = filteredIncidencias.length;
+            document.getElementById('stat-injustificadas').textContent = filteredIncidencias.filter(i => i.asunto === 'Falta Injustificada').length;
+            document.getElementById('stat-impuntualidad').textContent = filteredIncidencias.filter(i => i.asunto === 'Impuntualidad').length;
+            document.getElementById('stat-quejas').textContent = filteredIncidencias.filter(i => i.asunto === 'Queja de Cliente').length;
+        }
+
+        async function deleteIncidence(incId) {
+            const result = await Swal.fire({
+                title: '¿Eliminar incidencia?',
+                text: 'Esta acción no se puede deshacer',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#ef4444',
+                confirmButtonText: 'Sí, eliminar',
+                cancelButtonText: 'Cancelar'
+            });
+
+            if (result.isConfirmed) {
+                const { error } = await db.from('Tiendas_Faltas').delete().eq('id', incId);
+
+                if (error) {
+                    Swal.fire('Error', error.message, 'error');
+                } else {
+                    // Remove from local arrays
+                    allIncidencias = allIncidencias.filter(i => i.id !== incId);
+                    applyFilters();
+                    Swal.fire({ icon: 'success', title: 'Eliminado', timer: 1500, showConfirmButton: false });
+                }
+            }
+        }
+
+        function exportTableToCSV() {
+            if (filteredIncidencias.length === 0) {
+                Swal.fire('Sin datos', 'No hay incidencias para exportar', 'info');
+                return;
+            }
+
+            const headers = ['Fecha Reporte', 'Vendedora', 'Marca', 'Tienda', 'Fecha Turno', 'Tipo Incidencia', 'Observación'];
+            const rows = filteredIncidencias.map(inc => [
+                new Date(inc.creado_en).toISOString(),
+                inc.persona_nombre,
+                inc.persona_marca,
+                inc.tienda_nombre,
+                inc.fecha_turno,
+                inc.asunto,
+                (inc.observacion || '').replace(/"/g, '""')
+            ]);
+
+            let csv = headers.join(',') + '\n';
+            rows.forEach(row => {
+                csv += row.map(cell => `"${cell}"`).join(',') + '\n';
+            });
+
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `Incidencias_${new Date().toISOString().split('T')[0]}.csv`;
+            link.click();
+        }
+    </script>
+
+</body>
+
+</html>

@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calendario por Tienda - StaffPlanner</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+        }
+
+        .staff-block {
+            transition: all 0.15s ease-in-out;
+            cursor: pointer;
+        }
+
+        .staff-block:hover {
+            transform: scale(1.02);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+
+<body class="text-slate-800 h-screen flex flex-col overflow-hidden">
+    <!-- Header -->
+    <header class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shadow-sm">
+        <div class="flex items-center gap-3">
+            <a href="index.html"
+                class="flex items-center gap-2 bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-2 rounded-lg text-sm font-medium transition-colors">
+                <span class="material-icons text-base">arrow_back</span>
+                <span>Volver</span>
+            </a>
+            <button onclick="app.exportToPdf()"
+                class="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors shadow-sm">
+                <span class="material-icons text-base">picture_as_pdf</span>
+                <span>EXPORTAR PDF</span>
+            </button>
+        </div>
+
+        <div class="flex items-center gap-4">
+            <button onclick="app.changeMonth(-1)" class="p-2 hover:bg-slate-100 rounded-lg transition">
+                <span class="material-icons text-slate-600">chevron_left</span>
+            </button>
+            <span id="currentMonth" class="text-lg font-bold text-slate-700 min-w-[180px] text-center">ENERO 2026</span>
+            <button onclick="app.changeMonth(1)" class="p-2 hover:bg-slate-100 rounded-lg transition">
+                <span class="material-icons text-slate-600">chevron_right</span>
+            </button>
+        </div>
+
+        <!-- Right side: Search + Filter + Store dropdown -->
+        <div class="flex items-center gap-4">
+            <!-- Search Input -->
+            <div class="relative">
+                <span
+                    class="material-icons absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
+                <input type="text" id="searchInput" placeholder="Buscar nombre..." oninput="app.onSearchChange()"
+                    class="pl-8 pr-3 py-2 border border-slate-300 rounded-lg text-sm w-48 focus:ring-2 focus:ring-blue-400 focus:border-blue-400">
+            </div>
+
+            <!-- View Filter -->
+            <select id="viewFilter" onchange="app.onFilterChange()"
+                class="bg-slate-100 border border-slate-300 text-slate-700 text-sm font-medium rounded-lg px-3 py-2 cursor-pointer">
+                <option value="all">Ver Todos</option>
+                <option value="impulsadoras">Solo Impulsadoras</option>
+                <option value="personal">Solo Personal</option>
+            </select>
+
+            <!-- Store dropdown -->
+            <span class="text-sm font-medium text-slate-500">Tienda:</span>
+            <select id="storeSelect" onchange="app.onStoreChange()"
+                class="bg-amber-100 border-2 border-amber-300 text-slate-800 text-sm font-bold rounded-lg px-4 py-2 min-w-[200px] focus:ring-2 focus:ring-amber-400 cursor-pointer">
+                <option value="">Seleccione...</option>
+            </select>
+        </div>
+    </header>
+
+    <!-- Calendar Grid -->
+    <main class="flex-1 overflow-auto p-6">
+        <div id="calendarGrid" class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <p class="p-8 text-center text-slate-400">Seleccione una tienda para ver el calendario</p>
+        </div>
+    </main>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50">
+        <div class="bg-white p-6 rounded-xl shadow-xl text-center">
+            <div class="animate-spin w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4">
+            </div>
+            <p class="text-slate-600 font-medium">Cargando datos...</p>
+        </div>
+    </div>
+
+    <script>
+        // Supabase - SAME CONFIG AS index.html
+        const SUPABASE_URL = 'https://cectqtufttubsepyiolr.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_Ow2zQpNDPsLA6on9VBWFgg_Q0_LAc1D';
+        const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        const app = {
+            state: {
+                currentDate: new Date(),
+                selectedStoreId: null,
+                viewFilter: 'all', // 'all', 'impulsadoras', 'personal'
+                searchQuery: '', // For search/highlight functionality
+                tiendas: [],
+                impulsadoras: [],
+                horarios: [],
+                personal: [],
+                personalHorarios: []
+            },
+
+            init: async () => {
+                // Check if user is logged in via sessionStorage (set by index.html)
+                if (sessionStorage.getItem('staffPlannerAuth') !== 'true') {
+                    alert('Por favor inicia sesión primero en la página principal');
+                    window.location.href = 'index.html';
+                    return;
+                }
+
+                await app.loadData();
+            },
+
+            loadData: async () => {
+                try {
+                    // Fetch ALL data including Personal Interno
+                    const [tiendasRes, impulsadorasRes, personalRes] = await Promise.all([
+                        db.from('Tiendas_Razonamiento').select('*').order('nombre_display'),
+                        db.from('Tiendas_Impulsadoras').select('*'),
+                        db.from('Tiendas_Personal').select('*')
+                    ]);
+
+                    console.log('Tiendas:', tiendasRes);
+                    console.log('Impulsadoras:', impulsadorasRes);
+                    console.log('Personal:', personalRes);
+
+                    if (tiendasRes.error) {
+                        console.error('Error tiendas:', tiendasRes.error);
+                        throw new Error('Error cargando tiendas: ' + tiendasRes.error.message);
+                    }
+
+                    app.state.tiendas = (tiendasRes.data || []).filter(t => t.activo === true);
+                    app.state.impulsadoras = impulsadorasRes.data || [];
+                    app.state.personal = (personalRes.data || []).filter(p => p.habilitado === true);
+
+                    // Fetch horarios for both
+                    await app.fetchHorarios();
+
+                    app.populateStoreDropdown();
+                    document.getElementById('loadingOverlay').classList.add('hidden');
+
+                } catch (err) {
+                    console.error('Load error:', err);
+                    document.getElementById('loadingOverlay').innerHTML = `
+                        <div class="bg-white p-6 rounded-xl shadow-xl text-center">
+                            <p class="text-red-500 font-medium mb-4">Error: ${err.message}</p>
+                            <a href="index.html" class="text-blue-500 underline">Volver a iniciar sesión</a>
+                        </div>
+                    `;
+                }
+            },
+
+            fetchHorarios: async () => {
+                const year = app.state.currentDate.getFullYear();
+                const month = app.state.currentDate.getMonth();
+                const firstDay = new Date(year, month, 1).toISOString().split('T')[0];
+                const lastDay = new Date(year, month + 1, 0).toISOString().split('T')[0];
+
+                // Fetch both impulsadoras and personal horarios
+                const [horariosRes, personalHorariosRes] = await Promise.all([
+                    db.from('Tiendas_Horario').select('*').gte('fecha', firstDay).lte('fecha', lastDay),
+                    db.from('Tiendas_Personal_Horario').select('*').gte('fecha', firstDay).lte('fecha', lastDay)
+                ]);
+
+                if (horariosRes.error) console.error('Horarios error:', horariosRes.error);
+                if (personalHorariosRes.error) console.error('Personal Horarios error:', personalHorariosRes.error);
+
+                app.state.horarios = horariosRes.data || [];
+                app.state.personalHorarios = personalHorariosRes.data || [];
+
+                console.log('Horarios impulsadoras:', app.state.horarios.length);
+                console.log('Horarios personal:', app.state.personalHorarios.length);
+            },
+
+            onFilterChange: () => {
+                app.state.viewFilter = document.getElementById('viewFilter').value;
+                app.renderCalendar();
+            },
+
+            onSearchChange: () => {
+                app.state.searchQuery = document.getElementById('searchInput').value.toLowerCase().trim();
+                app.renderCalendar();
+            },
+
+            populateStoreDropdown: () => {
+                const select = document.getElementById('storeSelect');
+                select.innerHTML = '<option value="">Seleccione una tienda...</option>';
+
+                // Get user's tienda (for ordering)
+                const userTiendaId = parseInt(sessionStorage.getItem('staffPlannerTiendaId') || '0');
+
+                // Sort: user's store first
+                const sorted = [...app.state.tiendas].sort((a, b) => {
+                    if (a.id === userTiendaId) return -1;
+                    if (b.id === userTiendaId) return 1;
+                    return (a.nombre_display || '').localeCompare(b.nombre_display || '');
+                });
+
+                sorted.forEach(store => {
+                    const opt = document.createElement('option');
+                    opt.value = store.id;
+                    opt.textContent = store.nombre_display;
+                    select.appendChild(opt);
+                });
+
+                // Auto-select if user has a linked store
+                if (userTiendaId && sorted.find(s => s.id === userTiendaId)) {
+                    select.value = userTiendaId;
+                    app.state.selectedStoreId = userTiendaId;
+                    app.renderCalendar();
+                }
+            },
+
+            onStoreChange: () => {
+                app.state.selectedStoreId = parseInt(document.getElementById('storeSelect').value) || null;
+                app.renderCalendar();
+            },
+
+            changeMonth: async (delta) => {
+                app.state.currentDate.setMonth(app.state.currentDate.getMonth() + delta);
+                await app.fetchHorarios();
+                app.renderCalendar();
+            },
+
+            renderCalendar: () => {
+                const grid = document.getElementById('calendarGrid');
+
+                if (!app.state.selectedStoreId) {
+                    grid.innerHTML = '<p class="p-8 text-center text-slate-400">Seleccione una tienda para ver el calendario</p>';
+                    return;
+                }
+
+                const year = app.state.currentDate.getFullYear();
+                const month = app.state.currentDate.getMonth();
+                const monthNames = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
+                document.getElementById('currentMonth').textContent = `${monthNames[month]} ${year}`;
+
+                // Get selected store and its color
+                const selectedStore = app.state.tiendas.find(t => t.id === app.state.selectedStoreId);
+                const storeColor = selectedStore?.color_hex || '#fbbf24';
+
+                // Filter horarios for selected store based on view filter
+                const viewFilter = app.state.viewFilter;
+
+                // Impulsadoras horarios (filtered by tienda_id)
+                const storeHorarios = app.state.horarios.filter(h => h.tienda_id === app.state.selectedStoreId);
+
+                // Personal horarios (filtered by tienda_id)
+                const storePersonalHorarios = app.state.personalHorarios.filter(h => h.tienda_id === app.state.selectedStoreId);
+
+                // Calendar math
+                const firstDayOfMonth = new Date(year, month, 1);
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                let startOffset = firstDayOfMonth.getDay() - 1;
+                if (startOffset < 0) startOffset = 6;
+
+                let html = `
+                    <table class="w-full border-collapse">
+                        <thead>
+                            <tr class="bg-slate-50">
+                                <th class="border border-slate-200 px-4 py-3 text-xs font-bold text-slate-500 uppercase">Lunes</th>
+                                <th class="border border-slate-200 px-4 py-3 text-xs font-bold text-slate-500 uppercase">Martes</th>
+                                <th class="border border-slate-200 px-4 py-3 text-xs font-bold text-slate-500 uppercase">Miércoles</th>
+                                <th class="border border-slate-200 px-4 py-3 text-xs font-bold text-slate-500 uppercase">Jueves</th>
+                                <th class="border border-slate-200 px-4 py-3 text-xs font-bold text-slate-500 uppercase">Viernes</th>
+                                <th class="border border-slate-200 px-4 py-3 text-xs font-bold text-blue-500 uppercase">Sábado</th>
+                                <th class="border border-slate-200 px-4 py-3 text-xs font-bold text-blue-500 uppercase">Domingo</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+
+                let day = 1;
+                let cellIndex = 0;
+                const rows = Math.ceil((startOffset + daysInMonth) / 7);
+
+                for (let row = 0; row < rows; row++) {
+                    html += '<tr>';
+                    for (let col = 0; col < 7; col++) {
+                        if (cellIndex < startOffset || day > daysInMonth) {
+                            html += '<td class="border border-slate-200 bg-slate-50 h-28"></td>';
+                        } else {
+                            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                            const isWeekend = col >= 5;
+
+                            html += `<td class="border border-slate-200 align-top p-2 h-28 ${isWeekend ? 'bg-blue-50/30' : ''}">`;
+                            html += `<div class="text-sm font-medium text-slate-400 mb-1">${day}</div>`;
+                            html += '<div class="space-y-1 overflow-hidden">';
+
+                            // Show Impulsadoras (if filter allows)
+                            if (viewFilter === 'all' || viewFilter === 'impulsadoras') {
+                                const dayHorarios = storeHorarios.filter(h => h.fecha === dateStr);
+                                dayHorarios.forEach(horario => {
+                                    const person = app.state.impulsadoras.find(p => p.id === horario.impulsadora_id);
+                                    if (person) {
+                                        const bgColor = storeColor + '33';
+                                        const searchQuery = app.state.searchQuery;
+                                        const personName = (person.nombre_completo || '').toLowerCase();
+                                        const isMatch = !searchQuery || personName.includes(searchQuery);
+                                        const opacityClass = searchQuery && !isMatch ? 'opacity-25' : '';
+
+                                        html += `
+                                            <div class="staff-block px-2 py-1 rounded-md text-xs font-medium border-l-4 ${opacityClass}"
+                                                style="border-color: ${storeColor}; background-color: ${bgColor};"
+                                                onclick="app.showIncidence(${horario.id}, '${(person.nombre_completo || '').replace(/'/g, "\\'")}', '${dateStr}')">
+                                                <div class="font-bold text-slate-800 truncate">${person.nombre_completo || 'Sin nombre'}</div>
+                                                <div class="text-slate-500 text-[10px] truncate">${person.Marca || ''}</div>
+                                            </div>
+                                        `;
+                                    }
+                                });
+                            }
+
+                            // Show Personal Interno (if filter allows) - BLACK BACKGROUND
+                            if (viewFilter === 'all' || viewFilter === 'personal') {
+                                const dayPersonalHorarios = storePersonalHorarios.filter(h => h.fecha === dateStr);
+                                dayPersonalHorarios.forEach(horario => {
+                                    const person = app.state.personal.find(p => p.id === horario.personal_id);
+                                    if (person) {
+                                        const searchQuery = app.state.searchQuery;
+                                        const personName = (person.nombre_completo || '').toLowerCase();
+                                        const isMatch = !searchQuery || personName.includes(searchQuery);
+                                        const opacityClass = searchQuery && !isMatch ? 'opacity-25' : '';
+
+                                        html += `
+                                            <div class="px-2 py-1 rounded-md text-xs font-medium bg-slate-900 text-white ${opacityClass}">
+                                                <div class="font-bold truncate">${person.nombre_completo || 'Sin nombre'}</div>
+                                                <div class="text-slate-300 text-[10px] truncate">Personal Interno</div>
+                                            </div>
+                                        `;
+                                    }
+                                });
+                            }
+
+                            html += '</div></td>';
+                            day++;
+                        }
+                        cellIndex++;
+                    }
+                    html += '</tr>';
+                }
+
+                html += '</tbody></table>';
+                grid.innerHTML = html;
+            },
+
+            showIncidence: async (horarioId, personName, dateStr) => {
+                const store = app.state.tiendas.find(t => t.id === app.state.selectedStoreId);
+                const storeName = store?.nombre_display || 'Desconocida';
+
+                const { value: formValues, isConfirmed } = await Swal.fire({
+                    title: '⚠️ Reportar Incidencia',
+                    html: `
+                        <div class="text-left text-sm bg-slate-50 p-3 rounded-lg mb-4">
+                            <p><strong>Personal:</strong> ${personName}</p>
+                            <p><strong>Fecha:</strong> ${dateStr}</p>
+                            <p><strong>Tienda:</strong> ${storeName}</p>
+                        </div>
+                        <select id="swal-tipo" class="w-full border rounded-lg px-3 py-2 mb-3">
+                            <option value="FALTA INJUSTIFICADA">Falta Injustificada</option>
+                            <option value="FALTA JUSTIFICADA">Falta Justificada</option>
+                            <option value="IMPUNTUALIDAD">Impuntualidad</option>
+                            <option value="PRESENTACIÓN">Presentación</option>
+                            <option value="ACTITUD">Actitud</option>
+                            <option value="QUEJA DE CLIENTE">Queja de Cliente</option>
+                            <option value="OTROS">Otros</option>
+                        </select>
+                        <textarea id="swal-obs" rows="2" class="w-full border rounded-lg px-3 py-2" placeholder="Observación..."></textarea>
+                    `,
+                    showCancelButton: true,
+                    confirmButtonText: 'Guardar y Notificar',
+                    confirmButtonColor: '#ef4444',
+                    cancelButtonText: 'Cancelar',
+                    preConfirm: () => ({
+                        tipo: document.getElementById('swal-tipo').value,
+                        obs: document.getElementById('swal-obs').value
+                    })
+                });
+
+                if (isConfirmed) {
+                    Swal.fire({ title: 'Guardando reporte...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+
+                    try {
+                        // 1. Save incidence to database
+                        const { error } = await db.from('Tiendas_Faltas').insert({
+                            id_horario: horarioId,
+                            asunto: formValues.tipo,
+                            observacion: formValues.obs || null
+                        });
+
+                        if (error) throw error;
+
+                        // 2. Get Admin and Organizador emails (roles 1 and 2)
+                        const { data: admins } = await db
+                            .from('Tiendas_Usuarios')
+                            .select('email')
+                            .in('id_rol', [1, 2])
+                            .eq('activo', true);
+
+                        let recipientEmails = admins?.map(u => u.email).filter(Boolean) || [];
+
+                        // 3. Get employee email from Tiendas_Impulsadoras
+                        const horario = app.state.horarios.find(h => h.id === horarioId);
+                        if (horario?.impulsadora_id) {
+                            const { data: empleado } = await db
+                                .from('Tiendas_Impulsadoras')
+                                .select('Correo')
+                                .eq('id', horario.impulsadora_id)
+                                .single();
+
+                            const empleadoEmail = empleado?.Correo;
+                            // Validate email has @ symbol
+                            if (empleadoEmail && empleadoEmail.includes('@')) {
+                                recipientEmails.push(empleadoEmail);
+                            }
+                        }
+
+                        // Remove duplicates
+                        recipientEmails = [...new Set(recipientEmails)];
+
+                        // 4. Send email notification via Edge Function
+                        if (recipientEmails.length > 0) {
+                            try {
+                                const userEmail = JSON.parse(sessionStorage.getItem('staffPlannerUser') || '{}').email || 'Sistema';
+
+                                await db.functions.invoke('send-incidence-email', {
+                                    body: {
+                                        incidenceType: formValues.tipo,
+                                        observation: formValues.obs || 'Sin observación',
+                                        personName: personName,
+                                        dateStr: dateStr,
+                                        storeName: storeName,
+                                        reportedBy: userEmail,
+                                        recipientEmails: recipientEmails
+                                    }
+                                });
+                                console.log('Email sent to:', recipientEmails);
+                            } catch (emailErr) {
+                                console.error('Error sending email:', emailErr);
+                            }
+                        }
+
+                        Swal.fire({
+                            icon: 'success',
+                            title: '¡Reporte Guardado!',
+                            text: recipientEmails.length > 0
+                                ? 'Incidencia registrada y notificación enviada'
+                                : 'La incidencia ha sido registrada.',
+                            timer: 2500,
+                            showConfirmButton: false
+                        });
+
+                    } catch (e) {
+                        Swal.fire('Error', e.message, 'error');
+                    }
+                }
+            },
+
+            exportToPdf: async () => {
+                const { jsPDF } = window.jspdf;
+                Swal.fire({ title: 'Generando PDF...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+
+                // --- FIX FOR PDF: Expand truncated names & Center text ---
+                const table = document.getElementById('calendarGrid');
+
+                // 1. Expand names (remove truncate)
+                const truncatedElements = table.querySelectorAll('.truncate');
+                truncatedElements.forEach(el => {
+                    el.classList.remove('truncate');
+                    el.classList.add('whitespace-normal', 'text-wrap-fix');
+                    el.style.whiteSpace = 'normal';
+                });
+
+                // 2. Ensure Centering (add specific flex/alignment styles for html2canvas)
+                const centeredCells = table.querySelectorAll('.flex.items-center.justify-center');
+                centeredCells.forEach(el => {
+                    el.style.display = 'flex';
+                    el.style.justifyContent = 'center';
+                    el.style.alignItems = 'center';
+                    el.style.textAlign = 'center';
+                });
+
+                try {
+                    const canvas = await html2canvas(table, { scale: 2 });
+                    const pdf = new jsPDF('l', 'mm', 'a4');
+                    const store = app.state.tiendas.find(t => t.id === app.state.selectedStoreId);
+                    const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+                    pdf.setFontSize(16);
+                    pdf.text(`${store?.nombre_display || 'Tienda'} - ${monthNames[app.state.currentDate.getMonth()]} ${app.state.currentDate.getFullYear()}`, pdf.internal.pageSize.getWidth() / 2, 15, { align: 'center' });
+
+                    const imgWidth = pdf.internal.pageSize.getWidth() - 20;
+                    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+                    pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 10, 25, imgWidth, Math.min(imgHeight, pdf.internal.pageSize.getHeight() - 35));
+
+                    pdf.save(`Calendario_${store?.nombre_display || 'Tienda'}.pdf`);
+                    Swal.close();
+                } catch (err) {
+                    Swal.fire('Error', err.message, 'error');
+                } finally {
+                    // Restore original styles
+                    truncatedElements.forEach(el => {
+                        el.classList.add('truncate');
+                        el.classList.remove('whitespace-normal', 'text-wrap-fix');
+                        el.style.whiteSpace = '';
+                    });
+                    centeredCells.forEach(el => {
+                        el.style.display = '';
+                        el.style.justifyContent = '';
+                        el.style.alignItems = '';
+                        el.style.textAlign = '';
+                    });
+                }
+            }
+        };
+
+        document.addEventListener('DOMContentLoaded', app.init);
+    </script>
+</body>
+
+</html>
