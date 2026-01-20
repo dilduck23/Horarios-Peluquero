@@ -162,19 +162,18 @@
                     </div>
                     <span class="text-[10px] font-semibold">Calendario</span>
                 </button>
-                <button onclick="app.switchTab('personal')"
-                    class="nav-item active flex flex-col items-center gap-1 p-2">
-                    <div class="nav-icon w-10 h-10 rounded-xl flex items-center justify-center">
-                        <span class="material-icons">groups</span>
-                    </div>
-                    <span class="text-[10px] font-semibold">Personal</span>
-                </button>
                 <button onclick="app.switchTab('stores')"
                     class="nav-item flex flex-col items-center gap-1 p-2 text-slate-400">
                     <div class="nav-icon w-10 h-10 rounded-xl flex items-center justify-center">
                         <span class="material-icons">storefront</span>
                     </div>
                     <span class="text-[10px] font-semibold">Tiendas</span>
+                </button>
+                <button onclick="app.switchTab('staff')" class="nav-item active flex flex-col items-center gap-1 p-2">
+                    <div class="nav-icon w-10 h-10 rounded-xl flex items-center justify-center">
+                        <span class="material-icons">groups</span>
+                    </div>
+                    <span class="text-[10px] font-semibold">Staff</span>
                 </button>
                 <button onclick="app.switchTab('reports')"
                     class="nav-item flex flex-col items-center gap-1 p-2 text-slate-400">
@@ -520,11 +519,11 @@
                     case 'calendar':
                         window.location.href = 'admin-mobile.html';
                         break;
-                    case 'personal':
-                        // Already here
-                        break;
                     case 'stores':
-                        window.location.href = 'calendario-tienda.html';
+                        window.location.href = 'calendario-tienda-mobile.html';
+                        break;
+                    case 'staff':
+                        // Already here
                         break;
                     case 'reports':
                         window.location.href = 'reportes-mobile.html';
