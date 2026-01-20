@@ -230,11 +230,11 @@
                                 <div class="flex-1 min-w-0">
                                     <div class="font-bold text-slate-800 truncate">${store.nombre_display || 'Sin nombre'}</div>
                                     <div class="flex items-center gap-2 flex-wrap text-xs text-slate-500">
-                                        <span>Zona A: ${store.zonaA || 0}</span>
+                                        <span>Zona A: ${store.cupo_zona_a || 0}</span>
                                         <span>•</span>
-                                        <span>Zona B: ${store.zonaB || 0}</span>
+                                        <span>Zona B: ${store.cupo_zona_b || 0}</span>
                                         <span>•</span>
-                                        <span class="font-bold">Total: ${(store.zonaA || 0) + (store.zonaB || 0)}</span>
+                                        <span class="font-bold">Total: ${store.cupo_total || 0}</span>
                                     </div>
                                 </div>
 
@@ -287,11 +287,11 @@
                             <div class="grid grid-cols-2 gap-3">
                                 <div class="bg-blue-50 p-3 rounded-lg text-center">
                                     <div class="text-xs text-blue-400">Zona A</div>
-                                    <div class="font-bold text-blue-700 text-lg">${store.zonaA || 0}</div>
+                                    <div class="font-bold text-blue-700 text-lg">${store.cupo_zona_a || 0}</div>
                                 </div>
                                 <div class="bg-amber-50 p-3 rounded-lg text-center">
                                     <div class="text-xs text-amber-400">Zona B</div>
-                                    <div class="font-bold text-amber-700 text-lg">${store.zonaB || 0}</div>
+                                    <div class="font-bold text-amber-700 text-lg">${store.cupo_zona_b || 0}</div>
                                 </div>
                             </div>
                             <div class="bg-slate-50 p-3 rounded-lg">
@@ -333,11 +333,11 @@
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
                                     <label class="block text-xs font-bold text-slate-500 mb-1">Zona A</label>
-                                    <input type="number" id="swal-zonaA" class="w-full p-3 border rounded-xl" value="${store.zonaA || 0}" min="0">
+                                    <input type="number" id="swal-zonaA" class="w-full p-3 border rounded-xl" value="${store.cupo_zona_a || 0}" min="0">
                                 </div>
                                 <div>
                                     <label class="block text-xs font-bold text-slate-500 mb-1">Zona B</label>
-                                    <input type="number" id="swal-zonaB" class="w-full p-3 border rounded-xl" value="${store.zonaB || 0}" min="0">
+                                    <input type="number" id="swal-zonaB" class="w-full p-3 border rounded-xl" value="${store.cupo_zona_b || 0}" min="0">
                                 </div>
                             </div>
                             <div>
@@ -354,14 +354,19 @@
                     confirmButtonText: 'Guardar',
                     cancelButtonText: 'Cancelar',
                     confirmButtonColor: '#10b981',
-                    preConfirm: () => ({
-                        nombre_display: document.getElementById('swal-nombre').value,
-                        alias_tienda: document.getElementById('swal-alias').value,
-                        zonaA: parseInt(document.getElementById('swal-zonaA').value) || 0,
-                        zonaB: parseInt(document.getElementById('swal-zonaB').value) || 0,
-                        color_hex: document.getElementById('swal-color').value,
-                        requiere_impulso: document.getElementById('swal-impulso').checked
-                    })
+                    preConfirm: () => {
+                        const zonaA = parseInt(document.getElementById('swal-zonaA').value) || 0;
+                        const zonaB = parseInt(document.getElementById('swal-zonaB').value) || 0;
+                        return {
+                            nombre_display: document.getElementById('swal-nombre').value,
+                            alias_tienda: document.getElementById('swal-alias').value,
+                            cupo_zona_a: zonaA,
+                            cupo_zona_b: zonaB,
+                            cupo_total: zonaA + zonaB,
+                            color_hex: document.getElementById('swal-color').value,
+                            requiere_impulso: document.getElementById('swal-impulso').checked
+                        };
+                    }
                 });
 
                 if (formValues) {
@@ -450,11 +455,15 @@
                             return false;
                         }
 
+                        const zonaA = parseInt(document.getElementById('swal-zonaA').value) || 0;
+                        const zonaB = parseInt(document.getElementById('swal-zonaB').value) || 0;
+
                         return {
                             nombre_display: nombre,
                             alias_tienda: document.getElementById('swal-alias').value || null,
-                            zonaA: parseInt(document.getElementById('swal-zonaA').value) || 0,
-                            zonaB: parseInt(document.getElementById('swal-zonaB').value) || 0,
+                            cupo_zona_a: zonaA,
+                            cupo_zona_b: zonaB,
+                            cupo_total: zonaA + zonaB,
                             color_hex: document.getElementById('swal-color').value,
                             requiere_impulso: document.getElementById('swal-impulso').checked,
                             activo: true
