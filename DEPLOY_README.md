@@ -97,6 +97,10 @@ El sistema utiliza **Supabase Edge Functions** para enviar notificaciones de cor
 |---------|-------------|--------|
 | `admin-mobile.html` | Dashboard Admin Móvil. Vista diaria de Impulsadoras | Rol 1-3 |
 | `personal-mobile.html` | Personal Interno Móvil. Vista diaria por bodega | Rol 1-3 |
+| `calendario-tienda-mobile.html` | Calendario Tiendas Móvil. Vista por tienda con filtros | Rol 1-3 |
+| `reportes-mobile.html` | Reportes Móvil. Incidencias con filtros y stats | Rol 1-3 |
+| `staff-list-mobile.html` | Listado de Staff Móvil. CRUD de impulsadoras | Rol 1-2 |
+| `store-list-mobile.html` | Listado de Tiendas Móvil. CRUD de tiendas | Rol 1-2 |
 | `mi-horario.html` | Horario Personal. Vista para Impulsadoras (login PIN) | Rol 4 |
 
 ### Otros Archivos
@@ -114,30 +118,45 @@ graph TD
     subgraph "Páginas Mobile"
         AM[admin-mobile.html<br/>📅 Calendario Impulsadoras]
         PM[personal-mobile.html<br/>👥 Personal Interno]
-        CT[calendario-tienda.html<br/>🏪 Tiendas]
-        RP[reportes.html<br/>📊 Reportes]
+        CTM[calendario-tienda-mobile.html<br/>🏪 Tiendas Calendario]
+        RPM[reportes-mobile.html<br/>📊 Reportes]
+        SLM[staff-list-mobile.html<br/>👁️ Listado Staff]
+        STM[store-list-mobile.html<br/>🏪 Listado Tiendas]
     end
 
-    AM -->|"Tab: Personal"| PM
-    AM -->|"Tab: Tiendas"| CT
-    AM -->|"Tab: Reportes"| RP
+    AM -->|"👁️ Botón Ojo"| SLM
+    AM -->|"🏪 Botón Tienda"| STM
+    AM -->|"Tab: Staff"| PM
+    AM -->|"Tab: Tiendas"| CTM
+    AM -->|"Tab: Reportes"| RPM
     
     PM -->|"Tab: Calendario"| AM
-    PM -->|"Tab: Tiendas"| CT
-    PM -->|"Tab: Reportes"| RP
+    PM -->|"Tab: Tiendas"| CTM
+    PM -->|"Tab: Reportes"| RPM
+    
+    SLM -->|"← Volver"| AM
+    STM -->|"← Volver"| AM
 ```
 
 ### Navbar Mobile (Tabs Inferiores)
 
 El navbar inferior en las páginas mobile conecta:
 
-| Tab | admin-mobile.html | personal-mobile.html |
-|-----|-------------------|----------------------|
-| 📅 Calendario | *(Actual)* | → admin-mobile.html |
-| 👥 Staff/Personal | → personal-mobile.html | *(Actual)* |
-| 🏪 Tiendas | → calendario-tienda.html | → calendario-tienda.html |
-| 📊 Reportes | → reportes.html | → reportes.html |
-| 👤 Perfil | Modal logout | Modal logout |
+| Tab | Icono | Destino |
+|-----|-------|--------|
+| Calendario | 📅 | admin-mobile.html |
+| Tiendas | 🏪 | calendario-tienda-mobile.html |
+| Staff | 👥 | personal-mobile.html |
+| Reportes | 📊 | reportes-mobile.html |
+| Perfil | 👤 | Modal logout |
+
+### Botones de Acción (Header admin-mobile.html)
+
+| Botón | Icono | Destino | Roles |
+|-------|-------|---------|-------|
+| Ver Staff | 👁️ visibility | staff-list-mobile.html | 1, 2 |
+| Ver Tiendas | 🏪 storefront | store-list-mobile.html | 1, 2 |
+| Agregar Turno | ➕ add | Modal agregar | 1, 2 |
 
 ### Flujo de Autenticación
 
