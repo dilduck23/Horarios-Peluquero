@@ -110,6 +110,21 @@
             text-security: disc;
             font-family: text-security-disc;
         }
+
+        /* Hide scrollbar but keep scroll functionality */
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        /* Light text helper for dark backgrounds */
+        .text-light {
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        }
     </style>
 </head>
 
@@ -268,6 +283,17 @@
                 { bg: 'bg-pink-100', text: 'text-pink-900', border: 'border-pink-300' },
                 { bg: 'bg-cyan-100', text: 'text-cyan-900', border: 'border-cyan-300' },
             ],
+
+            // Helper to determine if a color is light or dark
+            isLightColor: (hexColor) => {
+                if (!hexColor) return true;
+                const hex = hexColor.replace('#', '');
+                const r = parseInt(hex.substr(0, 2), 16);
+                const g = parseInt(hex.substr(2, 2), 16);
+                const b = parseInt(hex.substr(4, 2), 16);
+                const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+                return brightness > 155;
+            },
 
             init: async () => {
                 // Check if already logged in
@@ -461,33 +487,30 @@
                     const store = app.state.data.tiendas.find(t => t.id === assignment.tienda_id);
                     if (store) storesVisited.add(store.id);
 
-                    // Pick a color based on store or day
-                    const colorIndex = d % app.cardColors.length;
-                    const colors = app.cardColors[colorIndex];
+                    // Use store color as card background
                     const storeColor = store?.color_hex || '#6366f1';
+                    // Determine if we need light or dark text based on color brightness
+                    const isLightColor = app.isLightColor(storeColor);
+                    const textClass = isLightColor ? 'text-slate-800' : 'text-white text-light';
+                    const dateTextClass = isLightColor ? 'text-slate-700' : 'text-white/90';
+                    const dividerClass = isLightColor ? 'bg-black/10' : 'bg-white/20';
 
                     html += `
-                    <div class="day-card ${colors.bg} rounded-xl p-3 flex items-center gap-3 ${isToday ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-slate-900' : ''}">
+                    <div class="day-card rounded-xl p-3 flex items-center gap-3 ${isToday ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-slate-900' : ''}"
+                         style="background-color: ${storeColor}">
                         <!-- Date Section - Compact -->
-                        <div class="w-16 text-center flex-shrink-0 ${isToday ? 'today-indicator' : ''}">
-                            <div class="text-[10px] font-semibold ${colors.text} opacity-60 uppercase">${app.dayNamesShort[dayOfWeek]}</div>
-                            <div class="text-3xl font-extrabold ${colors.text} leading-none">${d}</div>
-                            <div class="text-xs font-bold ${colors.text} opacity-50 uppercase">${app.monthNamesShort[month]}</div>
+                        <div class="w-14 text-center flex-shrink-0 ${isToday ? 'today-indicator' : ''}">
+                            <div class="text-[10px] font-semibold ${dateTextClass} opacity-70 uppercase">${app.dayNamesShort[dayOfWeek]}</div>
+                            <div class="text-3xl font-extrabold ${dateTextClass} leading-none">${d}</div>
+                            <div class="text-xs font-bold ${dateTextClass} opacity-60 uppercase">${app.monthNamesShort[month]}</div>
                         </div>
                         
                         <!-- Divider -->
-                        <div class="w-px h-10 bg-black/10"></div>
+                        <div class="w-px h-12 ${dividerClass}"></div>
                         
-                        <!-- Store Info - Compact -->
-                        <div class="flex-1 flex items-center justify-between min-w-0">
-                            <div class="min-w-0">
-                                <div class="font-bold ${colors.text} text-sm leading-tight truncate">${store?.nombre_display || 'Sin tienda'}</div>
-                                ${store?.alias_tienda ? `<div class="text-[10px] ${colors.text} opacity-60">${store.alias_tienda}</div>` : ''}
-                            </div>
-                            <div class="store-badge w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center text-white text-[10px] font-bold ml-2" 
-                                 style="background-color: ${storeColor}">
-                                ${store?.alias_tienda || 'T'}
-                            </div>
+                        <!-- Store Name - Larger & Centered -->
+                        <div class="flex-1 flex items-center min-w-0">
+                            <div class="font-bold ${textClass} text-base leading-tight">${store?.nombre_display || 'Sin tienda'}</div>
                         </div>
                     </div>`;
                 }
