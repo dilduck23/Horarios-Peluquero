@@ -15,6 +15,8 @@
     <!-- PDF Export Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <!-- Cloudflare Turnstile -->
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 
     <style>
         body {
@@ -238,6 +240,13 @@
                             <input type="password" id="loginPass"
                                 class="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-2 mt-1 focus:ring-2 focus:ring-blue-500 outline-none"
                                 placeholder="••••••••">
+                        </div>
+                        <!-- Cloudflare Turnstile Verification -->
+                        <div class="mt-4">
+                            <label class="text-xs font-bold text-slate-500 uppercase mb-2 block">Verificación de
+                                seguridad</label>
+                            <div class="cf-turnstile" data-sitekey="0x4AAAAAACNiFAenJVhU1FaV" data-theme="light"
+                                data-language="es"></div>
                         </div>
                     </div>
 
@@ -883,6 +892,14 @@
 
                 // Clear previous errors
                 errorMsg.classList.add('hidden');
+
+                // Validate Turnstile
+                const turnstileResponse = document.querySelector('[name="cf-turnstile-response"]');
+                if (!turnstileResponse || !turnstileResponse.value) {
+                    errorMsg.textContent = 'Por favor, completa la verificación de seguridad';
+                    errorMsg.classList.remove('hidden');
+                    return;
+                }
 
                 try {
                     const { data, error } = await db.auth.signInWithPassword({
