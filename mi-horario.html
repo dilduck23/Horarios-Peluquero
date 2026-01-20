@@ -55,6 +55,16 @@
             font-weight: 700;
         }
 
+        /* Store filter chip */
+        .store-chip {
+            transition: all 0.2s ease;
+        }
+
+        .store-chip.active {
+            ring: 2px;
+            ring-offset: 2px;
+        }
+
         /* Store badge colors */
         .store-badge {
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
@@ -85,7 +95,7 @@
         .today-indicator::before {
             content: '';
             position: absolute;
-            left: -12px;
+            left: -8px;
             top: 50%;
             transform: translateY(-50%);
             width: 4px;
@@ -143,86 +153,83 @@
     <div id="mainApp" class="hidden min-h-screen flex flex-col">
 
         <!-- Header -->
-        <header class="sticky top-0 z-50 bg-slate-900/95 backdrop-blur-lg border-b border-slate-800 px-4 py-4">
+        <header class="sticky top-0 z-50 bg-slate-900/95 backdrop-blur-lg border-b border-slate-800 px-4 py-3">
             <!-- User Info -->
-            <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center justify-between mb-3">
                 <div class="flex items-center gap-3">
                     <div id="userAvatar"
-                        class="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-lg shadow-lg">
+                        class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm shadow-lg">
                         --
                     </div>
                     <div>
-                        <h1 id="userName" class="font-bold text-lg text-white">Cargando...</h1>
-                        <p id="userCategory" class="text-xs text-slate-400">• Categoría</p>
+                        <h1 id="userName" class="font-bold text-base text-white">Cargando...</h1>
+                        <p id="userCategory" class="text-[10px] text-slate-400">• Categoría</p>
                     </div>
                 </div>
                 <button onclick="app.logout()"
-                    class="p-3 bg-red-500/20 hover:bg-red-500/30 rounded-xl transition-colors">
-                    <span class="material-icons text-red-400">logout</span>
+                    class="p-2 bg-red-500/20 hover:bg-red-500/30 rounded-xl transition-colors">
+                    <span class="material-icons text-red-400 text-xl">logout</span>
                 </button>
             </div>
 
-            <!-- Filter Tabs (Today/Calendar) - Now used as Bodega filter -->
-            <div class="flex gap-2 mb-4">
-                <button onclick="app.setFilter('all')" id="filter-all"
-                    class="flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all bg-white text-slate-900">
-                    Todos
+            <!-- Store Filter (Horizontal Scroll) -->
+            <div id="storeFilters" class="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 hide-scrollbar">
+                <button onclick="app.setStoreFilter(null)" id="filter-all"
+                    class="store-chip flex-shrink-0 py-2 px-4 rounded-full text-xs font-semibold transition-all bg-white text-slate-900">
+                    Todas
                 </button>
-                <button onclick="app.setFilter('assigned')" id="filter-assigned"
-                    class="flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all bg-slate-800 text-slate-400 hover:bg-slate-700">
-                    Con Asignación
-                </button>
+                <!-- Store chips will be injected here -->
             </div>
 
             <!-- Month Selector -->
-            <div class="flex items-center justify-center gap-2">
-                <button onclick="app.changeMonth(-1)" class="p-2 hover:bg-slate-800 rounded-xl transition-colors">
-                    <span class="material-icons text-slate-400">chevron_left</span>
+            <div class="flex items-center justify-center gap-2 mt-2">
+                <button onclick="app.changeMonth(-1)" class="p-1.5 hover:bg-slate-800 rounded-lg transition-colors">
+                    <span class="material-icons text-slate-400 text-lg">chevron_left</span>
                 </button>
 
-                <div class="flex gap-1 bg-slate-800/50 rounded-2xl p-1">
+                <div class="flex gap-1 bg-slate-800/50 rounded-xl p-0.5">
                     <button onclick="app.goToMonth(-1)" id="month-prev"
-                        class="month-pill px-4 py-2 rounded-xl text-sm text-slate-400">
+                        class="month-pill px-3 py-1.5 rounded-lg text-xs text-slate-400">
                         NOV
                     </button>
                     <button onclick="app.goToMonth(0)" id="month-current"
-                        class="month-pill active px-4 py-2 rounded-xl text-sm">
+                        class="month-pill active px-3 py-1.5 rounded-lg text-xs">
                         DIC
                     </button>
                     <button onclick="app.goToMonth(1)" id="month-next"
-                        class="month-pill px-4 py-2 rounded-xl text-sm text-slate-400">
+                        class="month-pill px-3 py-1.5 rounded-lg text-xs text-slate-400">
                         ENE
                     </button>
                 </div>
 
-                <button onclick="app.changeMonth(1)" class="p-2 hover:bg-slate-800 rounded-xl transition-colors">
-                    <span class="material-icons text-slate-400">chevron_right</span>
+                <button onclick="app.changeMonth(1)" class="p-1.5 hover:bg-slate-800 rounded-lg transition-colors">
+                    <span class="material-icons text-slate-400 text-lg">chevron_right</span>
                 </button>
             </div>
         </header>
 
         <!-- Calendar List -->
-        <main id="calendarList" class="flex-1 overflow-y-auto custom-scroll px-4 py-4 space-y-3">
+        <main id="calendarList" class="flex-1 overflow-y-auto custom-scroll px-4 py-3 space-y-2">
             <!-- Loading Skeletons -->
-            <div class="skeleton h-24 rounded-2xl"></div>
-            <div class="skeleton h-24 rounded-2xl"></div>
-            <div class="skeleton h-24 rounded-2xl"></div>
+            <div class="skeleton h-16 rounded-xl"></div>
+            <div class="skeleton h-16 rounded-xl"></div>
+            <div class="skeleton h-16 rounded-xl"></div>
         </main>
 
         <!-- Footer Stats -->
-        <footer class="bg-slate-900/95 backdrop-blur-lg border-t border-slate-800 px-4 py-4">
+        <footer class="bg-slate-900/95 backdrop-blur-lg border-t border-slate-800 px-4 py-3">
             <div class="flex justify-around text-center">
                 <div>
-                    <div id="statDaysWorked" class="text-2xl font-bold text-blue-400">0</div>
-                    <div class="text-[10px] text-slate-500 uppercase font-semibold">Días Asignados</div>
+                    <div id="statDaysWorked" class="text-xl font-bold text-blue-400">0</div>
+                    <div class="text-[9px] text-slate-500 uppercase font-semibold">Asignados</div>
                 </div>
                 <div>
-                    <div id="statDaysFree" class="text-2xl font-bold text-amber-400">0</div>
-                    <div class="text-[10px] text-slate-500 uppercase font-semibold">Días Libres</div>
+                    <div id="statDaysFree" class="text-xl font-bold text-amber-400">0</div>
+                    <div class="text-[9px] text-slate-500 uppercase font-semibold">Libres</div>
                 </div>
                 <div>
-                    <div id="statStores" class="text-2xl font-bold text-purple-400">0</div>
-                    <div class="text-[10px] text-slate-500 uppercase font-semibold">Tiendas</div>
+                    <div id="statStores" class="text-xl font-bold text-purple-400">0</div>
+                    <div class="text-[9px] text-slate-500 uppercase font-semibold">Tiendas</div>
                 </div>
             </div>
         </footer>
@@ -235,7 +242,7 @@
                 currentDate: new Date(),
                 personId: null,
                 person: null,
-                filter: 'all', // 'all' or 'assigned'
+                storeFilter: null, // null = all stores, or store ID
                 data: {
                     tiendas: [],
                     personal: [],
@@ -252,14 +259,14 @@
 
             // Palette of pastel colors for day cards
             cardColors: [
-                { bg: 'bg-purple-100', text: 'text-purple-900', accent: '#a855f7' },
-                { bg: 'bg-rose-100', text: 'text-rose-900', accent: '#f43f5e' },
-                { bg: 'bg-teal-100', text: 'text-teal-900', accent: '#14b8a6' },
-                { bg: 'bg-amber-100', text: 'text-amber-900', accent: '#f59e0b' },
-                { bg: 'bg-blue-100', text: 'text-blue-900', accent: '#3b82f6' },
-                { bg: 'bg-emerald-100', text: 'text-emerald-900', accent: '#10b981' },
-                { bg: 'bg-pink-100', text: 'text-pink-900', accent: '#ec4899' },
-                { bg: 'bg-cyan-100', text: 'text-cyan-900', accent: '#06b6d4' },
+                { bg: 'bg-purple-100', text: 'text-purple-900', border: 'border-purple-300' },
+                { bg: 'bg-rose-100', text: 'text-rose-900', border: 'border-rose-300' },
+                { bg: 'bg-teal-100', text: 'text-teal-900', border: 'border-teal-300' },
+                { bg: 'bg-amber-100', text: 'text-amber-900', border: 'border-amber-300' },
+                { bg: 'bg-blue-100', text: 'text-blue-900', border: 'border-blue-300' },
+                { bg: 'bg-emerald-100', text: 'text-emerald-900', border: 'border-emerald-300' },
+                { bg: 'bg-pink-100', text: 'text-pink-900', border: 'border-pink-300' },
+                { bg: 'bg-cyan-100', text: 'text-cyan-900', border: 'border-cyan-300' },
             ],
 
             init: async () => {
@@ -356,6 +363,7 @@
 
                 await app.fetchAssignments();
                 app.renderHeader();
+                app.renderStoreFilters();
                 app.renderCalendar();
                 app.updateMonthSelector();
             },
@@ -389,6 +397,34 @@
                 document.getElementById('userCategory').textContent = `• ${category?.descripcion || 'Sin categoría'} | ${person.Marca || ''}`;
             },
 
+            renderStoreFilters: () => {
+                // Get unique stores from assignments
+                const storeIds = [...new Set(app.state.data.horarios.map(h => h.tienda_id))];
+                const stores = storeIds.map(id => app.state.data.tiendas.find(t => t.id === id)).filter(Boolean);
+
+                const container = document.getElementById('storeFilters');
+                let html = `
+                    <button onclick="app.setStoreFilter(null)" id="filter-all"
+                        class="store-chip flex-shrink-0 py-2 px-4 rounded-full text-xs font-semibold transition-all ${app.state.storeFilter === null ? 'bg-white text-slate-900' : 'bg-slate-800 text-slate-400'}">
+                        Todas
+                    </button>
+                `;
+
+                stores.forEach(store => {
+                    const isActive = app.state.storeFilter === store.id;
+                    const storeColor = store.color_hex || '#6366f1';
+                    html += `
+                        <button onclick="app.setStoreFilter(${store.id})" 
+                            class="store-chip flex-shrink-0 py-2 px-4 rounded-full text-xs font-semibold transition-all flex items-center gap-2 ${isActive ? 'ring-2 ring-white ring-offset-2 ring-offset-slate-900' : ''}"
+                            style="background-color: ${storeColor}; color: white;">
+                            ${store.nombre_display}
+                        </button>
+                    `;
+                });
+
+                container.innerHTML = html;
+            },
+
             renderCalendar: () => {
                 const year = app.state.currentDate.getFullYear();
                 const month = app.state.currentDate.getMonth();
@@ -401,81 +437,70 @@
                 let daysFree = 0;
                 const storesVisited = new Set();
 
+                // Only show days WITH assignments
                 for (let d = 1; d <= daysInMonth; d++) {
                     const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
                     const dateObj = new Date(year, month, d);
                     const dayOfWeek = dateObj.getDay();
                     const dayName = app.dayNames[dayOfWeek];
-                    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
                     const isToday = dateStr === todayStr;
                     const assignment = app.state.data.horarios.find(a => a.fecha === dateStr);
 
-                    // Filter logic
-                    if (app.state.filter === 'assigned' && !assignment) continue;
-
-                    if (assignment) {
-                        daysWorked++;
-                        const store = app.state.data.tiendas.find(t => t.id === assignment.tienda_id);
-                        if (store) storesVisited.add(store.id);
-
-                        // Pick a color based on day
-                        const colorIndex = d % app.cardColors.length;
-                        const colors = app.cardColors[colorIndex];
-                        const storeColor = store?.color_hex || colors.accent;
-
-                        html += `
-                        <div class="day-card ${colors.bg} rounded-2xl p-4 ${isToday ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-slate-900' : ''}">
-                            <div class="flex">
-                                <!-- Date Section -->
-                                <div class="w-24 flex flex-col justify-center ${isToday ? 'today-indicator' : ''}">
-                                    <div class="text-xs font-semibold ${colors.text} opacity-70 uppercase">${dayName}</div>
-                                    <div class="text-5xl font-extrabold ${colors.text} leading-none">${d}</div>
-                                    <div class="text-lg font-bold ${colors.text} opacity-60 uppercase">${app.monthNamesShort[month]}</div>
-                                </div>
-                                
-                                <!-- Store Info -->
-                                <div class="flex-1 pl-4 border-l border-black/10 flex flex-col justify-center">
-                                    ${store ? `
-                                        <div class="flex items-center gap-2 mb-1">
-                                            <span class="store-badge w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold" 
-                                                  style="background-color: ${storeColor}">
-                                                ${store.alias_tienda || store.nombre_display.substring(0, 2)}
-                                            </span>
-                                            <span class="text-xs font-semibold ${colors.text} opacity-60">ASIGNACIÓN</span>
-                                        </div>
-                                        <div class="font-bold ${colors.text} text-lg leading-tight">${store.nombre_display}</div>
-                                    ` : `
-                                        <div class="text-slate-400 italic">Sin información</div>
-                                    `}
-                                </div>
-                            </div>
-                        </div>`;
-                    } else {
+                    // Only show days with assignments
+                    if (!assignment) {
                         daysFree++;
-                        // Free day - more subtle card
-                        html += `
-                        <div class="day-card bg-slate-800/50 rounded-2xl p-4 border border-slate-700/50 ${isToday ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-slate-900' : ''}">
-                            <div class="flex">
-                                <!-- Date Section -->
-                                <div class="w-24 flex flex-col justify-center ${isToday ? 'today-indicator' : ''}">
-                                    <div class="text-xs font-semibold text-slate-500 uppercase">${dayName}</div>
-                                    <div class="text-5xl font-extrabold text-slate-600 leading-none">${d}</div>
-                                    <div class="text-lg font-bold text-slate-600 uppercase">${app.monthNamesShort[month]}</div>
-                                </div>
-                                
-                                <!-- Free Day -->
-                                <div class="flex-1 pl-4 border-l border-slate-700 flex items-center">
-                                    <div class="flex items-center gap-2 text-slate-500">
-                                        <span class="material-icons text-amber-500/70">wb_sunny</span>
-                                        <span class="font-medium ${isWeekend ? 'text-amber-500/70' : ''}">Día Libre</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>`;
+                        continue;
                     }
+
+                    // Store filter
+                    if (app.state.storeFilter !== null && assignment.tienda_id !== app.state.storeFilter) {
+                        continue;
+                    }
+
+                    daysWorked++;
+                    const store = app.state.data.tiendas.find(t => t.id === assignment.tienda_id);
+                    if (store) storesVisited.add(store.id);
+
+                    // Pick a color based on store or day
+                    const colorIndex = d % app.cardColors.length;
+                    const colors = app.cardColors[colorIndex];
+                    const storeColor = store?.color_hex || '#6366f1';
+
+                    html += `
+                    <div class="day-card ${colors.bg} rounded-xl p-3 flex items-center gap-3 ${isToday ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-slate-900' : ''}">
+                        <!-- Date Section - Compact -->
+                        <div class="w-16 text-center flex-shrink-0 ${isToday ? 'today-indicator' : ''}">
+                            <div class="text-[10px] font-semibold ${colors.text} opacity-60 uppercase">${app.dayNamesShort[dayOfWeek]}</div>
+                            <div class="text-3xl font-extrabold ${colors.text} leading-none">${d}</div>
+                            <div class="text-xs font-bold ${colors.text} opacity-50 uppercase">${app.monthNamesShort[month]}</div>
+                        </div>
+                        
+                        <!-- Divider -->
+                        <div class="w-px h-10 bg-black/10"></div>
+                        
+                        <!-- Store Info - Compact -->
+                        <div class="flex-1 flex items-center justify-between min-w-0">
+                            <div class="min-w-0">
+                                <div class="font-bold ${colors.text} text-sm leading-tight truncate">${store?.nombre_display || 'Sin tienda'}</div>
+                                ${store?.alias_tienda ? `<div class="text-[10px] ${colors.text} opacity-60">${store.alias_tienda}</div>` : ''}
+                            </div>
+                            <div class="store-badge w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center text-white text-[10px] font-bold ml-2" 
+                                 style="background-color: ${storeColor}">
+                                ${store?.alias_tienda || 'T'}
+                            </div>
+                        </div>
+                    </div>`;
                 }
 
-                document.getElementById('calendarList').innerHTML = html || '<div class="text-center text-slate-500 py-10">No hay días para mostrar</div>';
+                if (!html) {
+                    html = `
+                    <div class="text-center py-10">
+                        <span class="material-icons text-4xl text-slate-600 mb-2">event_busy</span>
+                        <p class="text-slate-500 text-sm">No hay asignaciones este mes</p>
+                    </div>`;
+                }
+
+                document.getElementById('calendarList').innerHTML = html;
 
                 // Update stats
                 document.getElementById('statDaysWorked').textContent = daysWorked;
@@ -496,6 +521,7 @@
             changeMonth: async (delta) => {
                 app.state.currentDate.setMonth(app.state.currentDate.getMonth() + delta);
                 await app.fetchAssignments();
+                app.renderStoreFilters();
                 app.renderCalendar();
                 app.updateMonthSelector();
             },
@@ -504,21 +530,9 @@
                 await app.changeMonth(delta);
             },
 
-            setFilter: (filter) => {
-                app.state.filter = filter;
-
-                // Update button styles
-                const allBtn = document.getElementById('filter-all');
-                const assignedBtn = document.getElementById('filter-assigned');
-
-                if (filter === 'all') {
-                    allBtn.className = 'flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all bg-white text-slate-900';
-                    assignedBtn.className = 'flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all bg-slate-800 text-slate-400 hover:bg-slate-700';
-                } else {
-                    allBtn.className = 'flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all bg-slate-800 text-slate-400 hover:bg-slate-700';
-                    assignedBtn.className = 'flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all bg-white text-slate-900';
-                }
-
+            setStoreFilter: (storeId) => {
+                app.state.storeFilter = storeId;
+                app.renderStoreFilters();
                 app.renderCalendar();
             }
         };
