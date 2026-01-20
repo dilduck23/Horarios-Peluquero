@@ -198,6 +198,14 @@
         body.staff-view-only .pin-logout-btn {
             display: flex !important;
         }
+
+        /* Ocultar texto en inputs tipo text (para PIN sin alertas de seguridad) */
+        .secure-text {
+            -webkit-text-security: disc;
+            text-security: disc;
+            font-family: text-security-disc;
+            /* Fallback */
+        }
     </style>
 </head>
 
@@ -269,9 +277,9 @@
                 <h3 class="text-lg font-bold mb-4 text-slate-700">Ingreso Staff</h3>
                 <p class="text-xs text-slate-400 mb-4">Ingresa tu ID de Vendedor</p>
 
-                <input type="password" id="loginPin"
-                    class="w-full text-center text-3xl tracking-[1em] font-mono bg-gray-50 p-4 rounded-xl border-2 border-gray-200 focus:border-black focus:ring-0 outline-none transition-colors"
-                    placeholder="••••" maxlength="6" inputmode="numeric">
+                <input type="text" id="loginPin"
+                    class="secure-text w-full text-center text-3xl tracking-[1em] font-mono bg-gray-50 p-4 rounded-xl border-2 border-gray-200 focus:border-black focus:ring-0 outline-none transition-colors"
+                    placeholder="••••" maxlength="6" inputmode="numeric" autocomplete="off" name="pin-entry-field">
 
                 <button onclick="app.handlePinLogin()"
                     class="w-full bg-blue-600 text-white font-bold py-3 rounded-lg mt-6 shadow-lg hover:bg-blue-700 transition">
