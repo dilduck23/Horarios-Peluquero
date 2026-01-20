@@ -83,15 +83,83 @@ El sistema utiliza **Supabase Edge Functions** para enviar notificaciones de cor
 
 ## 📂 Estructura del Proyecto
 
-*   `login.html`: **Página de Login**. Autenticación Email/Password y PIN.
-*   `index.html`: **Vista Principal**. Calendario general, gestión de turnos completa (requiere login).
-*   `mi-horario.html`: **Vista Móvil Staff**. Calendario personal para Impulsadoras (login PIN).
-*   `calendario-tienda.html`: **Vista Simplificada por Tienda**. Solo lectura + reporte de incidencias.
-*   `personal.html`: **Gestión Personal Interno**. Calendario por bodega.
-*   `reportes.html`: **Historial de Incidencias**. Filtros y exportación CSV.
-*   `admin-mobile.html`: **Vista Móvil Admin**. Dashboard simplificado.
+### Páginas Desktop (Pantalla Completa)
+| Archivo | Descripción | Acceso |
+|---------|-------------|--------|
+| `login.html` | Página de Login. Autenticación dual: Email/Password + PIN | Público |
+| `index.html` | Vista Principal. Calendario mensual, gestión completa de turnos | Rol 1-3 |
+| `personal.html` | Gestión Personal Interno. Calendario mensual por bodega | Rol 1-3 |
+| `reportes.html` | Historial de Incidencias. Filtros y exportación CSV | Rol 1-3 |
+| `calendario-tienda.html` | Vista por Tienda. Solo lectura + reporte incidencias | Rol 1-3 |
+
+### Páginas Mobile (Optimizadas para Móvil)
+| Archivo | Descripción | Acceso |
+|---------|-------------|--------|
+| `admin-mobile.html` | Dashboard Admin Móvil. Vista diaria de Impulsadoras | Rol 1-3 |
+| `personal-mobile.html` | Personal Interno Móvil. Vista diaria por bodega | Rol 1-3 |
+| `mi-horario.html` | Horario Personal. Vista para Impulsadoras (login PIN) | Rol 4 |
+
+### Otros Archivos
 *   `supabase_edge_function_email.ts`: Código fuente de la función Cloud para emails.
 *   `assets/`: (Si aplica) Recursos estáticos.
+
+---
+
+## 🧭 Flujo de Navegación
+
+### Diagrama de Navegación Mobile
+
+```mermaid
+graph TD
+    subgraph "Páginas Mobile"
+        AM[admin-mobile.html<br/>📅 Calendario Impulsadoras]
+        PM[personal-mobile.html<br/>👥 Personal Interno]
+        CT[calendario-tienda.html<br/>🏪 Tiendas]
+        RP[reportes.html<br/>📊 Reportes]
+    end
+
+    AM -->|"Tab: Personal"| PM
+    AM -->|"Tab: Tiendas"| CT
+    AM -->|"Tab: Reportes"| RP
+    
+    PM -->|"Tab: Calendario"| AM
+    PM -->|"Tab: Tiendas"| CT
+    PM -->|"Tab: Reportes"| RP
+```
+
+### Navbar Mobile (Tabs Inferiores)
+
+El navbar inferior en las páginas mobile conecta:
+
+| Tab | admin-mobile.html | personal-mobile.html |
+|-----|-------------------|----------------------|
+| 📅 Calendario | *(Actual)* | → admin-mobile.html |
+| 👥 Staff/Personal | → personal-mobile.html | *(Actual)* |
+| 🏪 Tiendas | → calendario-tienda.html | → calendario-tienda.html |
+| 📊 Reportes | → reportes.html | → reportes.html |
+| 👤 Perfil | Modal logout | Modal logout |
+
+### Flujo de Autenticación
+
+```mermaid
+flowchart LR
+    A[Usuario] --> B{¿Tiene Sesión?}
+    B -->|No| C[login.html]
+    B -->|Sí| D{Rol}
+    
+    C -->|Email/Pass| E[Roles 1-3]
+    C -->|PIN| F{Tipo PIN}
+    
+    F -->|Impulsadora| G[mi-horario.html]
+    F -->|Personal Interno| H[personal.html]
+    
+    E -->|Mobile| I[admin-mobile.html]
+    E -->|Desktop| J[index.html]
+    
+    D -->|Rol 4| G
+    D -->|Rol 1-3 Mobile| I
+    D -->|Rol 1-3 Desktop| J
+```
 
 ---
 
@@ -114,17 +182,56 @@ El repositorio está conectado a Cloudflare Pages.
 
 ## 🔐 Autenticación y Seguridad
 
-*   **Login General**: Email/Password contra `auth.users` de Supabase + validación en `Tiendas_Usuarios`.
-*   **Login Staff (PIN)**: Validación contra campo `pin` en `Tiendas_Impulsadoras` (Rol ID 4).
-*   **Persistencia**: `sessionStorage` maneja la sesión activa (`staffPlannerAuth`, `staffPlannerUser`).
-*   **RLS (Row Level Security)**: Las tablas están protegidas en Supabase pero habilitadas para lectura `public` (anon) o autenticados según necesidad. `Tiendas_Horario` permite escritura pública (o autenticada) para incidencias.
+### Métodos de Login
+| Método | Descripción | Validación | Destino |
+|--------|-------------|------------|---------|
+| Email/Password | Admin, Organizador, PdV | Supabase Auth + `Tiendas_Usuarios` | index.html / admin-mobile.html |
+| PIN (Impulsadora) | Staff de ventas | `Tiendas_Impulsadoras.pin` | mi-horario.html |
+| PIN (Personal) | Personal interno | `Tiendas_Personal.pin` | personal.html |
+
+### Roles del Sistema
+| ID | Nombre | Permisos |
+|----|--------|----------|
+| 1 | Admin | CRUD completo + usuarios |
+| 2 | Organizador | CRUD turnos + incidencias |
+| 3 | Punto de Venta (PdV) | Solo reportar incidencias |
+| 4 | Impulsadora | Ver su horario (solo lectura) |
+
+### Persistencia de Sesión
+*   `sessionStorage.staffPlannerAuth`: Estado de autenticación (`'true'`/`'false'`)
+*   `sessionStorage.staffPlannerRoleId`: ID del rol del usuario
+*   `sessionStorage.staffPlannerUser`: Objeto JSON con datos del usuario
+*   `sessionStorage.staffPlannerRoleName`: Nombre legible del rol
+*   `sessionStorage.staffPlannerUserId`: ID del usuario en BD
+
+### RLS (Row Level Security)
+Las tablas están protegidas en Supabase. `Tiendas_Horario` permite escritura pública para incidencias.
 
 ---
 
 ## 📝 Notas de Desarrollo
 
-*   **API Keys**: Se utilizan claves `publishable` en el frontend. **Nunca** exponer `service_role` key en archivos HTML/JS.
-*   **Fechas**: Manejo de fechas local vs UTC. El calendario usa strings `YYYY-MM-DD` para evitar problemas de zona horaria.
-*   **Colores**:
-    *   `Tiendas_Razonamiento.color_hex`: Color identificativo de la tienda.
-    *   `Tiendas_Impulsadoras.color` (Deprecado/No usado): Se prefiere usar color de tienda o paleta por defecto en vistas generales.
+### Tecnologías y Dependencias
+*   **SweetAlert2**: Modals y confirmaciones (CDN)
+*   **TailwindCSS**: Estilos (CDN)
+*   **Material Icons**: Iconografía (Google Fonts)
+*   **Supabase JS**: Cliente de base de datos
+
+### Convenciones
+*   **Fechas**: Formato `YYYY-MM-DD` para evitar problemas de timezone.
+*   **Colores de Tienda**: `Tiendas_Razonamiento.color_hex` identifica visualmente cada local.
+*   **API Keys**: Solo claves `publishable` en frontend. **Nunca** exponer `service_role`.
+
+### Tablas de Base de Datos Principales
+| Tabla | Uso |
+|-------|-----|
+| `Tiendas_Horario` | Turnos de Impulsadoras |
+| `Tiendas_Personal_Horario` | Turnos de Personal Interno |
+| `Tiendas_Impulsadoras` | Catálogo de Impulsadoras |
+| `Tiendas_Personal` | Catálogo de Personal Interno |
+| `Tiendas_Razonamiento` | Catálogo de Tiendas/Bodegas |
+| `Tiendas_Faltas` | Registro de Incidencias |
+| `Tiendas_Usuarios` | Usuarios del sistema |
+| `Tiendas_Roles` | Roles de acceso |
+| `Tiendas_Categorias` | Categorías/Zonas de trabajo |
+
