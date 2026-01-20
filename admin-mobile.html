@@ -531,9 +531,101 @@
                 document.getElementById('assignmentCount').textContent = `(${totalCount})`;
             },
 
-            openAddModal: () => {
-                // TODO: Implement add assignment modal
-                alert('Función de agregar asignación - Próximamente');
+            openAddModal: async () => {
+                const dateStr = app.formatDate(app.state.selectedDate);
+                const friendlyDate = app.state.selectedDate.toLocaleDateString('es-ES', {
+                    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+                });
+
+                // Build options
+                const impulsadoraOptions = app.state.data.personal
+                    .filter(p => p.habilitado !== false) // Only active staff
+                    .sort((a, b) => (a.nombre_completo || '').localeCompare(b.nombre_completo || ''))
+                    .map(p => `<option value="${p.id}">${p.nombre_completo}${p.Marca ? ` (${p.Marca})` : ''}</option>`)
+                    .join('');
+
+                const tiendaOptions = app.state.data.tiendas
+                    .filter(t => t.activo !== false) // Only active stores
+                    .map(t => `<option value="${t.id}">${t.nombre_display}</option>`)
+                    .join('');
+
+                const { value: formValues } = await Swal.fire({
+                    title: 'Nueva Asignación',
+                    html: `
+                        <div class="text-left space-y-4">
+                            <div class="bg-indigo-50 p-3 rounded-xl text-sm text-indigo-700 font-medium">
+                                📅 ${friendlyDate}
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Impulsadora *</label>
+                                <select id="swal-impulsadora" class="w-full p-3 border rounded-xl" required>
+                                    <option value="">-- Seleccionar --</option>
+                                    ${impulsadoraOptions}
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Tienda *</label>
+                                <select id="swal-tienda" class="w-full p-3 border rounded-xl" required>
+                                    <option value="">-- Seleccionar --</option>
+                                    ${tiendaOptions}
+                                </select>
+                            </div>
+                        </div>
+                    `,
+                    showCancelButton: true,
+                    confirmButtonText: '✅ Agregar',
+                    cancelButtonText: 'Cancelar',
+                    confirmButtonColor: '#6366f1',
+                    preConfirm: () => {
+                        const impulsadoraId = document.getElementById('swal-impulsadora').value;
+                        const tiendaId = document.getElementById('swal-tienda').value;
+
+                        if (!impulsadoraId || !tiendaId) {
+                            Swal.showValidationMessage('Selecciona una impulsadora y una tienda');
+                            return false;
+                        }
+
+                        return {
+                            impulsadora_id: parseInt(impulsadoraId),
+                            tienda_id: parseInt(tiendaId),
+                            fecha: dateStr
+                        };
+                    }
+                });
+
+                if (formValues) {
+                    // Check for duplicate assignment
+                    const existingAssignment = app.state.data.horarios.find(
+                        h => h.impulsadora_id === formValues.impulsadora_id && h.tienda_id === formValues.tienda_id
+                    );
+
+                    if (existingAssignment) {
+                        const person = app.state.data.personal.find(p => p.id === formValues.impulsadora_id);
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'Asignación duplicada',
+                            text: `${person?.nombre_completo || 'Esta impulsadora'} ya está asignada a esta tienda en esta fecha.`
+                        });
+                        return;
+                    }
+
+                    // Insert new assignment
+                    const { data, error } = await db.from('Tiendas_Horario').insert(formValues).select();
+
+                    if (error) {
+                        Swal.fire('Error', error.message, 'error');
+                    } else {
+                        Swal.fire({
+                            icon: 'success',
+                            title: '¡Asignación creada!',
+                            timer: 1500,
+                            showConfirmButton: false
+                        });
+                        // Refresh data
+                        await app.fetchAssignmentsForDate();
+                        app.renderAssignments();
+                    }
+                }
             },
 
             switchTab: (tab) => {
