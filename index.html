@@ -893,9 +893,12 @@
                 // Clear previous errors
                 errorMsg.classList.add('hidden');
 
-                // Validate Turnstile
+                // Validate Turnstile (Skip on localhost/file)
+                const isLocal = ['localhost', '127.0.0.1', ''].includes(window.location.hostname) || window.location.protocol === 'file:';
+
                 const turnstileResponse = document.querySelector('[name="cf-turnstile-response"]');
-                if (!turnstileResponse || !turnstileResponse.value) {
+                // Only require Turnstile if NOT local
+                if (!isLocal && (!turnstileResponse || !turnstileResponse.value)) {
                     errorMsg.textContent = 'Por favor, completa la verificación de seguridad';
                     errorMsg.classList.remove('hidden');
                     return;
