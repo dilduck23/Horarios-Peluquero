@@ -183,6 +183,11 @@
 
         // Load Data on Page Load
         document.addEventListener('DOMContentLoaded', async () => {
+            // Auth check - redirect to login if not authenticated
+            if (sessionStorage.getItem('staffPlannerAuth') !== 'true') {
+                window.location.href = 'login.html';
+                return;
+            }
             await loadData();
         });
 

@@ -731,56 +731,57 @@
             },
 
             init: async () => {
-                // AUTH CHECK
+                // AUTH CHECK - Redirect to login if not authenticated
                 const isLoggedIn = sessionStorage.getItem('staffPlannerAuth');
                 const roleId = parseInt(sessionStorage.getItem('staffPlannerRoleId') || '0');
                 const staffId = sessionStorage.getItem('staffPlannerStaffId');
 
-                if (isLoggedIn === 'true') {
-                    // Clear previous role classes
-                    document.body.classList.remove('guest-mode', 'staff-view-only', 'organizador-mode', 'pdv-mode', 'pin-mode');
+                if (isLoggedIn !== 'true') {
+                    // Not authenticated - redirect to login page
+                    window.location.href = 'login.html';
+                    return;
+                }
 
-                    // Update user profile in sidebar
-                    const userStr = sessionStorage.getItem('staffPlannerUser');
-                    const roleName = sessionStorage.getItem('staffPlannerRoleName') || 'Usuario';
-                    if (userStr) {
-                        const user = JSON.parse(userStr);
-                        const email = user.email || '';
-                        const initials = email.substring(0, 2).toUpperCase();
-                        document.getElementById('userInitials').textContent = initials;
-                        document.getElementById('userName').textContent = email;
-                        document.getElementById('userRole').textContent = roleName;
-                    }
+                // Clear previous role classes
+                document.body.classList.remove('guest-mode', 'staff-view-only', 'organizador-mode', 'pdv-mode', 'pin-mode');
 
-                    // APPLY ROLE RESTRICTIONS BASED ON roleId
-                    // 1 = Administrador, 2 = Organizador, 3 = Punto de Venta, 4 = Impulsadora
-                    switch (roleId) {
-                        case 1: // Administrador - Full access
-                            // No restrictions
-                            break;
-                        case 2: // Organizador - Can't edit tiendas/categorias
-                            document.body.classList.add('organizador-mode');
-                            break;
-                        case 3: // Punto de Venta - View only + report faltas
-                            document.body.classList.add('pdv-mode');
-                            break;
-                        case 4: // Impulsadora - Only see their calendar + hide top bar buttons
-                            document.body.classList.add('staff-view-only');
-                            document.body.classList.add('pin-mode');
-                            break;
-                        default: // Unknown role - treat as guest
-                            document.body.classList.add('guest-mode');
-                    }
+                // Update user profile in sidebar
+                const userStr = sessionStorage.getItem('staffPlannerUser');
+                const roleName = sessionStorage.getItem('staffPlannerRoleName') || 'Usuario';
+                if (userStr) {
+                    const user = JSON.parse(userStr);
+                    const email = user.email || '';
+                    const initials = email.substring(0, 2).toUpperCase();
+                    document.getElementById('userInitials').textContent = initials;
+                    document.getElementById('userName').textContent = email;
+                    document.getElementById('userRole').textContent = roleName;
+                }
 
-                    document.getElementById('loginOverlay').classList.add('hidden');
-                    await app.loadData();
+                // APPLY ROLE RESTRICTIONS BASED ON roleId
+                // 1 = Administrador, 2 = Organizador, 3 = Punto de Venta, 4 = Impulsadora
+                switch (roleId) {
+                    case 1: // Administrador - Full access
+                        // No restrictions
+                        break;
+                    case 2: // Organizador - Can't edit tiendas/categorias
+                        document.body.classList.add('organizador-mode');
+                        break;
+                    case 3: // Punto de Venta - View only + report faltas
+                        document.body.classList.add('pdv-mode');
+                        break;
+                    case 4: // Impulsadora - Only see their calendar + hide top bar buttons
+                        document.body.classList.add('staff-view-only');
+                        document.body.classList.add('pin-mode');
+                        break;
+                    default: // Unknown role - treat as guest
+                        document.body.classList.add('guest-mode');
+                }
 
-                    // For Impulsadora role or PIN login, force open their calendar
-                    if ((roleId === 4 || staffId) && staffId) {
-                        app.showPersonCalendar(parseInt(staffId));
-                    }
-                } else {
-                    // Show login (default)
+                await app.loadData();
+
+                // For Impulsadora role or PIN login, force open their calendar
+                if ((roleId === 4 || staffId) && staffId) {
+                    app.showPersonCalendar(parseInt(staffId));
                 }
             },
 
@@ -896,8 +897,8 @@
                 sessionStorage.removeItem('staffPlannerStaffId');
                 sessionStorage.removeItem('staffPlannerRole');
 
-                // Reload to show login
-                location.reload();
+                // Redirect to login page
+                window.location.href = 'login.html';
             },
 
             handleLogin: async () => {

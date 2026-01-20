@@ -83,8 +83,13 @@ El sistema utiliza **Supabase Edge Functions** para enviar notificaciones de cor
 
 ## 📂 Estructura del Proyecto
 
-*   `index.html`: **Vista Principal**. Calendario general, gestión de turnos completa, login principal.
-*   `calendario-tienda.html`: **Vista Simplificada por Tienda**. Solo lectura + reporte de incidencias. Filtrado por local.
+*   `login.html`: **Página de Login**. Autenticación Email/Password y PIN.
+*   `index.html`: **Vista Principal**. Calendario general, gestión de turnos completa (requiere login).
+*   `mi-horario.html`: **Vista Móvil Staff**. Calendario personal para Impulsadoras (login PIN).
+*   `calendario-tienda.html`: **Vista Simplificada por Tienda**. Solo lectura + reporte de incidencias.
+*   `personal.html`: **Gestión Personal Interno**. Calendario por bodega.
+*   `reportes.html`: **Historial de Incidencias**. Filtros y exportación CSV.
+*   `admin-mobile.html`: **Vista Móvil Admin**. Dashboard simplificado.
 *   `supabase_edge_function_email.ts`: Código fuente de la función Cloud para emails.
 *   `assets/`: (Si aplica) Recursos estáticos.
 

@@ -170,7 +170,13 @@
             },
 
             init: async () => {
-                // Check user role from sessionStorage (set by index.html)
+                // Auth check - redirect to login if not authenticated
+                if (sessionStorage.getItem('staffPlannerAuth') !== 'true') {
+                    window.location.href = 'login.html';
+                    return;
+                }
+
+                // Check user role from sessionStorage
                 const roleId = parseInt(sessionStorage.getItem('staffPlannerRoleId') || '0');
                 app.state.userRoleId = roleId;
 
