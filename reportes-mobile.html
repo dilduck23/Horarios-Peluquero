@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Reportes | StaffPlanner</title>
+
+    <!-- Tailwind & Dependencies -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+    <style>
+        * {
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #f8fafc;
+            min-height: 100vh;
+            overscroll-behavior: none;
+        }
+
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        .stat-card {
+            transition: all 0.2s ease;
+        }
+
+        .incidence-card {
+            transition: all 0.2s ease;
+        }
+
+        .incidence-card:active {
+            transform: scale(0.98);
+        }
+
+        .nav-item {
+            transition: all 0.2s ease;
+        }
+
+        .nav-item.active {
+            color: #f97316;
+        }
+
+        .nav-item.active .nav-icon {
+            background: linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%);
+        }
+
+        @keyframes shimmer {
+            0% {
+                background-position: -200% 0;
+            }
+
+            100% {
+                background-position: 200% 0;
+            }
+        }
+
+        .skeleton {
+            background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+    </style>
+</head>
+
+<body class="text-slate-800 pb-20">
+
+    <!-- SUPABASE CLIENT -->
+    <script>
+        const SUPABASE_URL = 'https://cectqtufttubsepyiolr.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_Ow2zQpNDPsLA6on9VBWFgg_Q0_LAc1D';
+        const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    </script>
+
+    <!-- MAIN APP -->
+    <div id="mainApp" class="min-h-screen flex flex-col">
+
+        <!-- Header -->
+        <header class="sticky top-0 z-50 bg-white border-b border-slate-100 px-4 py-3 shadow-sm">
+            <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2">
+                    <span class="material-icons text-orange-500 text-2xl">report_problem</span>
+                    <h1 class="text-lg font-bold text-slate-800">Incidencias</h1>
+                </div>
+                <button onclick="app.toggleFilters()"
+                    class="flex items-center gap-1 bg-slate-100 hover:bg-slate-200 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition-colors">
+                    <span class="material-icons text-base">filter_list</span>
+                    <span>Filtros</span>
+                </button>
+            </div>
+
+            <!-- Stats Cards (Horizontal Scroll) -->
+            <div class="flex gap-3 overflow-x-auto hide-scrollbar -mx-4 px-4 pb-2">
+                <div class="stat-card flex-shrink-0 bg-slate-100 rounded-xl px-4 py-3 min-w-[120px]">
+                    <div class="text-[10px] font-bold text-slate-400 uppercase">Total</div>
+                    <div class="text-xl font-bold text-slate-800" id="stat-total">0</div>
+                </div>
+                <div class="stat-card flex-shrink-0 bg-red-50 rounded-xl px-4 py-3 min-w-[140px]">
+                    <div class="text-[10px] font-bold text-red-400 uppercase">Injustificadas</div>
+                    <div class="text-xl font-bold text-red-600" id="stat-injustificadas">0</div>
+                </div>
+                <div class="stat-card flex-shrink-0 bg-orange-50 rounded-xl px-4 py-3 min-w-[140px]">
+                    <div class="text-[10px] font-bold text-orange-400 uppercase">Impuntualidad</div>
+                    <div class="text-xl font-bold text-orange-600" id="stat-impuntualidad">0</div>
+                </div>
+                <div class="stat-card flex-shrink-0 bg-purple-50 rounded-xl px-4 py-3 min-w-[130px]">
+                    <div class="text-[10px] font-bold text-purple-400 uppercase">Quejas</div>
+                    <div class="text-xl font-bold text-purple-600" id="stat-quejas">0</div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Filters Panel (Collapsible) -->
+        <div id="filtersPanel" class="hidden bg-white border-b border-slate-200 px-4 py-4">
+            <div class="space-y-3">
+                <!-- Vendedora -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1">Vendedora</label>
+                    <select id="filter-vendedora"
+                        class="w-full p-2 border border-slate-200 rounded-lg text-sm focus:ring-2 ring-orange-500"
+                        onchange="app.applyFilters()">
+                        <option value="">Todas</option>
+                    </select>
+                </div>
+
+                <!-- Tipo -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1">Tipo de Incidencia</label>
+                    <select id="filter-asunto"
+                        class="w-full p-2 border border-slate-200 rounded-lg text-sm focus:ring-2 ring-orange-500"
+                        onchange="app.applyFilters()">
+                        <option value="">Todos</option>
+                        <option value="FALTA INJUSTIFICADA">Falta Injustificada</option>
+                        <option value="FALTA JUSTIFICADA">Falta Justificada</option>
+                        <option value="IMPUNTUALIDAD">Impuntualidad</option>
+                        <option value="PRESENTACIÓN">Presentación</option>
+                        <option value="ACTITUD">Actitud</option>
+                        <option value="QUEJA DE CLIENTE">Queja de Cliente</option>
+                        <option value="OTROS">Otros</option>
+                    </select>
+                </div>
+
+                <!-- Date Range -->
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 mb-1">Desde</label>
+                        <input type="date" id="filter-desde"
+                            class="w-full p-2 border border-slate-200 rounded-lg text-sm focus:ring-2 ring-orange-500"
+                            onchange="app.applyFilters()">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 mb-1">Hasta</label>
+                        <input type="date" id="filter-hasta"
+                            class="w-full p-2 border border-slate-200 rounded-lg text-sm focus:ring-2 ring-orange-500"
+                            onchange="app.applyFilters()">
+                    </div>
+                </div>
+
+                <!-- Clear Button -->
+                <button onclick="app.clearFilters()"
+                    class="w-full py-2 text-sm text-orange-600 hover:text-orange-800 font-medium">
+                    Limpiar Filtros
+                </button>
+            </div>
+        </div>
+
+        <!-- Incidences List -->
+        <main id="incidencesList" class="flex-1 overflow-y-auto bg-slate-50">
+            <!-- Loading Skeletons -->
+            <div class="p-4 space-y-3">
+                <div class="skeleton h-20 rounded-xl"></div>
+                <div class="skeleton h-20 rounded-xl"></div>
+                <div class="skeleton h-20 rounded-xl"></div>
+            </div>
+        </main>
+
+        <!-- Bottom Navigation -->
+        <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-4 py-2 z-50">
+            <div class="flex justify-around items-center">
+                <button onclick="app.switchTab('calendar')"
+                    class="nav-item flex flex-col items-center gap-1 p-2 text-slate-400">
+                    <div class="nav-icon w-10 h-10 rounded-xl flex items-center justify-center">
+                        <span class="material-icons">calendar_month</span>
+                    </div>
+                    <span class="text-[10px] font-semibold">Calendario</span>
+                </button>
+                <button onclick="app.switchTab('stores')"
+                    class="nav-item flex flex-col items-center gap-1 p-2 text-slate-400">
+                    <div class="nav-icon w-10 h-10 rounded-xl flex items-center justify-center">
+                        <span class="material-icons">storefront</span>
+                    </div>
+                    <span class="text-[10px] font-semibold">Tiendas</span>
+                </button>
+                <button onclick="app.switchTab('staff')"
+                    class="nav-item flex flex-col items-center gap-1 p-2 text-slate-400">
+                    <div class="nav-icon w-10 h-10 rounded-xl flex items-center justify-center">
+                        <span class="material-icons">groups</span>
+                    </div>
+                    <span class="text-[10px] font-semibold">Staff</span>
+                </button>
+                <button onclick="app.switchTab('reports')" class="nav-item active flex flex-col items-center gap-1 p-2">
+                    <div class="nav-icon w-10 h-10 rounded-xl flex items-center justify-center">
+                        <span class="material-icons">assessment</span>
+                    </div>
+                    <span class="text-[10px] font-semibold">Reportes</span>
+                </button>
+                <button onclick="app.switchTab('profile')"
+                    class="nav-item flex flex-col items-center gap-1 p-2 text-slate-400">
+                    <div id="userNavAvatar"
+                        class="nav-icon w-10 h-10 rounded-xl flex items-center justify-center bg-slate-200 text-slate-600 font-bold text-sm">
+                        U
+                    </div>
+                    <span class="text-[10px] font-semibold">Perfil</span>
+                </button>
+            </div>
+        </nav>
+    </div>
+
+    <!-- JAVASCRIPT APP LOGIC -->
+    <script>
+        const app = {
+            state: {
+                user: null,
+                allIncidencias: [],
+                allPersonal: [],
+                allTiendas: [],
+                filteredIncidencias: [],
+                filtersVisible: false
+            },
+
+            init: async () => {
+                // Auth check
+                if (sessionStorage.getItem('staffPlannerAuth') !== 'true') {
+                    window.location.href = 'login.html';
+                    return;
+                }
+
+                app.state.user = JSON.parse(sessionStorage.getItem('staffPlannerUser') || '{}');
+
+                // Set user avatar
+                const email = app.state.user.email || '';
+                const initial = email.substring(0, 1).toUpperCase();
+                document.getElementById('userNavAvatar').textContent = initial;
+
+                await app.loadData();
+            },
+
+            loadData: async () => {
+                try {
+                    const [faltasRes, personalRes, tiendasRes, horariosRes] = await Promise.all([
+                        db.from('Tiendas_Faltas').select('*').order('creado_en', { ascending: false }),
+                        db.from('Tiendas_Impulsadoras').select('*'),
+                        db.from('Tiendas_Razonamiento').select('*'),
+                        db.from('Tiendas_Horario').select('*')
+                    ]);
+
+                    app.state.allPersonal = personalRes.data || [];
+                    app.state.allTiendas = tiendasRes.data || [];
+                    const horarios = horariosRes.data || [];
+
+                    // Enrich faltas with related data
+                    app.state.allIncidencias = (faltasRes.data || []).map(f => {
+                        const horario = horarios.find(h => h.id === f.id_horario);
+                        const persona = horario ? app.state.allPersonal.find(p => p.id === horario.impulsadora_id) : null;
+                        const tienda = horario ? app.state.allTiendas.find(t => t.id === horario.tienda_id) : null;
+
+                        return {
+                            ...f,
+                            persona_nombre: persona?.nombre_completo || 'Desconocido',
+                            persona_marca: persona?.Marca || '-',
+                            tienda_nombre: tienda?.nombre_display || 'Desconocida',
+                            tienda_color: tienda?.color_hex || '#6366f1',
+                            fecha_turno: horario?.fecha || '-'
+                        };
+                    });
+
+                    app.populateVendedoraFilter();
+                    app.applyFilters();
+
+                } catch (err) {
+                    console.error('Error loading data:', err);
+                    Swal.fire('Error', 'No se pudieron cargar los datos', 'error');
+                }
+            },
+
+            populateVendedoraFilter: () => {
+                const select = document.getElementById('filter-vendedora');
+                const uniqueNames = [...new Set(app.state.allIncidencias.map(i => i.persona_nombre))].sort();
+
+                uniqueNames.forEach(name => {
+                    const option = document.createElement('option');
+                    option.value = name;
+                    option.textContent = name;
+                    select.appendChild(option);
+                });
+            },
+
+            toggleFilters: () => {
+                app.state.filtersVisible = !app.state.filtersVisible;
+                const panel = document.getElementById('filtersPanel');
+                if (app.state.filtersVisible) {
+                    panel.classList.remove('hidden');
+                } else {
+                    panel.classList.add('hidden');
+                }
+            },
+
+            applyFilters: () => {
+                const vendedora = document.getElementById('filter-vendedora').value;
+                const desde = document.getElementById('filter-desde').value;
+                const hasta = document.getElementById('filter-hasta').value;
+                const asunto = document.getElementById('filter-asunto').value;
+
+                app.state.filteredIncidencias = app.state.allIncidencias.filter(i => {
+                    if (vendedora && i.persona_nombre !== vendedora) return false;
+
+                    const createdDate = new Date(i.creado_en).toISOString().split('T')[0];
+                    if (desde && createdDate < desde) return false;
+                    if (hasta && createdDate > hasta) return false;
+
+                    if (asunto && i.asunto !== asunto) return false;
+
+                    return true;
+                });
+
+                app.renderIncidences();
+                app.updateStats();
+            },
+
+            clearFilters: () => {
+                document.getElementById('filter-vendedora').value = '';
+                document.getElementById('filter-desde').value = '';
+                document.getElementById('filter-hasta').value = '';
+                document.getElementById('filter-asunto').value = '';
+                app.applyFilters();
+            },
+
+            updateStats: () => {
+                document.getElementById('stat-total').textContent = app.state.filteredIncidencias.length;
+                document.getElementById('stat-injustificadas').textContent = app.state.filteredIncidencias.filter(i => i.asunto === 'FALTA INJUSTIFICADA').length;
+                document.getElementById('stat-impuntualidad').textContent = app.state.filteredIncidencias.filter(i => i.asunto === 'IMPUNTUALIDAD').length;
+                document.getElementById('stat-quejas').textContent = app.state.filteredIncidencias.filter(i => i.asunto === 'QUEJA DE CLIENTE').length;
+            },
+
+            getBadgeClass: (asunto) => {
+                const upper = (asunto || '').toUpperCase();
+                if (upper.includes('INJUSTIFICADA')) return 'bg-red-100 text-red-700';
+                if (upper.includes('JUSTIFICADA')) return 'bg-yellow-100 text-yellow-700';
+                if (upper.includes('IMPUNTUALIDAD')) return 'bg-orange-100 text-orange-700';
+                if (upper.includes('QUEJA')) return 'bg-purple-100 text-purple-700';
+                if (upper.includes('ACTITUD') || upper.includes('PRESENTACIÓN')) return 'bg-blue-100 text-blue-700';
+                return 'bg-slate-100 text-slate-700';
+            },
+
+            renderIncidences: () => {
+                const container = document.getElementById('incidencesList');
+
+                if (app.state.filteredIncidencias.length === 0) {
+                    container.innerHTML = `
+                        <div class="text-center py-16">
+                            <span class="material-icons text-5xl text-slate-300 mb-3">check_circle</span>
+                            <p class="text-slate-400 font-medium">No hay incidencias</p>
+                        </div>`;
+                    return;
+                }
+
+                let html = '<div class="p-4 space-y-3">';
+
+                app.state.filteredIncidencias.forEach(inc => {
+                    const fechaReporte = new Date(inc.creado_en).toLocaleDateString('es-ES', {
+                        day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
+                    });
+
+                    const fechaTurno = inc.fecha_turno !== '-'
+                        ? new Date(inc.fecha_turno + 'T00:00:00').toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })
+                        : '-';
+
+                    const badgeClass = app.getBadgeClass(inc.asunto);
+
+                    html += `
+                        <div class="incidence-card bg-white rounded-xl p-4 shadow-sm border border-slate-100"
+                             onclick="app.showIncidenceDetails(${inc.id})">
+                            <div class="flex items-start gap-3">
+                                <!-- Color Bar -->
+                                <div class="w-1 h-16 rounded-full" style="background-color: ${inc.tienda_color}"></div>
+                                
+                                <!-- Content -->
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center justify-between mb-1">
+                                        <span class="font-bold text-slate-800 truncate">${inc.persona_nombre}</span>
+                                        <span class="text-[10px] text-slate-400">${fechaReporte}</span>
+                                    </div>
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <span class="text-xs text-slate-500">${inc.tienda_nombre}</span>
+                                        <span class="text-slate-300">•</span>
+                                        <span class="text-xs text-slate-400">Turno: ${fechaTurno}</span>
+                                    </div>
+                                    <div class="flex items-center justify-between">
+                                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${badgeClass}">${inc.asunto}</span>
+                                        <span class="material-icons text-slate-300 text-sm">chevron_right</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>`;
+                });
+
+                html += '</div>';
+                container.innerHTML = html;
+            },
+
+            showIncidenceDetails: (incId) => {
+                const inc = app.state.filteredIncidencias.find(i => i.id === incId);
+                if (!inc) return;
+
+                const fechaReporte = new Date(inc.creado_en).toLocaleDateString('es-ES', {
+                    weekday: 'long', day: '2-digit', month: 'long', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit'
+                });
+
+                const badgeClass = app.getBadgeClass(inc.asunto);
+
+                Swal.fire({
+                    title: inc.persona_nombre,
+                    html: `
+                        <div class="text-left space-y-3">
+                            <div class="bg-slate-50 p-3 rounded-lg">
+                                <div class="text-xs text-slate-400 mb-1">Tienda</div>
+                                <div class="font-medium text-slate-700">${inc.tienda_nombre}</div>
+                            </div>
+                            <div class="bg-slate-50 p-3 rounded-lg">
+                                <div class="text-xs text-slate-400 mb-1">Tipo de Incidencia</div>
+                                <span class="px-2 py-1 rounded-full text-xs font-bold ${badgeClass}">${inc.asunto}</span>
+                            </div>
+                            <div class="bg-slate-50 p-3 rounded-lg">
+                                <div class="text-xs text-slate-400 mb-1">Fecha del Reporte</div>
+                                <div class="text-sm text-slate-700">${fechaReporte}</div>
+                            </div>
+                            ${inc.observacion ? `
+                            <div class="bg-slate-50 p-3 rounded-lg">
+                                <div class="text-xs text-slate-400 mb-1">Observación</div>
+                                <div class="text-sm text-slate-700">${inc.observacion}</div>
+                            </div>
+                            ` : ''}
+                        </div>
+                        <button onclick="app.deleteIncidence(${inc.id})" 
+                            class="w-full mt-4 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl font-semibold flex items-center justify-center gap-2 transition-all">
+                            <span class="material-icons text-base">delete</span> Eliminar Incidencia
+                        </button>
+                    `,
+                    showConfirmButton: false,
+                    showCloseButton: true,
+                    customClass: {
+                        popup: 'rounded-2xl'
+                    }
+                });
+            },
+
+            deleteIncidence: async (incId) => {
+                Swal.close();
+
+                const result = await Swal.fire({
+                    title: '¿Eliminar incidencia?',
+                    text: 'Esta acción no se puede deshacer',
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonColor: '#ef4444',
+                    confirmButtonText: 'Sí, eliminar',
+                    cancelButtonText: 'Cancelar'
+                });
+
+                if (result.isConfirmed) {
+                    const { error } = await db.from('Tiendas_Faltas').delete().eq('id', incId);
+
+                    if (error) {
+                        Swal.fire('Error', error.message, 'error');
+                    } else {
+                        app.state.allIncidencias = app.state.allIncidencias.filter(i => i.id !== incId);
+                        app.applyFilters();
+                        Swal.fire({ icon: 'success', title: 'Eliminado', timer: 1500, showConfirmButton: false });
+                    }
+                }
+            },
+
+            switchTab: (tab) => {
+                switch (tab) {
+                    case 'calendar':
+                        window.location.href = 'admin-mobile.html';
+                        break;
+                    case 'stores':
+                        window.location.href = 'calendario-tienda-mobile.html';
+                        break;
+                    case 'staff':
+                        window.location.href = 'personal-mobile.html';
+                        break;
+                    case 'reports':
+                        // Already here
+                        break;
+                    case 'profile':
+                        app.showProfileMenu();
+                        break;
+                }
+            },
+
+            showProfileMenu: () => {
+                const roleName = sessionStorage.getItem('staffPlannerRoleName') || 'Usuario';
+                const email = app.state.user?.email || '';
+
+                if (confirm(`${email}\nRol: ${roleName}\n\n¿Deseas cerrar sesión?`)) {
+                    app.logout();
+                }
+            },
+
+            logout: () => {
+                sessionStorage.clear();
+                window.location.href = 'login.html';
+            }
+        };
+
+        document.addEventListener('DOMContentLoaded', app.init);
+    </script>
+</body>
+
+</html>
