@@ -214,7 +214,7 @@
                     const category = app.getCategory(person.idCategoria);
                     const isActive = person.habilitado !== false;
                     const categoryBadge = category
-                        ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${category.id_zona === 1 ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}">${category.nombre || 'Sin cat.'}</span>`
+                        ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${category.id_zona === 1 ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}">${category.descripcion || 'Sin cat.'}</span>`
                         : '';
 
                     html += `
@@ -278,9 +278,9 @@
                     title: person.nombre_completo || 'Sin nombre',
                     html: `
                         <div class="text-left space-y-3">
-                            <div class="bg-slate-50 p-3 rounded-lg">
-                                <div class="text-xs text-slate-400">Código</div>
-                                <div class="font-medium text-slate-700">${person.idVendedor || '-'}</div>
+                            <div class="bg-slate-800 p-3 rounded-lg">
+                                <div class="text-xs text-slate-400">🔐 PIN</div>
+                                <div class="font-bold text-white font-mono text-lg">${person.idVendedor || '-'}</div>
                             </div>
                             <div class="bg-slate-50 p-3 rounded-lg">
                                 <div class="text-xs text-slate-400">Marca</div>
@@ -288,7 +288,7 @@
                             </div>
                             <div class="bg-slate-50 p-3 rounded-lg">
                                 <div class="text-xs text-slate-400">Categoría</div>
-                                <div class="font-medium text-slate-700">${category?.nombre || '-'}</div>
+                                <div class="font-medium text-slate-700">${category?.descripcion || '-'}</div>
                             </div>
                             <div class="bg-slate-50 p-3 rounded-lg">
                                 <div class="text-xs text-slate-400">Correo</div>
@@ -315,20 +315,20 @@
                 if (!person) return;
 
                 const categoryOptions = app.state.categorias.map(c =>
-                    `<option value="${c.id}" ${c.id === person.idCategoria ? 'selected' : ''}>${c.nombre}</option>`
+                    `<option value="${c.id}" ${c.id === person.idCategoria ? 'selected' : ''}>${c.descripcion}</option>`
                 ).join('');
 
                 const { value: formValues } = await Swal.fire({
                     title: 'Editar Personal',
                     html: `
                         <div class="text-left space-y-3">
+                            <div class="bg-slate-100 p-3 rounded-xl">
+                                <label class="block text-xs font-bold text-slate-500 mb-1">🔐 PIN (no editable)</label>
+                                <div class="font-mono font-bold text-slate-800">${person.idVendedor || '-'}</div>
+                            </div>
                             <div>
                                 <label class="block text-xs font-bold text-slate-500 mb-1">Nombre Completo</label>
                                 <input type="text" id="swal-nombre" class="w-full p-3 border rounded-xl" value="${person.nombre_completo || ''}">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-bold text-slate-500 mb-1">Código (idVendedor)</label>
-                                <input type="text" id="swal-codigo" class="w-full p-3 border rounded-xl" value="${person.idVendedor || ''}">
                             </div>
                             <div>
                                 <label class="block text-xs font-bold text-slate-500 mb-1">Marca</label>
@@ -353,7 +353,6 @@
                     confirmButtonColor: '#6366f1',
                     preConfirm: () => ({
                         nombre_completo: document.getElementById('swal-nombre').value,
-                        idVendedor: document.getElementById('swal-codigo').value,
                         Marca: document.getElementById('swal-marca').value,
                         Correo: document.getElementById('swal-correo').value,
                         idCategoria: parseInt(document.getElementById('swal-categoria').value) || null
@@ -403,7 +402,7 @@
 
             openAddStaffModal: async () => {
                 const categoryOptions = app.state.categorias.map(c =>
-                    `<option value="${c.id}">${c.nombre}</option>`
+                    `<option value="${c.id}">${c.descripcion}</option>`
                 ).join('');
 
                 const { value: formValues } = await Swal.fire({
