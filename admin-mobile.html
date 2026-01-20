@@ -12,6 +12,8 @@
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
         rel="stylesheet">
+    <!-- SweetAlert2 for modals -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
     <style>
         * {
@@ -424,31 +426,24 @@
             },
 
             openDatePicker: () => {
-                // Simple date picker using HTML5 input
-                const input = document.createElement('input');
-                input.type = 'date';
-                input.value = app.formatDate(app.state.selectedDate);
-                input.style.position = 'fixed';
-                input.style.opacity = '0';
-                input.style.top = '0';
-                document.body.appendChild(input);
+                // Mobile-friendly date picker using visible input
+                const currentDate = app.formatDate(app.state.selectedDate);
 
-                input.addEventListener('change', async (e) => {
-                    if (e.target.value) {
-                        await app.selectDate(e.target.value);
+                Swal.fire({
+                    title: 'Seleccionar Fecha',
+                    html: `<input type="date" id="swal-date" class="w-full p-3 border border-slate-300 rounded-xl text-lg" value="${currentDate}">`,
+                    showCancelButton: true,
+                    confirmButtonText: 'Seleccionar',
+                    cancelButtonText: 'Cancelar',
+                    confirmButtonColor: '#6366f1',
+                    preConfirm: () => {
+                        return document.getElementById('swal-date').value;
                     }
-                    document.body.removeChild(input);
+                }).then(async (result) => {
+                    if (result.isConfirmed && result.value) {
+                        await app.selectDate(result.value);
+                    }
                 });
-
-                input.addEventListener('blur', () => {
-                    setTimeout(() => {
-                        if (document.body.contains(input)) {
-                            document.body.removeChild(input);
-                        }
-                    }, 200);
-                });
-
-                input.showPicker();
             },
 
             renderAssignments: () => {
@@ -503,7 +498,8 @@
                             totalCount++;
 
                             html += `
-                            <div class="assignment-card bg-white rounded-xl p-3 shadow-sm border border-slate-100 flex items-center gap-3">
+                            <div class="assignment-card bg-white rounded-xl p-3 shadow-sm border border-slate-100 flex items-center gap-3 cursor-pointer"
+                                 onclick="app.openCardActions(${a.id}, ${a.impulsadora_id}, ${storeId})">
                                 <!-- Store Badge -->
                                 <div class="w-12 h-12 rounded-xl flex items-center justify-center text-sm font-bold ${isLight ? 'text-slate-800' : 'text-white'}"
                                      style="background-color: ${storeColor}">
@@ -521,6 +517,9 @@
                                 <div class="flex-shrink-0 px-2 py-1 rounded-full text-[10px] font-semibold ${category.id_zona === 1 ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}">
                                     ${category.id_zona === 1 ? 'Zona A' : 'Zona B'}
                                 </div>` : ''}
+
+                                <!-- Arrow indicator -->
+                                <span class="material-icons text-slate-300 text-sm">chevron_right</span>
                             </div>`;
                         });
                         html += '</div>';
@@ -578,6 +577,214 @@
             logout: () => {
                 sessionStorage.clear();
                 window.location.href = 'login.html';
+            },
+
+            // Card Actions based on role
+            openCardActions: (horarioId, impulsadoraId, tiendaId) => {
+                const roleId = app.state.roleId;
+                const horario = app.state.data.horarios.find(h => h.id === horarioId);
+                const person = app.state.data.personal.find(p => p.id === impulsadoraId);
+                const store = app.state.data.tiendas.find(t => t.id === parseInt(tiendaId));
+                const personName = person?.nombre_completo || 'Sin nombre';
+                const storeName = store?.nombre_display || 'Tienda';
+
+                let buttonsHtml = '';
+
+                // Role 1 & 2: Modify, Delete, Report
+                if (roleId === 1 || roleId === 2) {
+                    buttonsHtml = `
+                        <button onclick="app.modifyAssignment(${horarioId})" 
+                            class="w-full py-3 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-xl font-semibold flex items-center justify-center gap-2 transition-all">
+                            <span class="material-icons text-base">edit</span> Modificar Asignación
+                        </button>
+                        <button onclick="app.deleteAssignment(${horarioId}, '${personName}')" 
+                            class="w-full py-3 px-4 bg-red-500 hover:bg-red-600 text-white rounded-xl font-semibold flex items-center justify-center gap-2 transition-all">
+                            <span class="material-icons text-base">delete</span> Eliminar Asignación
+                        </button>
+                        <button onclick="app.reportIncident(${horarioId}, '${personName}', '${storeName}')" 
+                            class="w-full py-3 px-4 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-semibold flex items-center justify-center gap-2 transition-all">
+                            <span class="material-icons text-base">report_problem</span> Reportar Incidencia
+                        </button>
+                    `;
+                } else {
+                    // Role 3: Only Report
+                    buttonsHtml = `
+                        <button onclick="app.reportIncident(${horarioId}, '${personName}', '${storeName}')" 
+                            class="w-full py-3 px-4 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-semibold flex items-center justify-center gap-2 transition-all">
+                            <span class="material-icons text-base">report_problem</span> Reportar Incidencia
+                        </button>
+                    `;
+                }
+
+                Swal.fire({
+                    title: personName,
+                    html: `
+                        <p class="text-slate-500 mb-4 text-sm">📍 ${storeName}</p>
+                        <div class="space-y-3">
+                            ${buttonsHtml}
+                        </div>
+                    `,
+                    showConfirmButton: false,
+                    showCloseButton: true,
+                    customClass: {
+                        popup: 'rounded-2xl'
+                    }
+                });
+            },
+
+            modifyAssignment: async (horarioId) => {
+                Swal.close();
+                const horario = app.state.data.horarios.find(h => h.id === horarioId);
+                if (!horario) return;
+
+                const tiendaOptions = app.state.data.tiendas.map(t =>
+                    `<option value="${t.id}" ${t.id === horario.tienda_id ? 'selected' : ''}>${t.nombre_display}</option>`
+                ).join('');
+
+                const impulsadoraOptions = app.state.data.personal.map(p =>
+                    `<option value="${p.id}" ${p.id === horario.impulsadora_id ? 'selected' : ''}>${p.nombre_completo}</option>`
+                ).join('');
+
+                const { value: formValues } = await Swal.fire({
+                    title: 'Modificar Asignación',
+                    html: `
+                        <div class="text-left space-y-4">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Impulsadora</label>
+                                <select id="swal-impulsadora" class="w-full p-3 border rounded-xl">
+                                    ${impulsadoraOptions}
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Tienda</label>
+                                <select id="swal-tienda" class="w-full p-3 border rounded-xl">
+                                    ${tiendaOptions}
+                                </select>
+                            </div>
+                        </div>
+                    `,
+                    showCancelButton: true,
+                    confirmButtonText: 'Guardar',
+                    cancelButtonText: 'Cancelar',
+                    confirmButtonColor: '#6366f1',
+                    preConfirm: () => {
+                        return {
+                            impulsadora_id: parseInt(document.getElementById('swal-impulsadora').value),
+                            tienda_id: parseInt(document.getElementById('swal-tienda').value)
+                        };
+                    }
+                });
+
+                if (formValues) {
+                    const { error } = await db.from('Tiendas_Horario')
+                        .update(formValues)
+                        .eq('id', horarioId);
+
+                    if (error) {
+                        Swal.fire('Error', error.message, 'error');
+                    } else {
+                        Swal.fire({ icon: 'success', title: '¡Modificado!', timer: 1500, showConfirmButton: false });
+                        await app.fetchAssignmentsForDate();
+                        app.renderAssignments();
+                    }
+                }
+            },
+
+            deleteAssignment: async (horarioId, personName) => {
+                Swal.close();
+
+                // First confirmation
+                const first = await Swal.fire({
+                    title: '¿Eliminar asignación?',
+                    html: `<p>Se eliminará la asignación de <strong>${personName}</strong></p>`,
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonText: 'Sí, eliminar',
+                    cancelButtonText: 'Cancelar',
+                    confirmButtonColor: '#ef4444'
+                });
+
+                if (!first.isConfirmed) return;
+
+                // Second confirmation (double security)
+                const second = await Swal.fire({
+                    title: '⚠️ Confirmar Eliminación',
+                    html: `<p class="text-red-600 font-bold">Esta acción NO se puede deshacer.</p>
+                           <p class="mt-2">¿Estás seguro de eliminar esta asignación?</p>`,
+                    icon: 'error',
+                    showCancelButton: true,
+                    confirmButtonText: 'ELIMINAR DEFINITIVAMENTE',
+                    cancelButtonText: 'Cancelar',
+                    confirmButtonColor: '#dc2626'
+                });
+
+                if (!second.isConfirmed) return;
+
+                // Proceed with deletion
+                const { error } = await db.from('Tiendas_Horario').delete().eq('id', horarioId);
+
+                if (error) {
+                    Swal.fire('Error', error.message, 'error');
+                } else {
+                    Swal.fire({ icon: 'success', title: '¡Eliminado!', timer: 1500, showConfirmButton: false });
+                    await app.fetchAssignmentsForDate();
+                    app.renderAssignments();
+                }
+            },
+
+            reportIncident: async (horarioId, personName, storeName) => {
+                Swal.close();
+
+                const { value: formValues } = await Swal.fire({
+                    title: 'Reportar Incidencia',
+                    html: `
+                        <div class="text-left space-y-4">
+                            <div class="bg-slate-100 p-3 rounded-xl text-sm">
+                                <p><strong>Impulsadora:</strong> ${personName}</p>
+                                <p><strong>Tienda:</strong> ${storeName}</p>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Tipo de Incidencia</label>
+                                <select id="swal-asunto" class="w-full p-3 border rounded-xl">
+                                    <option value="Falta Injustificada">Falta Injustificada</option>
+                                    <option value="Falta Justificada">Falta Justificada</option>
+                                    <option value="Impuntualidad">Impuntualidad</option>
+                                    <option value="Presentación">Presentación</option>
+                                    <option value="Actitud">Actitud</option>
+                                    <option value="Queja de Cliente">Queja de Cliente</option>
+                                    <option value="Otros">Otros</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Observación</label>
+                                <textarea id="swal-observacion" rows="3" class="w-full p-3 border rounded-xl resize-none" placeholder="Describe la incidencia..."></textarea>
+                            </div>
+                        </div>
+                    `,
+                    showCancelButton: true,
+                    confirmButtonText: 'Enviar Reporte',
+                    cancelButtonText: 'Cancelar',
+                    confirmButtonColor: '#f97316',
+                    preConfirm: () => {
+                        const asunto = document.getElementById('swal-asunto').value;
+                        const observacion = document.getElementById('swal-observacion').value;
+                        return { asunto, observacion };
+                    }
+                });
+
+                if (formValues) {
+                    const { error } = await db.from('Tiendas_Faltas').insert({
+                        id_horario: horarioId,
+                        asunto: formValues.asunto,
+                        observacion: formValues.observacion || null
+                    });
+
+                    if (error) {
+                        Swal.fire('Error', error.message, 'error');
+                    } else {
+                        Swal.fire({ icon: 'success', title: '¡Reporte enviado!', text: 'La incidencia ha sido registrada.', timer: 2000, showConfirmButton: false });
+                    }
+                }
             }
         };
 
