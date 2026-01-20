@@ -22,6 +22,13 @@
         body {
             font-family: 'Inter', sans-serif;
             background-color: #f8fafc;
+            /* Hidden by default until auth check */
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        body.auth-ready {
+            opacity: 1;
         }
 
         /* Sidebar Scroll */
@@ -710,6 +717,9 @@
                 if ((roleId === 4 || staffId) && staffId) {
                     app.showPersonCalendar(parseInt(staffId));
                 }
+
+                // Reveal page content after auth and data load
+                document.body.classList.add('auth-ready');
             },
 
 
