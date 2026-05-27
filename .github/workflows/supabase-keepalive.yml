@@ -1,0 +1,34 @@
+name: Supabase Keepalive
+
+on:
+  schedule:
+    # 10:35 America/Guayaquil (UTC-5). GitHub puede retrasar algunos minutos.
+    - cron: "35 15 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    name: Insert keepalive row
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send ping to Supabase
+        env:
+          SUPABASE_URL: https://cectqtufttubsepyiolr.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+
+          : "${SUPABASE_SERVICE_ROLE_KEY:?Missing SUPABASE_SERVICE_ROLE_KEY secret}"
+
+          supabase_url="${SUPABASE_URL%/}"
+
+          curl --silent --show-error --fail \
+            --request POST "${supabase_url}/rest/v1/keepalive" \
+            --header "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            --header "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            --header "Content-Type: application/json" \
+            --header "Prefer: return=minimal" \
+            --data '{}'
