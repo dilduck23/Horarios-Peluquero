@@ -99,10 +99,9 @@
 <body class="text-slate-800 pb-20">
 
     <!-- SUPABASE CLIENT -->
+    <script src="js/app-core.js"></script>
     <script>
-        const SUPABASE_URL = 'https://cectqtufttubsepyiolr.supabase.co';
-        const SUPABASE_KEY = 'sb_publishable_Ow2zQpNDPsLA6on9VBWFgg_Q0_LAc1D';
-        const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        const db = window.StaffPlanner.db;
     </script>
 
     <!-- MAIN APP -->
@@ -229,7 +228,7 @@
                     return;
                 }
 
-                const roleId = parseInt(sessionStorage.getItem('staffPlannerRoleId') || '0');
+                const roleId = StaffPlanner.getRoleId();
                 app.state.roleId = roleId;
                 app.state.user = JSON.parse(sessionStorage.getItem('staffPlannerUser') || '{}');
 
@@ -437,7 +436,7 @@
                 });
 
                 const personalOptions = app.state.data.personal
-                    .filter(p => p.habilitado !== false)
+                    .filter(StaffPlanner.isActiveInternalStaff)
                     .sort((a, b) => (a.nombre_completo || '').localeCompare(b.nombre_completo || ''))
                     .map(p => `<option value="${p.id}">${p.nombre_completo}</option>`)
                     .join('');
@@ -505,7 +504,7 @@
                     const { data, error } = await db.from('Tiendas_Personal_Horario').insert(formValues).select();
 
                     if (error) {
-                        Swal.fire('Error', error.message, 'error');
+                        Swal.fire('Error', StaffPlanner.duplicateMessage(error), 'error');
                     } else {
                         Swal.fire({ icon: 'success', title: '¡Asignación creada!', timer: 1500, showConfirmButton: false });
                         await app.fetchAssignmentsForDate();
@@ -633,7 +632,7 @@
                         .eq('id', horarioId);
 
                     if (error) {
-                        Swal.fire('Error', error.message, 'error');
+                        Swal.fire('Error', StaffPlanner.duplicateMessage(error), 'error');
                     } else {
                         Swal.fire({ icon: 'success', title: '¡Modificado!', timer: 1500, showConfirmButton: false });
                         await app.fetchAssignmentsForDate();

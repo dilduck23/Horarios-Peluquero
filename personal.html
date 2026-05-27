@@ -66,10 +66,9 @@
 <body class="text-slate-800 min-h-screen">
 
     <!-- SUPABASE CLIENT -->
+    <script src="js/app-core.js"></script>
     <script>
-        const SUPABASE_URL = 'https://cectqtufttubsepyiolr.supabase.co';
-        const SUPABASE_KEY = 'sb_publishable_Ow2zQpNDPsLA6on9VBWFgg_Q0_LAc1D';
-        const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        const db = window.StaffPlanner.db;
     </script>
 
     <!-- HEADER -->
@@ -177,7 +176,7 @@
                 }
 
                 // Check user role from sessionStorage
-                const roleId = parseInt(sessionStorage.getItem('staffPlannerRoleId') || '0');
+                const roleId = StaffPlanner.getRoleId();
                 app.state.userRoleId = roleId;
 
                 // Role 3 (PdV) cannot add or edit users - hide button
@@ -463,7 +462,7 @@
                                 .eq('id', horarioId);
 
                             if (error) {
-                                Swal.showValidationMessage(error.message);
+                                Swal.showValidationMessage(StaffPlanner.duplicateMessage(error));
                                 return false;
                             }
                             return true;
@@ -535,7 +534,7 @@
                             });
 
                             if (error) {
-                                Swal.showValidationMessage(error.message);
+                                Swal.showValidationMessage(StaffPlanner.duplicateMessage(error));
                                 return false;
                             }
                             return true;
@@ -752,7 +751,7 @@
 
                 } catch (err) {
                     console.error('Auto-fill error:', err);
-                    Swal.fire('Error', err.message, 'error');
+                    Swal.fire('Error', StaffPlanner.duplicateMessage(err), 'error');
                 }
             },
 
@@ -806,7 +805,7 @@
                                 </div>
                             </div>
                             <div class="flex items-center gap-2 pt-2 border-t">
-                                <input type="checkbox" id="edit-habilitado" ${person.habilitado !== false ? 'checked' : ''} class="w-4 h-4">
+                                <input type="checkbox" id="edit-habilitado" ${StaffPlanner.isActiveInternalStaff(person) ? 'checked' : ''} class="w-4 h-4">
                                 <label for="edit-habilitado" class="text-sm font-medium">Habilitado</label>
                             </div>
                         </div>

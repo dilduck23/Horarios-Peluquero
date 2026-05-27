@@ -64,10 +64,9 @@
 <body class="text-slate-800">
 
     <!-- SUPABASE CLIENT -->
+    <script src="js/app-core.js"></script>
     <script>
-        const SUPABASE_URL = 'https://cectqtufttubsepyiolr.supabase.co';
-        const SUPABASE_KEY = 'sb_publishable_Ow2zQpNDPsLA6on9VBWFgg_Q0_LAc1D';
-        const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        const db = window.StaffPlanner.db;
     </script>
 
     <!-- MAIN APP -->
@@ -143,7 +142,7 @@
                     return;
                 }
 
-                const roleId = parseInt(sessionStorage.getItem('staffPlannerRoleId') || '0');
+                const roleId = StaffPlanner.getRoleId();
                 app.state.roleId = roleId;
                 app.state.user = JSON.parse(sessionStorage.getItem('staffPlannerUser') || '{}');
 
@@ -263,8 +262,8 @@
 
                 let actionsHtml = '';
 
-                // Admin/Organizador can edit
-                if (roleId === 1 || roleId === 2) {
+                // Only Admin can edit store setup.
+                if (roleId === 1) {
                     actionsHtml = `
                         <button onclick="app.editStore(${store.id})" 
                             class="w-full py-3 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-xl font-semibold flex items-center justify-center gap-2 transition-all">
@@ -314,6 +313,7 @@
             },
 
             editStore: async (storeId) => {
+                if (app.state.roleId !== 1) return;
                 Swal.close();
                 const store = app.state.stores.find(s => s.id === storeId);
                 if (!store) return;
@@ -384,6 +384,7 @@
             },
 
             toggleStoreStatus: async (storeId, currentStatus) => {
+                if (app.state.roleId !== 1) return;
                 Swal.close();
 
                 const action = currentStatus ? 'desactivar' : 'activar';
@@ -411,6 +412,7 @@
             },
 
             openAddStoreModal: async () => {
+                if (app.state.roleId !== 1) return;
                 const { value: formValues } = await Swal.fire({
                     title: 'Nueva Tienda',
                     html: `

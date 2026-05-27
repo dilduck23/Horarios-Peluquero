@@ -106,10 +106,9 @@
 <body class="text-slate-800 pb-20">
 
     <!-- SUPABASE CLIENT -->
+    <script src="js/app-core.js"></script>
     <script>
-        const SUPABASE_URL = 'https://cectqtufttubsepyiolr.supabase.co';
-        const SUPABASE_KEY = 'sb_publishable_Ow2zQpNDPsLA6on9VBWFgg_Q0_LAc1D';
-        const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        const db = window.StaffPlanner.db;
     </script>
 
     <!-- LOGIN OVERLAY -->
@@ -281,7 +280,7 @@
 
             init: async () => {
                 const isLoggedIn = sessionStorage.getItem('staffPlannerAuth');
-                const roleId = parseInt(sessionStorage.getItem('staffPlannerRoleId') || '0');
+                const roleId = StaffPlanner.getRoleId();
 
                 if (isLoggedIn === 'true' && roleId >= 1 && roleId <= 3) {
                     app.state.roleId = roleId;
@@ -347,6 +346,11 @@
                     sessionStorage.setItem('staffPlannerRoleName', roleName);
                     sessionStorage.setItem('staffPlannerUserId', userData.id.toString());
                     sessionStorage.setItem('staffPlannerIsAdmin', roleId === 1 ? 'true' : 'false');
+                    if (userData.id_tienda) {
+                        sessionStorage.setItem('staffPlannerTiendaId', userData.id_tienda.toString());
+                    } else {
+                        sessionStorage.removeItem('staffPlannerTiendaId');
+                    }
 
                     // Animate & redirect
                     const overlay = document.getElementById('loginOverlay');
@@ -380,11 +384,19 @@
 
             fetchAssignmentsForDate: async () => {
                 const dateStr = app.formatDate(app.state.selectedDate);
+                const roleId = app.state.roleId;
+                const userTiendaId = StaffPlanner.getTiendaId();
 
-                const { data, error } = await db
+                let query = db
                     .from('Tiendas_Horario')
                     .select('*')
                     .eq('fecha', dateStr);
+
+                if (roleId === 3 && userTiendaId) {
+                    query = query.eq('tienda_id', userTiendaId);
+                }
+
+                const { data, error } = await query;
 
                 if (error) console.error('Error fetching:', error);
                 app.state.data.horarios = data || [];
@@ -553,7 +565,7 @@
 
                 // Build options
                 const impulsadoraOptions = app.state.data.personal
-                    .filter(p => p.habilitado !== false) // Only active staff
+                    .filter(StaffPlanner.isActiveImpulsadora) // Only active staff
                     .sort((a, b) => (a.nombre_completo || '').localeCompare(b.nombre_completo || ''))
                     .map(p => `<option value="${p.id}">${p.nombre_completo}${p.Marca ? ` (${p.Marca})` : ''}</option>`)
                     .join('');
@@ -610,15 +622,16 @@
                 if (formValues) {
                     // Check for duplicate assignment
                     const existingAssignment = app.state.data.horarios.find(
-                        h => h.impulsadora_id === formValues.impulsadora_id && h.tienda_id === formValues.tienda_id
+                        h => h.impulsadora_id === formValues.impulsadora_id
                     );
 
                     if (existingAssignment) {
                         const person = app.state.data.personal.find(p => p.id === formValues.impulsadora_id);
+                        const store = app.state.data.tiendas.find(t => t.id === existingAssignment.tienda_id);
                         Swal.fire({
                             icon: 'warning',
                             title: 'Asignación duplicada',
-                            text: `${person?.nombre_completo || 'Esta impulsadora'} ya está asignada a esta tienda en esta fecha.`
+                            text: `${person?.nombre_completo || 'Esta impulsadora'} ya tiene turno este día${store ? ` en ${store.nombre_display}` : ''}.`
                         });
                         return;
                     }
@@ -627,7 +640,7 @@
                     const { data, error } = await db.from('Tiendas_Horario').insert(formValues).select();
 
                     if (error) {
-                        Swal.fire('Error', error.message, 'error');
+                        Swal.fire('Error', StaffPlanner.duplicateMessage(error), 'error');
                     } else {
                         Swal.fire({
                             icon: 'success',
@@ -787,7 +800,7 @@
                         .eq('id', horarioId);
 
                     if (error) {
-                        Swal.fire('Error', error.message, 'error');
+                        Swal.fire('Error', StaffPlanner.duplicateMessage(error), 'error');
                     } else {
                         Swal.fire({ icon: 'success', title: '¡Modificado!', timer: 1500, showConfirmButton: false });
                         await app.fetchAssignmentsForDate();

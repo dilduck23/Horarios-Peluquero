@@ -64,10 +64,9 @@
 <body class="text-slate-800">
 
     <!-- SUPABASE CLIENT -->
+    <script src="js/app-core.js"></script>
     <script>
-        const SUPABASE_URL = 'https://cectqtufttubsepyiolr.supabase.co';
-        const SUPABASE_KEY = 'sb_publishable_Ow2zQpNDPsLA6on9VBWFgg_Q0_LAc1D';
-        const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        const db = window.StaffPlanner.db;
     </script>
 
     <!-- MAIN APP -->
@@ -134,7 +133,7 @@
                     return;
                 }
 
-                const roleId = parseInt(sessionStorage.getItem('staffPlannerRoleId') || '0');
+                const roleId = StaffPlanner.getRoleId();
                 app.state.roleId = roleId;
                 app.state.user = JSON.parse(sessionStorage.getItem('staffPlannerUser') || '{}');
 
@@ -177,7 +176,7 @@
                     if (!search) return true;
                     const name = (s.nombre_completo || '').toLowerCase();
                     const marca = (s.Marca || '').toLowerCase();
-                    const codigo = (s.idVendedor || '').toLowerCase();
+                    const codigo = String(s.idVendedor || '').toLowerCase();
                     return name.includes(search) || marca.includes(search) || codigo.includes(search);
                 });
 
@@ -212,7 +211,7 @@
 
                 staff.forEach(person => {
                     const category = app.getCategory(person.idCategoria);
-                    const isActive = person.habilitado !== false;
+                    const isActive = StaffPlanner.isActiveImpulsadora(person);
                     const categoryBadge = category
                         ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${category.id_zona === 1 ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}">${category.descripcion || 'Sin cat.'}</span>`
                         : '';
@@ -255,7 +254,7 @@
                 if (!person) return;
 
                 const category = app.getCategory(person.idCategoria);
-                const isActive = person.habilitado !== false;
+                const isActive = StaffPlanner.isActiveImpulsadora(person);
                 const roleId = app.state.roleId;
 
                 let actionsHtml = '';
@@ -280,7 +279,11 @@
                         <div class="text-left space-y-3">
                             <div class="bg-slate-800 p-3 rounded-lg">
                                 <div class="text-xs text-slate-400">🔐 PIN</div>
-                                <div class="font-bold text-white font-mono text-lg">${person.idVendedor || '-'}</div>
+                                <div class="font-bold text-white font-mono text-lg">${person.pin || '-'}</div>
+                            </div>
+                            <div class="bg-slate-50 p-3 rounded-lg">
+                                <div class="text-xs text-slate-400">Código de venta</div>
+                                <div class="font-medium text-slate-700">${person.idVendedor || '-'}</div>
                             </div>
                             <div class="bg-slate-50 p-3 rounded-lg">
                                 <div class="text-xs text-slate-400">Marca</div>
@@ -324,7 +327,7 @@
                         <div class="text-left space-y-3">
                             <div class="bg-slate-100 p-3 rounded-xl">
                                 <label class="block text-xs font-bold text-slate-500 mb-1">🔐 PIN (no editable)</label>
-                                <div class="font-mono font-bold text-slate-800">${person.idVendedor || '-'}</div>
+                                <div class="font-mono font-bold text-slate-800">${person.pin || '-'}</div>
                             </div>
                             <div>
                                 <label class="block text-xs font-bold text-slate-500 mb-1">Nombre Completo</label>
@@ -388,7 +391,7 @@
 
                 if (result.isConfirmed) {
                     const { error } = await db.from('Tiendas_Impulsadoras')
-                        .update({ habilitado: !currentStatus })
+                        .update({ Habilitado: !currentStatus })
                         .eq('id', personId);
 
                     if (error) {
@@ -414,8 +417,12 @@
                                 <input type="text" id="swal-nombre" class="w-full p-3 border rounded-xl" placeholder="Nombre completo">
                             </div>
                             <div>
-                                <label class="block text-xs font-bold text-slate-500 mb-1">Código (PIN) *</label>
-                                <input type="text" id="swal-codigo" class="w-full p-3 border rounded-xl" placeholder="Código único de 4 dígitos">
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Código de venta *</label>
+                                <input type="text" id="swal-codigo" class="w-full p-3 border rounded-xl" placeholder="Código de venta" inputmode="numeric">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">PIN *</label>
+                                <input type="text" id="swal-pin" class="w-full p-3 border rounded-xl" placeholder="4 dígitos" maxlength="4" inputmode="numeric">
                             </div>
                             <div>
                                 <label class="block text-xs font-bold text-slate-500 mb-1">Marca</label>
@@ -439,21 +446,23 @@
                     cancelButtonText: 'Cancelar',
                     confirmButtonColor: '#10b981',
                     preConfirm: () => {
-                        const nombre = document.getElementById('swal-nombre').value;
-                        const codigo = document.getElementById('swal-codigo').value;
+                        const nombre = document.getElementById('swal-nombre').value.trim();
+                        const codigo = document.getElementById('swal-codigo').value.trim();
+                        const pin = document.getElementById('swal-pin').value.trim();
 
-                        if (!nombre || !codigo) {
-                            Swal.showValidationMessage('Nombre y código son requeridos');
+                        if (!nombre || !/^\d+$/.test(codigo) || !/^\d{4}$/.test(pin)) {
+                            Swal.showValidationMessage('Nombre, código numérico y PIN de 4 dígitos son requeridos');
                             return false;
                         }
 
                         return {
                             nombre_completo: nombre,
-                            idVendedor: codigo,
+                            idVendedor: parseInt(codigo, 10),
+                            pin,
                             Marca: document.getElementById('swal-marca').value || null,
                             Correo: document.getElementById('swal-correo').value || null,
                             idCategoria: parseInt(document.getElementById('swal-categoria').value) || null,
-                            habilitado: true
+                            Habilitado: true
                         };
                     }
                 });

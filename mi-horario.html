@@ -131,10 +131,9 @@
 <body class="text-white">
 
     <!-- SUPABASE CLIENT -->
+    <script src="js/app-core.js"></script>
     <script>
-        const SUPABASE_URL = 'https://cectqtufttubsepyiolr.supabase.co';
-        const SUPABASE_KEY = 'sb_publishable_Ow2zQpNDPsLA6on9VBWFgg_Q0_LAc1D';
-        const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        const db = window.StaffPlanner.db;
     </script>
 
     <!-- LOGIN OVERLAY -->
@@ -299,7 +298,7 @@
                 // Check if already logged in
                 const isLoggedIn = sessionStorage.getItem('staffPlannerAuth');
                 const staffId = sessionStorage.getItem('staffPlannerStaffId');
-                const roleId = parseInt(sessionStorage.getItem('staffPlannerRoleId') || '0');
+                const roleId = StaffPlanner.getRoleId();
 
                 if (isLoggedIn === 'true' && staffId && roleId === 4) {
                     app.state.personId = parseInt(staffId);

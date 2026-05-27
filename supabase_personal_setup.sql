@@ -75,12 +75,8 @@ ON "Tiendas_Personal_Horario"(personal_id);
 ALTER TABLE "Tiendas_Personal" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "Tiendas_Personal_Horario" ENABLE ROW LEVEL SECURITY;
 
--- Políticas básicas (ajustar según necesidad)
-CREATE POLICY "Allow all for authenticated" ON "Tiendas_Personal"
-    FOR ALL USING (true);
-
-CREATE POLICY "Allow all for authenticated" ON "Tiendas_Personal_Horario"
-    FOR ALL USING (true);
+-- Las políticas completas viven en supabase_security_policies.sql.
+-- Ejecuta ese archivo al final para aplicar permisos por rol.
 
 
 -- ============================================

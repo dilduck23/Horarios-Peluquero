@@ -219,13 +219,9 @@
 <body class="text-slate-800 h-screen flex overflow-hidden">
 
     <!-- SUPABASE CLIENT -->
+    <script src="js/app-core.js"></script>
     <script>
-        const SUPABASE_URL = 'https://cectqtufttubsepyiolr.supabase.co';
-        // ⚠️ PEGA TU PUBLISHABLE KEY COMPLETA AQUÍ (la que empieza con sb_pub...)
-        const SUPABASE_KEY = 'sb_publishable_Ow2zQpNDPsLA6on9VBWFgg_Q0_LAc1D'; // ← REEMPLAZA CON TU KEY COMPLETA
-
-        // Usamos 'db' para evitar conflicto con window.supabase
-        const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        const db = window.StaffPlanner.db;
     </script>
 
     <!-- LOGIN OVERLAY REMOVED (Handled by login.html) -->
@@ -654,7 +650,7 @@
                 },
                 filters: {
                     zone: null,      // null = all, 1 = Zona A, 2 = Zona B
-                    visibleStores: [], // empty = all stores visible, otherwise only these store IDs
+                    visibleStores: null, // null = all stores visible, [] = none, otherwise selected store IDs
                     searchTerm: ''   // search filter
                 },
                 viewMode: 'detail', // 'detail' or 'summary'
@@ -667,7 +663,7 @@
             init: async () => {
                 // AUTH CHECK - Redirect to login if not authenticated
                 const isLoggedIn = sessionStorage.getItem('staffPlannerAuth');
-                const roleId = parseInt(sessionStorage.getItem('staffPlannerRoleId') || '0');
+                const roleId = StaffPlanner.getRoleId();
                 const staffId = sessionStorage.getItem('staffPlannerStaffId');
 
                 if (isLoggedIn !== 'true') {
@@ -711,15 +707,20 @@
                         document.body.classList.add('guest-mode');
                 }
 
-                await app.loadData();
+                try {
+                    await app.loadData();
 
-                // For Impulsadora role or PIN login, force open their calendar
-                if ((roleId === 4 || staffId) && staffId) {
-                    app.showPersonCalendar(parseInt(staffId));
+                    // For Impulsadora role or PIN login, force open their calendar
+                    if ((roleId === 4 || staffId) && staffId) {
+                        app.showPersonCalendar(parseInt(staffId));
+                    }
+                } catch (err) {
+                    console.error('Error inicializando la aplicación:', err);
+                    Swal.fire('Error', err.message || 'No se pudieron cargar los datos', 'error');
+                } finally {
+                    // Always reveal the page so errors are visible instead of a blank screen.
+                    document.body.classList.add('auth-ready');
                 }
-
-                // Reveal page content after auth and data load
-                document.body.classList.add('auth-ready');
             },
 
 
@@ -732,7 +733,7 @@
 
             // Check if user can edit staff (Admin or Organizador)
             canEditStaff: () => {
-                const roleId = parseInt(sessionStorage.getItem('staffPlannerRoleId') || '0');
+                const roleId = StaffPlanner.getRoleId();
                 return roleId === 1 || roleId === 2; // Admin or Organizador
             },
 
@@ -790,6 +791,7 @@
                 await app.fetchAssignments();
 
                 // Re-render calendar
+                app.renderSidebar();
                 app.renderCalendar();
                 app.renderStats();
 
@@ -819,6 +821,7 @@
             changeMonth: async (delta) => {
                 app.state.currentDate.setMonth(app.state.currentDate.getMonth() + delta);
                 await app.fetchAssignments();
+                app.renderSidebar();
                 app.renderCalendar();
                 app.renderStats();
                 // Also update person calendar if open
@@ -839,6 +842,20 @@
 
             getCategoryInfo: (catId) => app.state.data.categorias.find(c => c.id === catId),
 
+            getVisibleStores: () => {
+                const assignedStoreIds = new Set(app.state.data.horarios.map(h => h.tienda_id));
+                return app.state.data.tiendas.filter(t => t.activo !== false || assignedStoreIds.has(t.id));
+            },
+
+            getVisibleStaff: () => {
+                const assignedStaffIds = new Set(app.state.data.horarios.map(h => h.impulsadora_id));
+                return app.state.data.personal.filter(p => StaffPlanner.isActiveImpulsadora(p) || assignedStaffIds.has(p.id));
+            },
+
+            getAssignableStores: (currentStoreId = null) => {
+                return app.state.data.tiendas.filter(t => t.activo !== false || t.id === currentStoreId);
+            },
+
             getPersonalZone: (pId) => {
                 const p = app.state.data.personal.find(x => x.id === pId);
                 if (!p) return null;
@@ -850,7 +867,7 @@
             renderSidebar: () => {
                 // 1. Zone Stats (Clickable Filters)
                 const zones = { 1: 0, 2: 0 }; // 1 = Zona A, 2 = Zona B
-                app.state.data.personal.forEach(p => {
+                app.getVisibleStaff().forEach(p => {
                     const cat = app.getCategoryInfo(p.idCategoria);
                     if (cat && zones[cat.id_zona] !== undefined) zones[cat.id_zona]++;
                 });
@@ -868,12 +885,14 @@
                 `;
 
                 // 2. Stores Legend (Clickable Multi-Select Filters)
+                const storesForCalendar = app.getVisibleStores();
                 const visibleStores = app.state.filters.visibleStores;
-                const showAll = visibleStores.length === 0;
+                const showAll = visibleStores === null;
+                const selectedStores = showAll ? storesForCalendar.map(t => t.id) : visibleStores;
 
-                document.getElementById('locationLegend').innerHTML = app.state.data.tiendas.map(t => {
+                document.getElementById('locationLegend').innerHTML = storesForCalendar.map(t => {
                     const textColor = app.isLight(t.color_hex) ? '#000' : '#fff';
-                    const isActive = showAll || visibleStores.includes(t.id);
+                    const isActive = showAll || selectedStores.includes(t.id);
                     return `
                         <div class="filter-item flex items-center gap-3 p-2 rounded-lg ${isActive ? 'active' : 'opacity-40'}" onclick="app.toggleStore(${t.id})">
                             <span class="w-8 h-6 rounded flex items-center justify-center text-[10px] font-bold shadow-sm" style="background:${t.color_hex}; color:${textColor};">
@@ -885,26 +904,21 @@
                 }).join('');
 
                 // Update toggle button text
-                const allSelected = visibleStores.length === app.state.data.tiendas.length;
+                const allSelected = showAll || storesForCalendar.every(t => selectedStores.includes(t.id));
                 document.getElementById('toggleAllBtn').textContent = (showAll || allSelected) ? 'Ninguna' : 'Todas';
-            },
-
-            toggleZone: (zoneId) => {
-                // Toggle: click same zone again deselects
-                app.state.filters.zone = app.state.filters.zone === zoneId ? null : zoneId;
-                app.renderSidebar();
-                app.renderCalendar();
             },
 
             toggleStore: (storeId) => {
                 // Multi-select: toggle store in array
-                const arr = app.state.filters.visibleStores;
+                const allIds = app.getVisibleStores().map(t => t.id);
+                const arr = app.state.filters.visibleStores === null ? [...allIds] : app.state.filters.visibleStores;
                 const idx = arr.indexOf(storeId);
                 if (idx === -1) {
                     arr.push(storeId);
                 } else {
                     arr.splice(idx, 1);
                 }
+                app.state.filters.visibleStores = arr;
                 app.renderSidebar();
                 app.renderCalendar();
             },
@@ -915,11 +929,12 @@
             },
 
             toggleAllStores: () => {
-                const allIds = app.state.data.tiendas.map(t => t.id);
-                // If all are selected (or empty = all visible), deselect all
-                // If some or none are selected, select all
-                if (app.state.filters.visibleStores.length === 0 ||
-                    app.state.filters.visibleStores.length === allIds.length) {
+                const allIds = app.getVisibleStores().map(t => t.id);
+                const visibleStores = app.state.filters.visibleStores;
+                const allSelected = visibleStores === null || allIds.every(id => visibleStores.includes(id));
+                // If all are selected (or null = all visible), deselect all.
+                // If some or none are selected, select all.
+                if (allSelected) {
                     app.state.filters.visibleStores = [];
                 } else {
                     app.state.filters.visibleStores = [...allIds];
@@ -929,8 +944,8 @@
             },
 
             renderStats: () => {
-                document.getElementById('statStaff').textContent = app.state.data.personal.length;
-                document.getElementById('statStores').textContent = app.state.data.tiendas.length;
+                document.getElementById('statStaff').textContent = app.getVisibleStaff().length;
+                document.getElementById('statStores').textContent = app.getVisibleStores().length;
                 document.getElementById('statCategories').textContent = app.state.data.categorias ? app.state.data.categorias.length : 0;
 
                 const d = app.state.currentDate;
@@ -974,11 +989,11 @@
                 const filterOnlyAssigned = document.getElementById('filterToggle').checked;
                 const filterZone = app.state.filters.zone;
                 const visibleStores = app.state.filters.visibleStores;
-                const showAllStores = visibleStores.length === 0;
+                const showAllStores = visibleStores === null;
                 const searchTerm = app.state.filters.searchTerm;
 
                 // 1. Prepare Data
-                let staffList = app.state.data.personal.map(p => {
+                let staffList = app.getVisibleStaff().map(p => {
                     const cat = app.getCategoryInfo(p.idCategoria);
                     return {
                         ...p,
@@ -1101,6 +1116,7 @@
                 const year = app.state.currentDate.getFullYear();
                 const month = app.state.currentDate.getMonth();
                 const daysInMonth = new Date(year, month + 1, 0).getDate();
+                const storesForCalendar = app.getVisibleStores();
 
                 // --- 1. Build Header (Days) ---
                 let headerHtml = `<th class="p-4 text-left border-b border-r border-slate-200 bg-slate-50 min-w-[300px] sticky-col-1 z-50">TIENDA (Ubicación)</th>`;
@@ -1126,7 +1142,7 @@
                 const occupancy = {};
                 const zoneTotals = { 'Total': {}, 'Zona A': {}, 'Zona B': {} };
 
-                app.state.data.tiendas.forEach(t => {
+                storesForCalendar.forEach(t => {
                     occupancy[t.id] = {};
                     for (let i = 1; i <= daysInMonth; i++) occupancy[t.id][i] = 0;
                 });
@@ -1164,7 +1180,7 @@
 
                 // Calculate per-store per-zone occupancy
                 const occupancyByZone = { 'Zona A': {}, 'Zona B': {} };
-                app.state.data.tiendas.forEach(t => {
+                storesForCalendar.forEach(t => {
                     occupancyByZone['Zona A'][t.id] = {};
                     occupancyByZone['Zona B'][t.id] = {};
                     for (let i = 1; i <= daysInMonth; i++) {
@@ -1224,7 +1240,7 @@
 
                 // Zona A Store Breakdown (if expanded)
                 if (zonaAExpanded) {
-                    app.state.data.tiendas.forEach(store => {
+                    storesForCalendar.forEach(store => {
                         bodyHtml += `<tr class="bg-blue-50/50 hover:bg-blue-100/50 transition-colors text-sm">
                             <td class="p-2 border-b border-r border-blue-100 sticky-col-1 bg-blue-50/80 sticky left-0 z-20 text-left pl-10">
                                 <span class="text-blue-600">${store.nombre_display}</span>
@@ -1258,7 +1274,7 @@
 
                 // Zona B Store Breakdown (if expanded)
                 if (zonaBExpanded) {
-                    app.state.data.tiendas.forEach(store => {
+                    storesForCalendar.forEach(store => {
                         bodyHtml += `<tr class="bg-amber-50/50 hover:bg-amber-100/50 transition-colors text-sm">
                             <td class="p-2 border-b border-r border-amber-100 sticky-col-1 bg-amber-50/80 sticky left-0 z-20 text-left pl-10">
                                 <span class="text-amber-600">${store.nombre_display}</span>
@@ -1275,14 +1291,14 @@
                 }
 
                 // --- STORE ROWS (all stores - total) ---
-                app.state.data.tiendas.forEach(store => {
+                storesForCalendar.forEach(store => {
                     bodyHtml += `<tr class="hover:bg-slate-50 transition-colors group">`;
 
                     // Store Name Column
                     bodyHtml += `<td class="p-3 border-b border-r border-slate-200 sticky-col-1 bg-white group-hover:bg-slate-50 sticky left-0 z-20">
                         <div class="flex items-center gap-3">
                             <div class="w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold shadow-sm"
-                                 style="background-color: ${store.color || '#6366f1'}">
+                                 style="background-color: ${store.color_hex || '#6366f1'}">
                                 ${store.alias_tienda.substring(0, 2)}
                             </div>
                             <div class="flex flex-col text-left">
@@ -1329,26 +1345,15 @@
                 document.getElementById('calendarBody').innerHTML = bodyHtml;
             },
 
-            toggleView: (mode) => {
-                app.state.viewMode = mode;
-
-                // Update buttons
-                const btnDetail = document.getElementById('btn-view-detail');
-                const btnSummary = document.getElementById('btn-view-summary');
-
-                if (mode === 'detail') {
-                    btnDetail.className = 'px-3 py-1.5 rounded-md text-xs font-bold transition-all shadow-sm bg-white text-slate-700';
-                    btnSummary.className = 'px-3 py-1.5 rounded-md text-xs font-bold transition-all text-slate-500 hover:text-slate-700';
-                } else {
-                    btnDetail.className = 'px-3 py-1.5 rounded-md text-xs font-bold transition-all text-slate-500 hover:text-slate-700';
-                    btnSummary.className = 'px-3 py-1.5 rounded-md text-xs font-bold transition-all shadow-sm bg-white text-slate-700';
+            toggleZone: (zone) => {
+                if (typeof zone === 'number') {
+                    app.state.filters.zone = app.state.filters.zone === zone ? null : zone;
+                    app.renderSidebar();
+                    app.renderCalendar();
+                    return;
                 }
 
-                app.renderCalendar();
-            },
-
-            toggleZone: (zoneName) => {
-                app.state.expandedZones[zoneName] = !app.state.expandedZones[zoneName];
+                app.state.expandedZones[zone] = !app.state.expandedZones[zone];
                 app.renderCalendar();
             },
 
@@ -2439,7 +2444,7 @@
             // --- INTERACTIONS ---
             handleCellClick: (pId, dateStr, assignmentId) => {
                 // ROLE-BASED ACCESS CONTROL
-                const roleId = parseInt(sessionStorage.getItem('staffPlannerRoleId') || '0');
+                const roleId = StaffPlanner.getRoleId();
 
                 // Role 4 (Impulsadora) and guests cannot access
                 if (roleId === 4 || roleId === 0) return;
@@ -2504,7 +2509,7 @@
                             </div>
                             <label class="block text-left text-xs font-bold text-slate-500 mb-1">Cambiar a Tienda:</label>
                             <select id="swal-store" class="w-full p-2 border rounded mb-4">
-                                ${app.state.data.tiendas.map(t => `<option value="${t.id}" ${t.id === currentStore.id ? 'selected' : ''}>${t.nombre_display}</option>`).join('')}
+                                ${app.getAssignableStores(currentStore.id).map(t => `<option value="${t.id}" ${t.id === currentStore.id ? 'selected' : ''}>${t.nombre_display}</option>`).join('')}
                             </select>
                             <div class="border-t pt-4 mt-2">
                                 <button type="button" onclick="Swal.close(); app.openIncidenceModal(${assignmentId}, '${person.nombre_completo.replace(/'/g, "\\'")}', '${friendlyDateCap}', '${currentStore.nombre_display.replace(/'/g, "\\'")}')" 
@@ -2550,7 +2555,7 @@
                             <label class="block text-left text-xs font-bold text-slate-500 mb-1">Seleccionar Tienda:</label>
                             <select id="swal-store" class="w-full p-2 border rounded mb-4 focus:ring-2 ring-blue-500">
                                 <option value="">Seleccione...</option>
-                                ${app.state.data.tiendas.map(t => `<option value="${t.id}">${t.nombre_display}</option>`).join('')}
+                                ${app.getAssignableStores().map(t => `<option value="${t.id}">${t.nombre_display}</option>`).join('')}
                             </select>
                         `,
                         showCancelButton: true,
@@ -2643,7 +2648,7 @@
                     app.refreshDataOnly(); // Refresh without losing scroll
                     return true;
                 } catch (e) {
-                    Swal.showValidationMessage(`Error en base de datos: ${e.message}`);
+                    Swal.showValidationMessage(`Error en base de datos: ${StaffPlanner.duplicateMessage(e)}`);
                     return false;
                 }
             },

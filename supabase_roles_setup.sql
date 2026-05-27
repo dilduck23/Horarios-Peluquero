@@ -38,15 +38,9 @@ CREATE INDEX IF NOT EXISTS idx_usuarios_rol ON "Tiendas_Usuarios"(id_rol);
 ALTER TABLE "Tiendas_Roles" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "Tiendas_Usuarios" ENABLE ROW LEVEL SECURITY;
 
--- 6. POLÍTICAS DE LECTURA (todos pueden leer roles)
-CREATE POLICY "Roles are viewable by everyone" 
-    ON "Tiendas_Roles" FOR SELECT 
-    USING (true);
-
--- 7. POLÍTICA PARA USUARIOS (lectura autenticada)
-CREATE POLICY "Users can view their own data" 
-    ON "Tiendas_Usuarios" FOR SELECT 
-    USING (auth.uid() IS NOT NULL);
+-- 6. POLÍTICAS RLS
+-- Las políticas completas viven en supabase_security_policies.sql.
+-- Ejecuta ese archivo al final para evitar reabrir permisos públicos de escritura.
 
 -- ============================================
 -- USUARIO ADMIN INICIAL (MODIFICA EL EMAIL)

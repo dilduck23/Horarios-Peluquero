@@ -40,15 +40,8 @@ CREATE INDEX IF NOT EXISTS idx_registros_accion ON "Tiendas_Registros"(accion);
 -- 3. HABILITAR RLS (Row Level Security)
 ALTER TABLE "Tiendas_Registros" ENABLE ROW LEVEL SECURITY;
 
--- Política: Solo admins pueden ver el historial completo
-CREATE POLICY "Admins can view all logs" ON "Tiendas_Registros"
-    FOR SELECT
-    USING (true);  -- Ajustar según necesidades
-
--- Política: Cualquier usuario autenticado puede insertar logs
-CREATE POLICY "Authenticated users can insert logs" ON "Tiendas_Registros"
-    FOR INSERT
-    WITH CHECK (true);
+-- Las políticas completas viven en supabase_security_policies.sql.
+-- Ejecuta ese archivo al final para aplicar permisos por rol.
 
 -- ============================================
 -- EJEMPLOS DE USO EN JAVASCRIPT:

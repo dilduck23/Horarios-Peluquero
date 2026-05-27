@@ -101,11 +101,9 @@
         </div>
     </div>
 
+    <script src="js/app-core.js"></script>
     <script>
-        // Supabase - SAME CONFIG AS index.html
-        const SUPABASE_URL = 'https://cectqtufttubsepyiolr.supabase.co';
-        const SUPABASE_KEY = 'sb_publishable_Ow2zQpNDPsLA6on9VBWFgg_Q0_LAc1D';
-        const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        const db = window.StaffPlanner.db;
 
         const app = {
             state: {
@@ -123,7 +121,6 @@
             init: async () => {
                 // Check if user is logged in via sessionStorage (set by index.html)
                 if (sessionStorage.getItem('staffPlannerAuth') !== 'true') {
-                    alert('Por favor inicia sesión primero en la página principal');
                     window.location.href = 'login.html';
                     return;
                 }
@@ -151,7 +148,7 @@
 
                     app.state.tiendas = (tiendasRes.data || []).filter(t => t.activo === true);
                     app.state.impulsadoras = impulsadorasRes.data || [];
-                    app.state.personal = (personalRes.data || []).filter(p => p.habilitado === true);
+                    app.state.personal = (personalRes.data || []).filter(StaffPlanner.isActiveInternalStaff);
 
                     // Fetch horarios for both
                     await app.fetchHorarios();
@@ -207,14 +204,24 @@
                 select.innerHTML = '<option value="">Seleccione una tienda...</option>';
 
                 // Get user's tienda (for ordering)
-                const userTiendaId = parseInt(sessionStorage.getItem('staffPlannerTiendaId') || '0');
+                const userTiendaId = StaffPlanner.getTiendaId();
+                const roleId = StaffPlanner.getRoleId();
+                const isPdv = roleId === 3 && userTiendaId;
 
                 // Sort: user's store first
-                const sorted = [...app.state.tiendas].sort((a, b) => {
+                const availableStores = isPdv
+                    ? app.state.tiendas.filter(s => s.id === userTiendaId)
+                    : [...app.state.tiendas];
+
+                const sorted = availableStores.sort((a, b) => {
                     if (a.id === userTiendaId) return -1;
                     if (b.id === userTiendaId) return 1;
                     return (a.nombre_display || '').localeCompare(b.nombre_display || '');
                 });
+
+                select.disabled = Boolean(isPdv);
+                select.classList.toggle('opacity-70', Boolean(isPdv));
+                select.classList.toggle('cursor-not-allowed', Boolean(isPdv));
 
                 sorted.forEach(store => {
                     const opt = document.createElement('option');
@@ -232,6 +239,15 @@
             },
 
             onStoreChange: () => {
+                const roleId = StaffPlanner.getRoleId();
+                const userTiendaId = StaffPlanner.getTiendaId();
+                if (roleId === 3 && userTiendaId) {
+                    document.getElementById('storeSelect').value = userTiendaId;
+                    app.state.selectedStoreId = userTiendaId;
+                    app.renderCalendar();
+                    return;
+                }
+
                 app.state.selectedStoreId = parseInt(document.getElementById('storeSelect').value) || null;
                 app.renderCalendar();
             },

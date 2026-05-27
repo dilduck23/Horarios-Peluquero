@@ -9,6 +9,15 @@ Sistema de gestión de horarios para peluquerías.
 - `calendario-tienda.html` - Vista de calendario por tienda
 - `reportes.html` - Módulo de reportes
 
+## Ejecutar en local
+
+```bash
+npm run dev
+```
+
+Luego abre `http://localhost:3001/login.html`.
+Si ese puerto está ocupado, el servidor usará el siguiente libre y lo mostrará en la terminal.
+
 ## Archivos SQL (Supabase)
 
 Scripts de configuración para la base de datos Supabase:
@@ -18,6 +27,7 @@ Scripts de configuración para la base de datos Supabase:
 - `supabase_audit_setup.sql` - Sistema de auditoría
 - `supabase_trigger_setup.sql` - Triggers de base de datos
 - `supabase_keepalive_setup.sql` - Tabla `keepalive` para evitar pausa por inactividad
+- `supabase_security_policies.sql` - Políticas RLS por rol y protección contra turnos duplicados
 
 ## Keepalive de Supabase
 

@@ -101,10 +101,9 @@
 <body class="text-slate-800 pb-20">
 
     <!-- SUPABASE CLIENT -->
+    <script src="js/app-core.js"></script>
     <script>
-        const SUPABASE_URL = 'https://cectqtufttubsepyiolr.supabase.co';
-        const SUPABASE_KEY = 'sb_publishable_Ow2zQpNDPsLA6on9VBWFgg_Q0_LAc1D';
-        const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        const db = window.StaffPlanner.db;
     </script>
 
     <!-- MAIN APP -->
@@ -278,14 +277,14 @@
 
                     app.state.data.tiendas = (tiendasRes.data || []).filter(t => t.activo === true);
                     app.state.data.impulsadoras = impulsadorasRes.data || [];
-                    app.state.data.personal = (personalRes.data || []).filter(p => p.habilitado === true);
+                    app.state.data.personal = (personalRes.data || []).filter(StaffPlanner.isActiveInternalStaff);
 
                     app.populateStoreDropdown();
                     app.renderDayPills();
                     app.updateDateText();
 
                     // Auto-select user's store if linked
-                    const userTiendaId = parseInt(sessionStorage.getItem('staffPlannerTiendaId') || '0');
+                    const userTiendaId = StaffPlanner.getTiendaId();
                     if (userTiendaId && app.state.data.tiendas.find(t => t.id === userTiendaId)) {
                         document.getElementById('storeSelect').value = userTiendaId;
                         app.state.selectedStoreId = userTiendaId;
@@ -305,13 +304,23 @@
                 const select = document.getElementById('storeSelect');
                 select.innerHTML = '<option value="">Seleccione una tienda...</option>';
 
-                const userTiendaId = parseInt(sessionStorage.getItem('staffPlannerTiendaId') || '0');
+                const userTiendaId = StaffPlanner.getTiendaId();
+                const roleId = StaffPlanner.getRoleId();
+                const isPdv = roleId === 3 && userTiendaId;
 
-                const sorted = [...app.state.data.tiendas].sort((a, b) => {
+                const availableStores = isPdv
+                    ? app.state.data.tiendas.filter(s => s.id === userTiendaId)
+                    : [...app.state.data.tiendas];
+
+                const sorted = availableStores.sort((a, b) => {
                     if (a.id === userTiendaId) return -1;
                     if (b.id === userTiendaId) return 1;
                     return (a.nombre_display || '').localeCompare(b.nombre_display || '');
                 });
+
+                select.disabled = Boolean(isPdv);
+                select.classList.toggle('opacity-70', Boolean(isPdv));
+                select.classList.toggle('cursor-not-allowed', Boolean(isPdv));
 
                 sorted.forEach(store => {
                     const opt = document.createElement('option');
@@ -322,6 +331,16 @@
             },
 
             onStoreChange: async () => {
+                const roleId = StaffPlanner.getRoleId();
+                const userTiendaId = StaffPlanner.getTiendaId();
+                if (roleId === 3 && userTiendaId) {
+                    document.getElementById('storeSelect').value = userTiendaId;
+                    app.state.selectedStoreId = userTiendaId;
+                    await app.fetchHorarios();
+                    app.renderStaffList();
+                    return;
+                }
+
                 app.state.selectedStoreId = parseInt(document.getElementById('storeSelect').value) || null;
                 if (app.state.selectedStoreId) {
                     await app.fetchHorarios();

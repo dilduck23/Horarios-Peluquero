@@ -77,10 +77,9 @@
 <body class="flex items-center justify-center p-6">
 
     <!-- SUPABASE CLIENT -->
+    <script src="js/app-core.js"></script>
     <script>
-        const SUPABASE_URL = 'https://cectqtufttubsepyiolr.supabase.co';
-        const SUPABASE_KEY = 'sb_publishable_Ow2zQpNDPsLA6on9VBWFgg_Q0_LAc1D';
-        const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        const db = window.StaffPlanner.db;
     </script>
 
     <!-- LOGIN CARD -->
@@ -159,7 +158,7 @@
         // Check if already logged in
         document.addEventListener('DOMContentLoaded', () => {
             if (sessionStorage.getItem('staffPlannerAuth') === 'true') {
-                const roleId = parseInt(sessionStorage.getItem('staffPlannerRoleId') || '0');
+                const roleId = StaffPlanner.getRoleId();
                 if (roleId === 4) {
                     window.location.href = 'mi-horario.html';
                 } else {
