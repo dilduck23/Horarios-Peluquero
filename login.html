@@ -159,6 +159,10 @@
 
     <!-- JAVASCRIPT LOGIN LOGIC -->
     <script>
+        function plannerHome() {
+            return window.innerWidth < 768 ? 'admin-mobile.html' : 'index.html';
+        }
+
         // Check if already logged in
         document.addEventListener('DOMContentLoaded', () => {
             if (sessionStorage.getItem('staffPlannerAuth') === 'true') {
@@ -166,7 +170,7 @@
                 if (roleId === 4) {
                     window.location.href = 'mi-horario.html';
                 } else {
-                    window.location.href = 'index.html';
+                    window.location.href = plannerHome();
                 }
             }
         });
@@ -238,15 +242,9 @@
 
                 setTimeout(() => {
                     if (isPersonal) {
-                        window.location.href = 'personal.html';
+                        window.location.href = 'mi-horario.html';
                     } else {
-                        // Check if mobile device for impulsadoras
-                        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
-                        if (isMobile) {
-                            window.location.href = 'mi-horario.html';
-                        } else {
-                            window.location.href = 'index.html';
-                        }
+                        window.location.href = 'mi-horario.html';
                     }
                 }, 400);
 
@@ -333,10 +331,10 @@
                 card.style.transition = 'opacity 0.4s ease';
 
                 setTimeout(() => {
-                    // Check if mobile device for admin/organizador/pdv
-                    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
-                    if (isMobile && roleId >= 1 && roleId <= 3) {
-                        window.location.href = 'admin-mobile.html';
+                    if (roleId >= 1 && roleId <= 3) {
+                        window.location.href = plannerHome();
+                    } else if (roleId === 4) {
+                        window.location.href = 'mi-horario.html';
                     } else {
                         window.location.href = 'index.html';
                     }

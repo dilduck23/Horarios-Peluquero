@@ -3,8 +3,8 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Interno | Novepsa Planner</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Navegacion | Novepsa Planner</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
@@ -18,7 +18,7 @@
     <div id="mainApp" class="min-h-screen bg-[#f7f4f2]"></div>
     <script src="js/mobile-web-app.js"></script>
     <script>
-        document.addEventListener('DOMContentLoaded', () => MobileWeb.start('internal'));
+        document.addEventListener('DOMContentLoaded', () => MobileWeb.start('nav', { layout: 'desktop' }));
     </script>
 </body>
 
