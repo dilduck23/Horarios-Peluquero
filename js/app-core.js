@@ -6,6 +6,7 @@
         stores: 'Tiendas_Razonamiento',
         impulsadoras: 'Tiendas_Impulsadoras',
         schedule: 'Tiendas_Horario',
+        attendance: 'Tiendas_Asistencia',
         incidences: 'Tiendas_Faltas',
         roles: 'Tiendas_Roles',
         users: 'Tiendas_Usuarios',

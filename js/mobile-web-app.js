@@ -101,6 +101,31 @@
         return `${y}-${m}-${d}`;
     }
 
+    function todayKeyInGuayaquil() {
+        const parts = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'America/Guayaquil',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+        }).formatToParts(new Date());
+        const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+        return `${values.year}-${values.month}-${values.day}`;
+    }
+
+    function timeInGuayaquil(value) {
+        if (!value) return '';
+        try {
+            return new Intl.DateTimeFormat('es-EC', {
+                timeZone: 'America/Guayaquil',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            }).format(new Date(value));
+        } catch (error) {
+            return asText(value).slice(11, 16);
+        }
+    }
+
     function parseDate(value) {
         if (!value) return null;
         const [year, month, day] = String(value).slice(0, 10).split('-').map(Number);
@@ -268,6 +293,11 @@
         const { data, error } = await query;
         if (error) throw error;
         return data || [];
+    }
+
+    function isMissingAttendanceTable(error) {
+        const message = asText(error?.message || error?.details || error);
+        return error?.code === '42P01' || error?.code === 'PGRST205' || message.includes('Tiendas_Asistencia');
     }
 
     async function copyText(text) {
@@ -615,10 +645,26 @@
             this.internalStaff = internalStaff;
         }
 
-        async promoterAssignments(date) {
-            let query = db.from(tables.schedule).select('*').eq('fecha', dateKey(date));
+        async promoterAssignmentsForKey(key) {
+            let query = db.from(tables.schedule).select('*').eq('fecha', key);
             if (this.session.isStoreUser && this.session.storeId) query = query.eq('tienda_id', this.session.storeId);
             return rows(query);
+        }
+
+        async promoterAssignments(date) {
+            return this.promoterAssignmentsForKey(dateKey(date));
+        }
+
+        async attendanceForKey(key) {
+            if (!tables.attendance) return [];
+            try {
+                let query = db.from(tables.attendance).select('*').eq('fecha', key);
+                if (this.session.isStoreUser && this.session.storeId) query = query.eq('tienda_id', this.session.storeId);
+                return await rows(query);
+            } catch (error) {
+                if (isMissingAttendanceTable(error)) return [];
+                throw error;
+            }
         }
 
         async internalAssignments(date) {
@@ -1748,11 +1794,21 @@
             this.promoters = [];
             this.categories = [];
             this.monthlyRows = [];
+            this.todayRows = [];
+            this.attendanceRows = [];
         }
 
         async load() {
             await this.loadBase();
-            this.monthlyRows = await this.monthlyPromoterAssignments(this.selected);
+            const todayKey = todayKeyInGuayaquil();
+            const [monthlyRows, todayRows, attendanceRows] = await Promise.all([
+                this.monthlyPromoterAssignments(this.selected),
+                this.promoterAssignmentsForKey(todayKey),
+                this.attendanceForKey(todayKey)
+            ]);
+            this.monthlyRows = monthlyRows;
+            this.todayRows = todayRows;
+            this.attendanceRows = attendanceRows;
             if (this.session.isStoreUser) this.selectedStoreId = this.session.storeId;
             if (!this.selectedStoreId && this.stores.length) this.selectedStoreId = asInt(this.stores[0].id);
         }
@@ -1767,7 +1823,7 @@
             return `
                 ${monthControls(this.selected, 'mobileApp.changeMonth(-1)', 'mobileApp.changeMonth(1)')}
                 ${this.filters()}
-                ${this.selectedStoreId ? calendarBoard({
+                ${this.selectedStoreId ? this.attendanceTodaySection() + calendarBoard({
                     selected: this.selected,
                     rows: rowsForStore,
                     badge: storeBadge(byId(this.stores, this.selectedStoreId), 48),
@@ -1789,6 +1845,58 @@
                     row: (row) => this.assignmentRow(row)
                 }) : emptyState('storefront', 'Elige una tienda', 'Verás el calendario mensual de personal asignado.')}
             `;
+        }
+
+        attendanceTodaySection() {
+            const store = byId(this.stores, this.selectedStoreId);
+            const todayKey = todayKeyInGuayaquil();
+            const rowsForToday = this.todayRows
+                .filter((row) => asInt(row.tienda_id) === this.selectedStoreId)
+                .sort((a, b) => asText(byId(this.promoters, a.impulsadora_id)?.Marca).localeCompare(asText(byId(this.promoters, b.impulsadora_id)?.Marca)));
+            const approved = rowsForToday.filter((row) => asText(this.attendanceForSchedule(row.id)?.estado) === 'aprobada').length;
+            return `
+                <section class="attendance-panel app-card">
+                    <div class="attendance-panel-head">
+                        <span class="material-icons">how_to_reg</span>
+                        <span class="min-w-0">
+                            <strong>Asistencia de hoy</strong>
+                            <small>${h(asText(store?.nombre_display, 'Tienda'))} - ${h(todayKey)} - ${approved}/${rowsForToday.length} aprobadas</small>
+                        </span>
+                    </div>
+                    ${rowsForToday.length ? rowsForToday.map((row) => this.attendanceRow(row)).join('') : emptyState('event_busy', 'Sin impulsadoras hoy', 'No hay turnos asignados para este punto en la fecha actual.')}
+                </section>`;
+        }
+
+        attendanceForSchedule(scheduleId) {
+            return this.attendanceRows.find((row) => asInt(row.horario_id) === asInt(scheduleId)) || null;
+        }
+
+        attendanceState(attendance) {
+            const state = asText(attendance?.estado, 'pendiente');
+            if (state === 'aprobada') return { label: 'Aprobada', className: 'approved', icon: 'check_circle' };
+            if (state === 'falta_generada') return { label: 'Falta generada', className: 'closed', icon: 'warning_amber' };
+            return { label: 'Pendiente', className: 'pending', icon: 'schedule' };
+        }
+
+        attendanceRow(row) {
+            const person = byId(this.promoters, row.impulsadora_id);
+            const category = byId(this.categories, person?.idCategoria) || byId(this.categories, row.categoria_asignada_id);
+            const attendance = this.attendanceForSchedule(row.id);
+            const state = this.attendanceState(attendance);
+            const approvedAt = timeInGuayaquil(attendance?.aprobado_en);
+            const approvedLabel = approvedAt ? ` - ${approvedAt}` : '';
+            const canApprove = state.className === 'pending';
+            return `
+                <article class="attendance-row">
+                    ${storeBadge(byId(this.stores, this.selectedStoreId), 38)}
+                    <span class="flex-1 min-w-0">
+                        <span class="app-list-title block truncate text-[#e85d75]">${h(asText(person?.Marca, 'Sin marca'))}</span>
+                        <span class="app-list-title block truncate">${h(person ? promoterDisplayName(person) : 'Personal')}</span>
+                        <span class="app-list-subtitle block truncate">${category ? h(asText(category.descripcion)) : 'Sin categoria'}</span>
+                    </span>
+                    <span class="attendance-status ${state.className}"><span class="material-icons">${state.icon}</span>${h(state.label + approvedLabel)}</span>
+                    ${canApprove ? `<button class="attendance-approve-btn" onclick="mobileApp.approveAttendance(${asInt(row.id)})">Aprobar</button>` : ''}
+                </article>`;
         }
 
         filters() {
@@ -1852,6 +1960,25 @@
         async changeMonth(delta) {
             this.selected = new Date(this.selected.getFullYear(), this.selected.getMonth() + delta, 1);
             await this.reload();
+        }
+
+        async approveAttendance(id) {
+            try {
+                Swal.fire({
+                    title: 'Aprobando asistencia',
+                    allowOutsideClick: false,
+                    didOpen: () => Swal.showLoading()
+                });
+                const { data, error } = await db.functions.invoke('approve-store-attendance', {
+                    body: { horarioId: asInt(id) }
+                });
+                if (error) throw error;
+                if (data?.error) throw new Error(data.error);
+                await this.reload();
+                Swal.fire({ icon: 'success', title: 'Asistencia aprobada', timer: 1400, showConfirmButton: false });
+            } catch (error) {
+                Swal.fire('Error', error.message || 'No se pudo aprobar la asistencia', 'error');
+            }
         }
 
         openDaySheet(key) {
@@ -2085,7 +2212,10 @@
         render() {
             const filtered = this.enriched();
             const total = filtered.length;
-            const absences = filtered.filter((item) => asText(item.raw.asunto).toUpperCase().includes('INJUSTIFICADA')).length;
+            const absences = filtered.filter((item) => {
+                const subject = asText(item.raw.asunto).toUpperCase();
+                return subject.includes('FALTA') || subject.includes('INJUSTIFICADA');
+            }).length;
             const late = filtered.filter((item) => asText(item.raw.asunto).toUpperCase().includes('IMPUNTUALIDAD')).length;
             const actions = iconButton('file_download', 'mobileApp.copyCsv()', 'Copiar CSV') + iconButton('refresh', 'mobileApp.reload()', 'Actualizar');
             shell('reports', 'Reportes', `${total} incidencias filtradas`, actions, `
@@ -2105,7 +2235,7 @@
                 const person = byId(this.promoters, schedule?.impulsadora_id);
                 return person ? promoterDisplayName(person) : 'Desconocido';
             }))].sort();
-            const subjects = ['FALTA INJUSTIFICADA', 'FALTA JUSTIFICADA', 'IMPUNTUALIDAD', 'PRESENTACION', 'ACTITUD', 'QUEJA DE CLIENTE', 'OTROS'];
+            const subjects = ['FALTA NO APROBADA', 'FALTA INJUSTIFICADA', 'FALTA JUSTIFICADA', 'IMPUNTUALIDAD', 'PRESENTACION', 'ACTITUD', 'QUEJA DE CLIENTE', 'OTROS'];
             return `
                 <section class="calendar-card app-card mb-3">
                     <div class="grid gap-3">
@@ -2133,6 +2263,7 @@
 
         incidentColor(subject) {
             const upper = asText(subject).toUpperCase();
+            if (upper.includes('NO APROBADA')) return '#B91C1C';
             if (upper.includes('INJUSTIFICADA')) return '#DC2626';
             if (upper.includes('JUSTIFICADA')) return '#F59E0B';
             if (upper.includes('IMPUNTUALIDAD')) return '#F97316';

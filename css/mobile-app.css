@@ -790,6 +790,115 @@ nav.fixed {
     color: var(--app-rose);
 }
 
+.attendance-panel {
+    margin: 8px 18px 14px;
+    padding: 14px;
+}
+
+.attendance-panel-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.attendance-panel-head > .material-icons {
+    width: 42px;
+    height: 42px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 14px;
+    background: #fff1f2;
+    color: var(--app-rose);
+}
+
+.attendance-panel-head strong,
+.attendance-panel-head small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.attendance-panel-head strong {
+    color: var(--app-ink);
+    font-size: 17px;
+    font-weight: 900;
+}
+
+.attendance-panel-head small {
+    margin-top: 2px;
+    color: var(--app-muted);
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.attendance-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+    padding: 10px 0;
+    border-top: 1px solid var(--app-border);
+}
+
+.attendance-row:first-of-type {
+    border-top: 0;
+}
+
+.attendance-status {
+    display: inline-flex;
+    min-height: 28px;
+    align-items: center;
+    justify-self: start;
+    gap: 4px;
+    border-radius: 999px;
+    padding: 5px 9px;
+    font-size: 11px;
+    font-weight: 900;
+}
+
+.attendance-status .material-icons {
+    font-size: 15px;
+}
+
+.attendance-status.pending {
+    background: #fff7ed;
+    color: #c2410c;
+}
+
+.attendance-status.approved {
+    background: #ecfdf5;
+    color: #047857;
+}
+
+.attendance-status.closed {
+    background: #fef2f2;
+    color: #b91c1c;
+}
+
+.attendance-approve-btn {
+    min-height: 36px;
+    justify-self: stretch;
+    border-radius: 999px;
+    background: var(--app-teal);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+@media (min-width: 520px) {
+    .attendance-row {
+        grid-template-columns: auto minmax(0, 1fr) auto auto;
+    }
+
+    .attendance-approve-btn {
+        min-width: 104px;
+        justify-self: end;
+        padding: 0 16px;
+    }
+}
+
 .side-schedule-card {
     margin: 0 18px;
     padding: 0;
@@ -1483,6 +1592,7 @@ nav.fixed {
 }
 
 .desktop-content .calendar-card,
+.desktop-content .attendance-panel,
 .desktop-content .self-calendar-card,
 .desktop-content .side-schedule-card,
 .desktop-content .vendor-schedule-head,

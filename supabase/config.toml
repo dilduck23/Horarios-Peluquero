@@ -1,0 +1,4 @@
+project_id = "cectqtufttubsepyiolr"
+
+[functions.close-store-attendance]
+verify_jwt = false

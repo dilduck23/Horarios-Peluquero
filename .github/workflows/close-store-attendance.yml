@@ -1,0 +1,43 @@
+name: Close Store Attendance
+
+on:
+  schedule:
+    # 20:00 America/Guayaquil (UTC-5). GitHub puede retrasar algunos minutos.
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+    inputs:
+      fecha:
+        description: "Fecha Ecuador a cerrar, formato YYYY-MM-DD. Vacio usa el dia actual."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  close:
+    name: Generate automatic absences
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close pending store attendance
+        env:
+          SUPABASE_URL: https://cectqtufttubsepyiolr.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          FECHA_INPUT: ${{ github.event.inputs.fecha || '' }}
+        run: |
+          set -euo pipefail
+
+          : "${SUPABASE_SERVICE_ROLE_KEY:?Missing SUPABASE_SERVICE_ROLE_KEY secret}"
+
+          supabase_url="${SUPABASE_URL%/}"
+          body="{}"
+          if [ -n "${FECHA_INPUT}" ]; then
+            body=$(printf '{"fecha":"%s"}' "${FECHA_INPUT}")
+          fi
+
+          curl --silent --show-error --fail \
+            --request POST "${supabase_url}/functions/v1/close-store-attendance" \
+            --header "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            --header "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            --header "Content-Type: application/json" \
+            --data "${body}"

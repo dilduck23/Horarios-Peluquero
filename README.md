@@ -28,10 +28,14 @@ Scripts de configuración para la base de datos Supabase:
 - `supabase_trigger_setup.sql` - Triggers de base de datos
 - `supabase_keepalive_setup.sql` - Tabla `keepalive` para evitar pausa por inactividad
 - `supabase_security_policies.sql` - Políticas RLS por rol y protección contra turnos duplicados
+- `supabase_attendance_setup.sql` - Beta de asistencia aprobada por Punto de Venta
 
 ## Keepalive de Supabase
 
-El proyecto incluye un workflow de GitHub Actions (`.github/workflows/supabase-keepalive.yml`) que inserta una fila diaria en la tabla `keepalive`.
+El proyecto incluye workflows de GitHub Actions:
+
+- `.github/workflows/supabase-keepalive.yml`: inserta una fila diaria en la tabla `keepalive`.
+- `.github/workflows/close-store-attendance.yml`: cierra asistencias pendientes a las 20:00 de Ecuador y genera faltas automáticas.
 
 Para activarlo:
 

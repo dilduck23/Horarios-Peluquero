@@ -28,6 +28,7 @@ La base de datos está alojada en Supabase. A continuación, la estructura de la
 | **`Tiendas_Razonamiento`** | Catálogo de Tiendas (Locales). | `id` | - |
 | **`Tiendas_Impulsadoras`** | Catálogo de Personal (Impulsadoras). | `id` | `idBodega` -> `Tiendas_Razonamiento.id` (Relación opcional) |
 | **`Tiendas_Horario`** | Asignación de días laborables. | `id` | `tienda_id` -> `Tiendas_Razonamiento.id`<br>`impulsadora_id` -> `Tiendas_Impulsadoras.id`<br>`categoria_asignada_id` -> `Tiendas_Categorias.id` |
+| **`Tiendas_Asistencia`** | Aprobación de asistencia por punto de venta. | `id` | `horario_id` -> `Tiendas_Horario.id`<br>`falta_id` -> `Tiendas_Faltas.id` |
 | **`Tiendas_Faltas`** | Registro de incidencias (Faltas, Tardanzas). | `id` | `id_horario` -> `Tiendas_Horario.id` |
 | **`Tiendas_Usuarios`** | Usuarios con acceso al sistema (Admin, Organizador, etc). | `id` | `id_rol` -> `Tiendas_Roles.id`<br>`id_tienda` -> `Tiendas_Razonamiento.id` |
 | **`Tiendas_Roles`** | Roles de usuario (Admin, Organizador, Staff, etc). | `id` | - |
@@ -79,6 +80,19 @@ El sistema utiliza **Supabase Edge Functions** para enviar notificaciones de cor
     2.  JS guarda la incidencia en `Tiendas_Faltas` y llama a `supabase.functions.invoke('send-incidence-email', body)`.
     3.  Edge Function valida la sesión, resuelve la asignación en Supabase, arma destinatarios administrativos + correo de la impulsadora y envía vía API de Resend.
 
+### Asistencia por Punto de Venta
+La Beta de asistencia permite que el usuario **Punto de Venta** confirme la presencia de las impulsadoras asignadas a su local.
+
+*   **Tabla**: `Tiendas_Asistencia`
+*   **Aprobación**: `approve-store-attendance`
+*   **Cierre diario**: `close-store-attendance`
+*   **Workflow**: `.github/workflows/close-store-attendance.yml`
+*   **Flujo**:
+    1.  El usuario rol 3 entra a `calendario-tienda.html` / pestaña Tienda.
+    2.  En “Asistencia de hoy”, aprueba a las impulsadoras presentes en su local.
+    3.  A las 20:00 Ecuador, GitHub Actions llama `close-store-attendance`.
+    4.  La función genera `FALTA NO APROBADA` para turnos que no fueron aprobados.
+
 ---
 
 ## 📂 Estructura del Proyecto
@@ -107,6 +121,8 @@ El sistema utiliza **Supabase Edge Functions** para enviar notificaciones de cor
 
 ### Otros Archivos
 *   `supabase_edge_function_email.ts`: Código fuente de la función Cloud para emails.
+*   `supabase_attendance_setup.sql`: Tabla, índices y RLS para asistencia de tienda.
+*   `supabase/functions/`: Edge Functions de asistencia.
 *   `assets/`: (Si aplica) Recursos estáticos.
 
 ---
