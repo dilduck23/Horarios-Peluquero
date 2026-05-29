@@ -22,17 +22,51 @@
     const promoterAliases = [
         { brand: 'DMUJERES', from: 'SILVANA', to: 'SILVIA' }
     ];
+    const desktopMediaQuery = '(min-width: 981px)';
     let layoutMode = 'mobile';
+    let layoutPreference = 'auto';
 
     function navItems() {
-        const mobile = layoutMode !== 'desktop';
         return [
-            ['planner', mobile ? 'admin-mobile.html' : 'index.html', 'space_dashboard', 'Planificar'],
-            ['store', mobile ? 'calendario-tienda-mobile.html' : 'calendario-tienda.html', 'storefront', 'Tienda'],
-            ['internal', mobile ? 'personal-mobile.html' : 'personal.html', 'work_outline', 'Interno'],
-            ['reports', mobile ? 'reportes-mobile.html' : 'reportes.html', 'report_problem', 'Reportes'],
-            ['nav', mobile ? 'navegacion-mobile.html' : 'navegacion.html', 'apps', 'Navegacion']
+            ['planner', 'index.html', 'space_dashboard', 'Planificar'],
+            ['store', 'calendario-tienda.html', 'storefront', 'Tienda'],
+            ['internal', 'personal.html', 'work_outline', 'Interno'],
+            ['reports', 'reportes.html', 'report_problem', 'Reportes'],
+            ['nav', 'navegacion.html', 'apps', 'Navegación']
         ];
+    }
+
+    function detectedLayoutMode() {
+        if (typeof window.matchMedia === 'function') {
+            return window.matchMedia(desktopMediaQuery).matches ? 'desktop' : 'mobile';
+        }
+        return window.innerWidth > 980 ? 'desktop' : 'mobile';
+    }
+
+    function resolveLayoutMode(layout) {
+        if (layout === 'desktop' || layout === 'mobile') return layout;
+        return detectedLayoutMode();
+    }
+
+    function setLayoutPreference(layout) {
+        layoutPreference = layout === 'desktop' || layout === 'mobile' ? layout : 'auto';
+        layoutMode = resolveLayoutMode(layoutPreference);
+    }
+
+    function refreshResponsiveLayout() {
+        if (layoutPreference !== 'auto') {
+            updateDesktopScrollFrames();
+            return;
+        }
+        const nextLayout = resolveLayoutMode('auto');
+        if (nextLayout === layoutMode) {
+            updateDesktopScrollFrames();
+            return;
+        }
+        layoutMode = nextLayout;
+        if (window.mobileApp?.render) {
+            window.mobileApp.render();
+        }
     }
 
     function h(value) {
@@ -615,7 +649,7 @@
         }
 
         showProfile() {
-            window.location.href = layoutMode === 'desktop' ? 'navegacion.html' : 'navegacion-mobile.html';
+            window.location.href = 'navegacion.html';
         }
 
         logout() {
@@ -2138,10 +2172,10 @@
 
         render() {
             const email = asText(this.session.user?.email, 'Usuario');
-            shell('nav', 'Navegacion', 'Datos, usuario e integraciones', iconButton('logout', 'mobileApp.logout()', 'Salir'), `
+            shell('nav', 'Navegación', 'Datos, usuario e integraciones', iconButton('logout', 'mobileApp.logout()', 'Salir'), `
                 <button class="navigation-tile app-card" onclick="mobileApp.openData()">
                     <span class="navigation-icon" style="background:rgba(232,93,117,.16);color:#E85D75"><span class="material-icons">dataset</span></span>
-                    <span class="flex-1 min-w-0"><strong class="app-list-title block">Datos</strong><span class="app-list-subtitle block">Personal, tiendas, categorias e interno</span></span>
+                    <span class="flex-1 min-w-0"><strong class="app-list-title block">Datos</strong><span class="app-list-subtitle block">Personal, tiendas, categorías e interno</span></span>
                     <span class="material-icons text-slate-400">chevron_right</span>
                 </button>
                 <button class="navigation-tile app-card" onclick="mobileApp.profile()">
@@ -2177,7 +2211,7 @@
                 title: 'Usuario',
                 html: `<p class="text-slate-500">${h(asText(this.session.user?.email, 'Usuario'))}</p><p class="font-bold">${h(this.session.roleName)}</p>`,
                 showCancelButton: true,
-                confirmButtonText: 'Cerrar sesion',
+                confirmButtonText: 'Cerrar sesión',
                 cancelButtonText: 'Volver'
             }).then((result) => {
                 if (result.isConfirmed) this.logout();
@@ -2186,7 +2220,7 @@
     }
 
     function start(view, options = {}) {
-        layoutMode = options.layout === 'desktop' ? 'desktop' : 'mobile';
+        setLayoutPreference(options.layout);
         const map = {
             planner: PlannerView,
             store: StoreMonthView,
@@ -2202,7 +2236,7 @@
         });
     }
 
-    window.addEventListener('resize', updateDesktopScrollFrames);
+    window.addEventListener('resize', refreshResponsiveLayout);
 
     window.MobileWeb = {
         start,

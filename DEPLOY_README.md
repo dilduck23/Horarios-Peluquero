@@ -83,22 +83,24 @@ El sistema utiliza **Supabase Edge Functions** para enviar notificaciones de cor
 
 ## 📂 Estructura del Proyecto
 
-### Páginas Desktop (Pantalla Completa)
+### Páginas principales responsivas
 | Archivo | Descripción | Acceso |
 |---------|-------------|--------|
 | `login.html` | Página de Login. Autenticación dual: Email/Password + PIN | Público |
-| `index.html` | Vista Principal. Calendario mensual, gestión completa de turnos | Rol 1-3 |
-| `personal.html` | Gestión Personal Interno. Calendario mensual por bodega | Rol 1-3 |
-| `reportes.html` | Historial de Incidencias. Filtros y exportación CSV | Rol 1-3 |
-| `calendario-tienda.html` | Vista por Tienda. Solo lectura + reporte incidencias | Rol 1-3 |
+| `index.html` | Planificador responsivo. Vista diaria, mensual, lateral y por vendedor | Rol 1-3 |
+| `personal.html` | Gestión de personal interno responsiva. Calendario mensual por bodega | Rol 1-3 |
+| `reportes.html` | Historial de incidencias responsivo. Filtros y exportación CSV | Rol 1-3 |
+| `calendario-tienda.html` | Vista por tienda responsiva. Solo lectura + reporte incidencias | Rol 1-3 |
+| `navegacion.html` | Navegación y accesos administrativos | Rol 1-3 |
 
-### Páginas Mobile (Optimizadas para Móvil)
+### Páginas móviles heredadas
 | Archivo | Descripción | Acceso |
 |---------|-------------|--------|
-| `admin-mobile.html` | Dashboard Admin Móvil. Vista diaria de Impulsadoras | Rol 1-3 |
-| `personal-mobile.html` | Personal Interno Móvil. Vista diaria por bodega | Rol 1-3 |
-| `calendario-tienda-mobile.html` | Calendario Tiendas Móvil. Vista por tienda con filtros | Rol 1-3 |
-| `reportes-mobile.html` | Reportes Móvil. Incidencias con filtros y stats | Rol 1-3 |
+| `admin-mobile.html` | Redirige a `index.html` | Rol 1-3 |
+| `personal-mobile.html` | Redirige a `personal.html` | Rol 1-3 |
+| `calendario-tienda-mobile.html` | Redirige a `calendario-tienda.html` | Rol 1-3 |
+| `reportes-mobile.html` | Redirige a `reportes.html` | Rol 1-3 |
+| `navegacion-mobile.html` | Redirige a `navegacion.html` | Rol 1-3 |
 | `staff-list-mobile.html` | Listado de Staff Móvil. CRUD de impulsadoras | Rol 1-2 |
 | `store-list-mobile.html` | Listado de Tiendas Móvil. CRUD de tiendas | Rol 1-2 |
 | `mi-horario.html` | Horario Personal. Vista para Impulsadoras (login PIN) | Rol 4 |
@@ -111,26 +113,28 @@ El sistema utiliza **Supabase Edge Functions** para enviar notificaciones de cor
 
 ## 🧭 Flujo de Navegación
 
-### Diagrama de Navegación Mobile
+### Diagrama de navegación principal
 
 ```mermaid
 graph TD
-    subgraph "Páginas Mobile"
-        AM[admin-mobile.html<br/>📅 Calendario Impulsadoras]
-        PM[personal-mobile.html<br/>👥 Personal Interno]
-        CTM[calendario-tienda-mobile.html<br/>🏪 Tiendas Calendario]
-        RPM[reportes-mobile.html<br/>📊 Reportes]
+    subgraph "Páginas responsivas"
+        AM[index.html<br/>📅 Planificador]
+        PM[personal.html<br/>👥 Personal Interno]
+        CTM[calendario-tienda.html<br/>🏪 Tiendas Calendario]
+        RPM[reportes.html<br/>📊 Reportes]
+        NAV[navegacion.html<br/>🧭 Navegación]
         SLM[staff-list-mobile.html<br/>👁️ Listado Staff]
         STM[store-list-mobile.html<br/>🏪 Listado Tiendas]
     end
 
-    AM -->|"👁️ Botón Ojo"| SLM
-    AM -->|"🏪 Botón Tienda"| STM
-    AM -->|"Tab: Staff"| PM
+    NAV -->|"Datos"| SLM
+    NAV -->|"Datos"| STM
+    AM -->|"Tab: Interno"| PM
     AM -->|"Tab: Tiendas"| CTM
     AM -->|"Tab: Reportes"| RPM
+    AM -->|"Tab: Navegación"| NAV
     
-    PM -->|"Tab: Calendario"| AM
+    PM -->|"Tab: Planificar"| AM
     PM -->|"Tab: Tiendas"| CTM
     PM -->|"Tab: Reportes"| RPM
     
@@ -140,23 +144,15 @@ graph TD
 
 ### Navbar Mobile (Tabs Inferiores)
 
-El navbar inferior en las páginas mobile conecta:
+El navbar inferior en móvil y la barra lateral en escritorio conectan:
 
 | Tab | Icono | Destino |
 |-----|-------|--------|
-| Calendario | 📅 | admin-mobile.html |
-| Tiendas | 🏪 | calendario-tienda-mobile.html |
-| Staff | 👥 | personal-mobile.html |
-| Reportes | 📊 | reportes-mobile.html |
-| Perfil | 👤 | Modal logout |
-
-### Botones de Acción (Header admin-mobile.html)
-
-| Botón | Icono | Destino | Roles |
-|-------|-------|---------|-------|
-| Ver Staff | 👁️ visibility | staff-list-mobile.html | 1, 2 |
-| Ver Tiendas | 🏪 storefront | store-list-mobile.html | 1, 2 |
-| Agregar Turno | ➕ add | Modal agregar | 1, 2 |
+| Planificar | 📅 | index.html |
+| Tienda | 🏪 | calendario-tienda.html |
+| Interno | 👥 | personal.html |
+| Reportes | 📊 | reportes.html |
+| Navegación | 🧭 | navegacion.html |
 
 ### Flujo de Autenticación
 
@@ -172,12 +168,10 @@ flowchart LR
     F -->|Impulsadora| G[mi-horario.html]
     F -->|Personal Interno| H[personal.html]
     
-    E -->|Mobile| I[admin-mobile.html]
-    E -->|Desktop| J[index.html]
+    E -->|Responsivo| I[index.html]
     
     D -->|Rol 4| G
-    D -->|Rol 1-3 Mobile| I
-    D -->|Rol 1-3 Desktop| J
+    D -->|Rol 1-3| I
 ```
 
 ---
@@ -204,7 +198,7 @@ El repositorio está conectado a Cloudflare Pages.
 ### Métodos de Login
 | Método | Descripción | Validación | Destino |
 |--------|-------------|------------|---------|
-| Email/Password | Admin, Organizador, PdV | Supabase Auth + `Tiendas_Usuarios` | index.html / admin-mobile.html |
+| Email/Password | Admin, Organizador, PdV | Supabase Auth + `Tiendas_Usuarios` | index.html |
 | PIN (Impulsadora) | Staff de ventas | `Tiendas_Impulsadoras.pin` | mi-horario.html |
 | PIN (Personal) | Personal interno | `Tiendas_Personal.pin` | personal.html |
 
@@ -253,4 +247,3 @@ Las tablas están protegidas en Supabase. `Tiendas_Horario` permite escritura p�
 | `Tiendas_Usuarios` | Usuarios del sistema |
 | `Tiendas_Roles` | Roles de acceso |
 | `Tiendas_Categorias` | Categorías/Zonas de trabajo |
-
