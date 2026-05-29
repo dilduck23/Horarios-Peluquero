@@ -76,8 +76,8 @@ El sistema utiliza **Supabase Edge Functions** para enviar notificaciones de cor
 *   **Trigger**: Invocada desde el cliente (`index.html` / `calendario-tienda.html`) al registrar una falta.
 *   **Flujo**:
     1.  Usuario reporta incidencia.
-    2.  JS llama a `supabase.functions.invoke('send-incidence-email', body)`.
-    3.  Edge Function recibe datos, formatea HTML y envía vía API de Resend.
+    2.  JS guarda la incidencia en `Tiendas_Faltas` y llama a `supabase.functions.invoke('send-incidence-email', body)`.
+    3.  Edge Function valida la sesión, resuelve la asignación en Supabase, arma destinatarios administrativos + correo de la impulsadora y envía vía API de Resend.
 
 ---
 

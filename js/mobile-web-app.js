@@ -340,7 +340,6 @@
                 <div class="desktop-app">
                     <aside class="desktop-sidebar">
                         <div class="desktop-brand">
-                            <img src="assets/images/logo-novepsa-sf-negro.png" alt="Novepsa">
                             <span>Novepsa Planner</span>
                         </div>
                         ${nav(active)}
@@ -1648,10 +1647,36 @@
             });
             if (!value) return;
             try {
-                await rows(db.from(tables.incidences).insert({ id_horario: id, asunto: value.asunto, observacion: value.observacion }).select());
-                Swal.fire({ icon: 'success', title: 'Reporte enviado', timer: 1400, showConfirmButton: false });
+                const insertedRows = await rows(db.from(tables.incidences).insert({ id_horario: id, asunto: value.asunto, observacion: value.observacion }).select());
+                const mailSent = await this.sendIncidentEmail(id, value, insertedRows[0]);
+                Swal.fire({
+                    icon: mailSent ? 'success' : 'warning',
+                    title: mailSent ? 'Reporte enviado' : 'Reporte guardado',
+                    text: mailSent ? 'La notificación por correo fue enviada.' : 'No se pudo enviar el correo automático.',
+                    timer: mailSent ? 1600 : undefined,
+                    showConfirmButton: !mailSent
+                });
             } catch (error) {
                 Swal.fire('Error', error.message, 'error');
+            }
+        }
+
+        async sendIncidentEmail(scheduleId, incident, insertedIncident) {
+            try {
+                const { error } = await db.functions.invoke('send-incidence-email', {
+                    body: {
+                        idHorario: asInt(scheduleId),
+                        incidentId: asInt(insertedIncident?.id),
+                        incidenceType: incident.asunto,
+                        observation: incident.observacion,
+                        reportedBy: asText(this.session.user?.email, this.session.roleName)
+                    }
+                });
+                if (error) throw error;
+                return true;
+            } catch (error) {
+                console.error('No se pudo enviar correo de incidencia:', error);
+                return false;
             }
         }
 
