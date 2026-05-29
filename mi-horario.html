@@ -126,9 +126,10 @@
             text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
         }
     </style>
+    <link rel="stylesheet" href="css/mobile-app.css">
 </head>
 
-<body class="text-white">
+<body class="text-slate-800">
 
     <!-- SUPABASE CLIENT -->
     <script src="js/app-core.js"></script>
@@ -137,14 +138,14 @@
     </script>
 
     <!-- LOGIN OVERLAY -->
-    <div id="loginOverlay" class="fixed inset-0 bg-slate-900 z-[99999] flex items-center justify-center p-6">
-        <div class="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-sm text-center" id="loginCard">
-            <div
-                class="w-20 h-20 bg-gradient-to-br from-blue-500 to-blue-700 text-white rounded-2xl flex items-center justify-center mx-auto mb-6 text-4xl shadow-lg">
-                📅
+    <div id="loginOverlay" class="fixed inset-0 bg-[#f7f4f2] z-[99999] flex items-center justify-center p-6">
+        <div class="app-login-card bg-white p-6 rounded-3xl shadow-2xl w-full max-w-sm text-center" id="loginCard">
+            <div class="text-left mb-3">
+                <img src="assets/images/logo-novepsa-sf-negro.png" alt="Novepsa" class="app-logo">
             </div>
-            <h2 class="text-2xl font-bold text-slate-800 mb-2">Mi Horario</h2>
-            <p class="text-slate-500 mb-8 text-sm">Ingresa tu PIN para ver tu calendario</p>
+            <img src="assets/images/icono-logo.png" alt="" class="app-mascot mb-3">
+            <h2 class="text-2xl font-black text-slate-900 mb-2">Mi Horario</h2>
+            <p class="text-slate-500 mb-6 text-sm">Ingresa tu PIN para ver tu calendario</p>
 
             <input type="text" id="loginPin"
                 class="secure-text w-full text-center text-4xl tracking-[0.5em] font-mono bg-slate-100 p-4 rounded-2xl border-2 border-slate-200 focus:border-blue-500 focus:ring-0 outline-none transition-colors"
@@ -167,22 +168,22 @@
     <div id="mainApp" class="hidden min-h-screen flex flex-col">
 
         <!-- Header -->
-        <header class="sticky top-0 z-50 bg-slate-900/95 backdrop-blur-lg border-b border-slate-800 px-4 py-3">
+        <header class="sticky top-0 z-50 bg-white border-b border-slate-100 px-4 py-3">
             <!-- User Info -->
             <div class="flex items-center justify-between mb-3">
                 <div class="flex items-center gap-3">
                     <div id="userAvatar"
-                        class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm shadow-lg">
+                        class="w-10 h-10 rounded-xl bg-slate-900 flex items-center justify-center text-white font-bold text-sm">
                         --
                     </div>
                     <div>
-                        <h1 id="userName" class="font-bold text-base text-white">Cargando...</h1>
-                        <p id="userCategory" class="text-[10px] text-slate-400">• Categoría</p>
+                        <h1 id="userName" class="font-black text-base text-slate-900">Cargando...</h1>
+                        <p id="userCategory" class="text-[10px] text-slate-500">• Categoría</p>
                     </div>
                 </div>
                 <button onclick="app.logout()"
-                    class="p-2 bg-red-500/20 hover:bg-red-500/30 rounded-xl transition-colors">
-                    <span class="material-icons text-red-400 text-xl">logout</span>
+                    class="p-2 bg-red-50 hover:bg-red-100 rounded-xl transition-colors">
+                    <span class="material-icons text-red-600 text-xl">logout</span>
                 </button>
             </div>
 
@@ -197,13 +198,13 @@
 
             <!-- Month Selector -->
             <div class="flex items-center justify-center gap-2 mt-2">
-                <button onclick="app.changeMonth(-1)" class="p-1.5 hover:bg-slate-800 rounded-lg transition-colors">
-                    <span class="material-icons text-slate-400 text-lg">chevron_left</span>
+                <button onclick="app.changeMonth(-1)" class="p-1.5 hover:bg-slate-100 rounded-lg transition-colors">
+                    <span class="material-icons text-slate-500 text-lg">chevron_left</span>
                 </button>
 
-                <div class="flex gap-1 bg-slate-800/50 rounded-xl p-0.5">
+                <div class="flex gap-1 bg-[#f1ece7] rounded-xl p-0.5">
                     <button onclick="app.goToMonth(-1)" id="month-prev"
-                        class="month-pill px-3 py-1.5 rounded-lg text-xs text-slate-400">
+                        class="month-pill px-3 py-1.5 rounded-lg text-xs text-slate-500">
                         NOV
                     </button>
                     <button onclick="app.goToMonth(0)" id="month-current"
@@ -216,8 +217,8 @@
                     </button>
                 </div>
 
-                <button onclick="app.changeMonth(1)" class="p-1.5 hover:bg-slate-800 rounded-lg transition-colors">
-                    <span class="material-icons text-slate-400 text-lg">chevron_right</span>
+                <button onclick="app.changeMonth(1)" class="p-1.5 hover:bg-slate-100 rounded-lg transition-colors">
+                    <span class="material-icons text-slate-500 text-lg">chevron_right</span>
                 </button>
             </div>
         </header>
@@ -231,7 +232,7 @@
         </main>
 
         <!-- Footer Stats -->
-        <footer class="bg-slate-900/95 backdrop-blur-lg border-t border-slate-800 px-4 py-3">
+        <footer class="bg-white border-t border-[#e8e2dd] px-4 py-3">
             <div class="flex justify-around text-center">
                 <div>
                     <div id="statDaysWorked" class="text-xl font-bold text-blue-400">0</div>

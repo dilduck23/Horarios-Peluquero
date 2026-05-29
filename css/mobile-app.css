@@ -1,0 +1,266 @@
+:root {
+    --app-bg: #f7f4f2;
+    --app-surface: #ffffff;
+    --app-surface-soft: #fbf8f5;
+    --app-ink: #111827;
+    --app-muted: #756c65;
+    --app-border: #e8e2dd;
+    --app-border-strong: #e3dcd5;
+    --app-rose: #e85d75;
+    --app-teal: #0e9f8f;
+    --app-red: #dc2626;
+    --app-radius: 18px;
+}
+
+html {
+    background: var(--app-bg);
+}
+
+body {
+    background: var(--app-bg) !important;
+    color: var(--app-ink);
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+}
+
+body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background:
+        radial-gradient(circle at 22% -10%, rgba(232, 93, 117, 0.12), transparent 32%),
+        radial-gradient(circle at 95% 4%, rgba(14, 159, 143, 0.10), transparent 30%);
+    z-index: -1;
+}
+
+#mainApp {
+    background: var(--app-bg) !important;
+}
+
+header.sticky,
+#mainApp > header {
+    background: rgba(247, 244, 242, 0.96) !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+    backdrop-filter: blur(18px);
+}
+
+.app-page-title {
+    color: var(--app-ink);
+    font-size: 24px;
+    font-weight: 900;
+    line-height: 1.05;
+    letter-spacing: 0;
+}
+
+.app-page-subtitle {
+    color: var(--app-muted);
+    font-size: 13px;
+    font-weight: 600;
+    margin-top: 3px;
+}
+
+main,
+#assignmentsList,
+#staffList,
+#storesList,
+#reportsList {
+    background: var(--app-bg) !important;
+}
+
+.day-pill {
+    border-radius: var(--app-radius) !important;
+    border: 1px solid var(--app-border) !important;
+    background: var(--app-surface) !important;
+    color: var(--app-muted);
+    box-shadow: none !important;
+}
+
+.day-pill.active,
+.day-pill[aria-current='date'] {
+    background: var(--app-ink) !important;
+    border-color: var(--app-ink) !important;
+    color: #fff !important;
+    box-shadow: none !important;
+}
+
+.month-pill.active {
+    background: #fff !important;
+    color: var(--app-ink) !important;
+    font-weight: 900 !important;
+}
+
+.text-indigo-500,
+.text-indigo-600,
+.text-emerald-500,
+.text-emerald-600 {
+    color: var(--app-rose) !important;
+}
+
+.bg-indigo-50,
+.bg-emerald-50,
+.bg-amber-50 {
+    background: var(--app-surface-soft) !important;
+}
+
+.border-indigo-200,
+.border-emerald-200,
+.border-amber-200 {
+    border-color: var(--app-border) !important;
+}
+
+.assignment-card,
+.staff-card,
+.store-card,
+.report-card,
+.incidence-card,
+main .bg-white.rounded-xl,
+main .bg-white.rounded-2xl,
+main .bg-white.rounded-3xl {
+    background: var(--app-surface) !important;
+    border: 1px solid var(--app-border) !important;
+    border-radius: var(--app-radius) !important;
+    box-shadow: none !important;
+}
+
+.store-group-header {
+    background: var(--app-bg) !important;
+    border-bottom: 1px solid var(--app-border);
+}
+
+.skeleton {
+    background: linear-gradient(90deg, #eee7e1 25%, #faf6f2 50%, #eee7e1 75%) !important;
+    background-size: 200% 100% !important;
+}
+
+input,
+select,
+textarea {
+    border-radius: 14px !important;
+    border-color: var(--app-border) !important;
+    background: var(--app-surface) !important;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    border-color: var(--app-rose) !important;
+    box-shadow: 0 0 0 3px rgba(232, 93, 117, 0.16) !important;
+}
+
+button,
+a {
+    -webkit-tap-highlight-color: transparent;
+}
+
+#addBtn,
+#viewStaffBtn,
+#viewStoresBtn,
+#addStaffBtn,
+#addStoreBtn,
+button.bg-indigo-500,
+button.bg-indigo-600,
+button.from-indigo-500,
+button.from-indigo-600,
+a.from-indigo-500,
+a.from-indigo-600 {
+    background: var(--app-rose) !important;
+    background-image: none !important;
+    box-shadow: none !important;
+}
+
+#viewStoresBtn,
+button.from-green-500,
+a.from-green-500 {
+    background: var(--app-teal) !important;
+    background-image: none !important;
+}
+
+#viewStaffBtn,
+button.from-slate-500,
+a.from-slate-500 {
+    background: var(--app-ink) !important;
+    background-image: none !important;
+}
+
+nav.fixed {
+    background: var(--app-surface) !important;
+    border-color: var(--app-border) !important;
+    box-shadow: 0 -12px 30px rgba(17, 24, 39, 0.08);
+}
+
+.nav-item {
+    color: #8b8580 !important;
+}
+
+.nav-item .nav-icon {
+    background: transparent !important;
+    color: inherit;
+}
+
+.nav-item.active {
+    color: var(--app-rose) !important;
+}
+
+.nav-item.active .nav-icon {
+    background: rgba(232, 93, 117, 0.13) !important;
+}
+
+.app-login-shell {
+    background: var(--app-bg) !important;
+    color: var(--app-ink);
+}
+
+.app-login-card {
+    border: 1px solid var(--app-border);
+    box-shadow: none !important;
+}
+
+.app-logo {
+    height: 32px;
+    width: auto;
+    object-fit: contain;
+}
+
+.app-mascot {
+    height: min(252px, 34vh);
+    width: 100%;
+    object-fit: contain;
+}
+
+.app-segment {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    padding: 5px;
+    border-radius: 16px;
+    background: #f1ece7;
+    border: 1px solid var(--app-border);
+}
+
+.app-segment button {
+    border-radius: 12px;
+    padding: 10px 8px;
+    color: var(--app-muted);
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.app-segment button.active {
+    color: var(--app-ink);
+    background: #fff;
+}
+
+.swal2-popup {
+    border-radius: 22px !important;
+    border: 1px solid var(--app-border) !important;
+}
+
+.swal2-confirm {
+    background: var(--app-rose) !important;
+    border-radius: 14px !important;
+}
+
+.swal2-cancel {
+    border-radius: 14px !important;
+}

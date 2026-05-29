@@ -101,6 +101,7 @@
             z-index: 10;
         }
     </style>
+    <link rel="stylesheet" href="css/mobile-app.css">
 </head>
 
 <body class="text-slate-800 pb-20">
@@ -112,14 +113,14 @@
     </script>
 
     <!-- LOGIN OVERLAY -->
-    <div id="loginOverlay" class="fixed inset-0 bg-slate-100 z-[99999] flex items-center justify-center p-6">
-        <div class="bg-white p-8 rounded-3xl shadow-xl w-full max-w-sm text-center" id="loginCard">
-            <div
-                class="w-20 h-20 bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-2xl flex items-center justify-center mx-auto mb-6 text-4xl shadow-lg">
-                📊
+    <div id="loginOverlay" class="fixed inset-0 bg-[#f7f4f2] z-[99999] flex items-center justify-center p-6">
+        <div class="app-login-card bg-white p-6 rounded-3xl shadow-xl w-full max-w-sm text-center" id="loginCard">
+            <div class="text-left mb-3">
+                <img src="assets/images/logo-novepsa-sf-negro.png" alt="Novepsa" class="app-logo">
             </div>
-            <h2 class="text-2xl font-bold text-slate-800 mb-2">StaffPlanner</h2>
-            <p class="text-slate-500 mb-8 text-sm">Ingresa tus credenciales para acceder</p>
+            <img src="assets/images/icono-logo.png" alt="" class="app-mascot mb-3">
+            <h2 class="text-2xl font-black text-slate-900 mb-2">Novepsa Planner</h2>
+            <p class="text-slate-500 mb-6 text-sm">Ingresa tus credenciales para acceder</p>
 
             <!-- Email/Password Login -->
             <div id="loginFormEmail" class="space-y-4 text-left">
@@ -155,6 +156,11 @@
 
         <!-- Header -->
         <header class="sticky top-0 z-50 bg-white border-b border-slate-100 px-4 py-3 shadow-sm">
+            <div class="mb-3">
+                <h1 class="app-page-title">Planificador</h1>
+                <p class="app-page-subtitle">Turnos diarios de impulsadoras</p>
+            </div>
+
             <!-- Date Selector Row -->
             <div class="flex items-center justify-between mb-3">
                 <button onclick="app.openDatePicker()"
@@ -210,28 +216,28 @@
                 <button onclick="app.switchTab('calendar')"
                     class="nav-item active flex flex-col items-center gap-1 p-2">
                     <div class="nav-icon w-10 h-10 rounded-xl flex items-center justify-center">
-                        <span class="material-icons">calendar_month</span>
+                        <span class="material-icons">space_dashboard</span>
                     </div>
-                    <span class="text-[10px] font-semibold">Calendario</span>
+                    <span class="text-[10px] font-semibold">Planificar</span>
                 </button>
                 <button onclick="app.switchTab('stores')"
                     class="nav-item flex flex-col items-center gap-1 p-2 text-slate-400">
                     <div class="nav-icon w-10 h-10 rounded-xl flex items-center justify-center">
                         <span class="material-icons">storefront</span>
                     </div>
-                    <span class="text-[10px] font-semibold">Tiendas</span>
+                    <span class="text-[10px] font-semibold">Tienda</span>
                 </button>
                 <button onclick="app.switchTab('staff')"
                     class="nav-item flex flex-col items-center gap-1 p-2 text-slate-400">
                     <div class="nav-icon w-10 h-10 rounded-xl flex items-center justify-center">
-                        <span class="material-icons">groups</span>
+                        <span class="material-icons">work_outline</span>
                     </div>
-                    <span class="text-[10px] font-semibold">Staff</span>
+                    <span class="text-[10px] font-semibold">Interno</span>
                 </button>
                 <button onclick="app.switchTab('reports')"
                     class="nav-item flex flex-col items-center gap-1 p-2 text-slate-400">
                     <div class="nav-icon w-10 h-10 rounded-xl flex items-center justify-center">
-                        <span class="material-icons">assessment</span>
+                        <span class="material-icons">report_problem</span>
                     </div>
                     <span class="text-[10px] font-semibold">Reportes</span>
                 </button>
@@ -241,7 +247,7 @@
                         class="nav-icon w-10 h-10 rounded-xl flex items-center justify-center bg-slate-200 text-slate-600 font-bold text-sm">
                         U
                     </div>
-                    <span class="text-[10px] font-semibold">Perfil</span>
+                    <span class="text-[10px] font-semibold">Navegacion</span>
                 </button>
             </div>
         </nav>

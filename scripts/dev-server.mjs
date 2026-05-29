@@ -67,7 +67,7 @@ async function listen(port) {
 
         server.once('error', onError);
         server.once('listening', onListening);
-        server.listen(port);
+        server.listen(port, '127.0.0.1');
     });
 }
 
