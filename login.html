@@ -164,6 +164,9 @@
     <!-- JAVASCRIPT LOGIN LOGIC -->
     <script>
         function plannerHome() {
+            if (window.StaffPlanner?.getRoleId?.() === 3) {
+                return 'calendario-tienda.html';
+            }
             return 'index.html';
         }
 

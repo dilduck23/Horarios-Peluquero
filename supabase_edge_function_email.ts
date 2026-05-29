@@ -10,6 +10,10 @@ const tableSchedule = "Tiendas_Horario";
 const tablePromoters = "Tiendas_Impulsadoras";
 const tableStores = "Tiendas_Razonamiento";
 const tableUsers = "Tiendas_Usuarios";
+const blockedRecipientEmails = new Set([
+  "croman@novepsa.com",
+  "liglesias@novepsa.com",
+]);
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -72,7 +76,7 @@ function uniqueEmails(values: unknown[]) {
 
   values.flat().forEach((value) => {
     const email = asText(value).trim().toLowerCase();
-    if (!email || !emailPattern.test(email) || seen.has(email)) return;
+    if (!email || !emailPattern.test(email) || blockedRecipientEmails.has(email) || seen.has(email)) return;
     seen.add(email);
     emails.push(email);
   });

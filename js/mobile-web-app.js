@@ -27,6 +27,13 @@
     let layoutPreference = 'auto';
 
     function navItems() {
+        if (window.StaffPlanner?.getRoleId?.() === 3) {
+            return [
+                ['store', 'calendario-tienda.html', 'storefront', 'Tienda'],
+                ['planner', 'index.html', 'space_dashboard', 'Planificar'],
+                ['nav', 'navegacion.html', 'apps', 'Navegación']
+            ];
+        }
         return [
             ['planner', 'index.html', 'space_dashboard', 'Planificar'],
             ['store', 'calendario-tienda.html', 'storefront', 'Tienda'],
@@ -647,7 +654,7 @@
 
         async promoterAssignmentsForKey(key) {
             let query = db.from(tables.schedule).select('*').eq('fecha', key);
-            if (this.session.isStoreUser && this.session.storeId) query = query.eq('tienda_id', this.session.storeId);
+            if (this.shouldScopeToStore() && this.session.storeId) query = query.eq('tienda_id', this.session.storeId);
             return rows(query);
         }
 
@@ -659,7 +666,7 @@
             if (!tables.attendance) return [];
             try {
                 let query = db.from(tables.attendance).select('*').eq('fecha', key);
-                if (this.session.isStoreUser && this.session.storeId) query = query.eq('tienda_id', this.session.storeId);
+                if (this.shouldScopeToStore() && this.session.storeId) query = query.eq('tienda_id', this.session.storeId);
                 return await rows(query);
             } catch (error) {
                 if (isMissingAttendanceTable(error)) return [];
@@ -669,7 +676,7 @@
 
         async internalAssignments(date) {
             let query = db.from(tables.internalSchedule).select('*').eq('fecha', dateKey(date));
-            if (this.session.isStoreUser && this.session.storeId) query = query.eq('tienda_id', this.session.storeId);
+            if (this.shouldScopeToStore() && this.session.storeId) query = query.eq('tienda_id', this.session.storeId);
             return rows(query);
         }
 
@@ -679,7 +686,7 @@
                 .gte('fecha', dateKey(monthStart(date)))
                 .lte('fecha', dateKey(monthEnd(date)))
                 .order('fecha');
-            if (this.session.isStoreUser && this.session.storeId) query = query.eq('tienda_id', this.session.storeId);
+            if (this.shouldScopeToStore() && this.session.storeId) query = query.eq('tienda_id', this.session.storeId);
             return rows(query);
         }
 
@@ -689,8 +696,12 @@
                 .gte('fecha', dateKey(monthStart(date)))
                 .lte('fecha', dateKey(monthEnd(date)))
                 .order('fecha');
-            if (this.session.isStoreUser && this.session.storeId) query = query.eq('tienda_id', this.session.storeId);
+            if (this.shouldScopeToStore() && this.session.storeId) query = query.eq('tienda_id', this.session.storeId);
             return rows(query);
+        }
+
+        shouldScopeToStore() {
+            return this.session.isStoreUser;
         }
 
         showProfile() {
@@ -743,7 +754,7 @@
             this.search = '';
             this.zoneFilter = '';
             this.selectedPromoterId = null;
-            this.focusedStoreIds = this.session.isStoreUser && this.session.storeId ? [this.session.storeId] : [];
+            this.focusedStoreIds = [];
             this.stores = [];
             this.promoters = [];
             this.categories = [];
@@ -763,6 +774,18 @@
             this.promoterRows = promoterRows;
             this.internalRows = internalRows;
             this.monthlyRows = monthlyRows;
+        }
+
+        shouldScopeToStore() {
+            return false;
+        }
+
+        canManagePlanner() {
+            return this.session.isManager;
+        }
+
+        canReportFromPlanner() {
+            return this.session.isManager;
         }
 
         render() {
@@ -805,7 +828,7 @@
                 ${this.capacityRail()}
                 ${this.dailyFilters()}
                 ${entries.length ? this.entrySections(entries) : emptyState(hasFocus ? 'filter_alt_off' : 'event_busy', 'Sin asignaciones visibles', hasFocus ? 'Quita el filtro de tienda o asigna personal aquí.' : 'Elige una fecha o crea una asignación.')}
-                ${this.session.isManager ? '<button class="bottom-action" onclick="mobileApp.openAssignmentTypeSheet()">Asignar personal</button>' : ''}
+                ${this.canManagePlanner() ? '<button class="bottom-action" onclick="mobileApp.openAssignmentTypeSheet()">Asignar personal</button>' : ''}
             `;
         }
 
@@ -813,7 +836,7 @@
             const title = this.storeFilterLabel();
             return `
                 <section class="planner-hero">
-                    <div class="planner-hero-title"><span class="material-icons">route</span><span class="truncate">${h(title)}</span>${this.hasStoreFocus() && !this.session.isStoreUser ? '<button class="ml-auto" onclick="mobileApp.clearStoreFocus()"><span class="material-icons">close</span></button>' : ''}</div>
+                    <div class="planner-hero-title"><span class="material-icons">route</span><span class="truncate">${h(title)}</span>${this.hasStoreFocus() ? '<button class="ml-auto" onclick="mobileApp.clearStoreFocus()"><span class="material-icons">close</span></button>' : ''}</div>
                     <div class="planner-metrics">
                         <div class="planner-metric"><div class="planner-metric-value">${promoterCount}</div><div class="planner-metric-label">Impulso</div></div>
                         <div class="planner-metric"><div class="planner-metric-value">${internalCount}</div><div class="planner-metric-label">Interno</div></div>
@@ -828,7 +851,6 @@
             return this.stores
                 .filter((store) => {
                     const id = asInt(store.id);
-                    if (this.session.isStoreUser && this.session.storeId !== id) return false;
                     return store.activo !== false || assigned.has(id);
                 })
                 .sort((a, b) => {
@@ -877,7 +899,7 @@
             if (!stores.length) return '';
             const selectedCount = this.focusedStoreIds.length;
             return `
-                <div class="section-title-row"><h2>Capacidad por tienda</h2>${selectedCount && !this.session.isStoreUser ? `<button class="mini-chip" onclick="mobileApp.clearStoreFocus()">Todas (${selectedCount})</button>` : ''}</div>
+                <div class="section-title-row"><h2>Capacidad por tienda</h2>${selectedCount ? `<button class="mini-chip" onclick="mobileApp.clearStoreFocus()">Todas (${selectedCount})</button>` : ''}</div>
                 ${scrollFrame('horizontal-scroll', stores.map((store) => this.capacityCard(store)).join(''), 'tiendas')}`;
         }
 
@@ -1185,7 +1207,7 @@
                             <strong>${h(promoterDisplayName(person))}</strong>
                             <small>${h(asText(person.Marca, 'Sin marca'))}${asText(person.idVendedor) ? ` - Codigo ${h(asText(person.idVendedor))}` : ''}</small>
                         </span>
-                        ${this.session.isManager ? `<button class="planner-icon-btn" title="Asignar día" onclick="mobileApp.showPromoterFormForPerson(${asInt(person.id)}, '${dateKey(this.defaultVendorDate())}')"><span class="material-icons">edit_calendar</span></button>` : ''}
+                        ${this.canManagePlanner() ? `<button class="planner-icon-btn" title="Asignar día" onclick="mobileApp.showPromoterFormForPerson(${asInt(person.id)}, '${dateKey(this.defaultVendorDate())}')"><span class="material-icons">edit_calendar</span></button>` : ''}
                     </div>
                     <div class="vendor-stat-row">
                         ${this.vendorStat('Dias asignados', rowsForPerson.length, 'event_available', '#E85D75')}
@@ -1261,7 +1283,7 @@
                     emptyTitle: 'Sin fechas pendientes',
                     emptyMessage: 'No hay días desde hoy que coincidan con los filtros.',
                     daySubtitle: (count) => `${count} ${count === 1 ? 'asignación' : 'asignaciones'}`,
-                    addHandler: this.session.isManager ? 'mobileApp.openPromoterSheetForDate' : '',
+                    addHandler: this.canManagePlanner() ? 'mobileApp.openPromoterSheetForDate' : '',
                     row: (row) => this.promoterAgendaRow(row)
                 }) : ''}
             `;
@@ -1327,7 +1349,7 @@
             const date = parseDate(key);
             Swal.fire({
                 title: prettyDate(date),
-                html: `<p class="text-slate-500 mb-3">${dayRows.length} ${dayRows.length === 1 ? 'asignación' : 'asignaciones'}</p>${dayRows.length ? dayRows.map((row) => this.promoterAgendaRow(row)).join('') : emptyState('event_available', 'Día libre', 'No hay personal asignado en esta fecha.')}${this.session.isManager ? `<button class="bottom-action mt-3" onclick="Swal.close(); mobileApp.openPromoterSheetForDate('${key}')">Asignar este día</button>` : ''}`,
+                html: `<p class="text-slate-500 mb-3">${dayRows.length} ${dayRows.length === 1 ? 'asignación' : 'asignaciones'}</p>${dayRows.length ? dayRows.map((row) => this.promoterAgendaRow(row)).join('') : emptyState('event_available', 'Día libre', 'No hay personal asignado en esta fecha.')}${this.canManagePlanner() ? `<button class="bottom-action mt-3" onclick="Swal.close(); mobileApp.openPromoterSheetForDate('${key}')">Asignar este día</button>` : ''}`,
                 showConfirmButton: false,
                 showCloseButton: true,
                 width: 420
@@ -1341,7 +1363,7 @@
                 this.openEntryActions('impulso', asInt(rowsForCell[0].id));
                 return;
             }
-            if (!this.session.isManager) return;
+            if (!this.canManagePlanner()) return;
             const date = parseDate(key);
             const person = byId(this.promoters, ids[0]);
             Swal.fire({
@@ -1359,7 +1381,20 @@
         openEntryActions(kind, id) {
             if (kind === 'interno') {
                 const row = this.internalRows.find((item) => asInt(item.id) === id);
-                if (this.session.isManager && row) this.openInternalSheet(row);
+                if (row) {
+                    if (this.canManagePlanner()) {
+                        this.openInternalSheet(row);
+                        return;
+                    }
+                    const person = byId(this.internalStaff, row.personal_id);
+                    const store = byId(this.stores, row.tienda_id);
+                    Swal.fire({
+                        title: asText(person?.nombre_completo, 'Personal interno'),
+                        html: `<p class="text-slate-500 mb-2">${h(asText(store?.nombre_display, 'Bodega/Tienda'))}</p><p class="font-bold">${h(asText(row.tipo, 'TRABAJO'))} - ${h(asText(row.fecha))}</p>`,
+                        showConfirmButton: false,
+                        showCloseButton: true
+                    });
+                }
                 return;
             }
             const row = [...this.promoterRows, ...this.monthlyRows].find((item) => asInt(item.id) === id);
@@ -1372,8 +1407,8 @@
                     <p class="text-slate-500 mb-4 text-sm">${h(asText(store?.nombre_display, 'Tienda'))} - ${h(asText(row.fecha))}</p>
                     <div class="grid gap-2">
                         ${person ? `<button class="bottom-action neutral full" onclick="Swal.close(); mobileApp.openVendorScheduleForPerson(${asInt(person.id)}, '${h(asText(row.fecha))}')">Ver horario</button>` : ''}
-                        ${this.session.isManager ? `<button class="bottom-action full" onclick="Swal.close(); mobileApp.openPromoterSheet(${asInt(row.id)})">Modificar asignación</button><button class="bottom-action ink full" onclick="Swal.close(); mobileApp.deletePromoter(${asInt(row.id)})">Eliminar</button>` : ''}
-                        <button class="bottom-action teal full" onclick="Swal.close(); mobileApp.reportIncident(${asInt(row.id)})">Reportar incidencia</button>
+                        ${this.canManagePlanner() ? `<button class="bottom-action full" onclick="Swal.close(); mobileApp.openPromoterSheet(${asInt(row.id)})">Modificar asignación</button><button class="bottom-action ink full" onclick="Swal.close(); mobileApp.deletePromoter(${asInt(row.id)})">Eliminar</button>` : ''}
+                        ${this.canReportFromPlanner() ? `<button class="bottom-action teal full" onclick="Swal.close(); mobileApp.reportIncident(${asInt(row.id)})">Reportar incidencia</button>` : ''}
                     </div>`,
                 showConfirmButton: false,
                 showCloseButton: true
@@ -1484,7 +1519,7 @@
                 this.openEntryActions('impulso', asInt(rowsForDay[0].id));
                 return;
             }
-            if (this.session.isManager) this.showPromoterFormForPerson(asInt(person.id), key);
+            if (this.canManagePlanner()) this.showPromoterFormForPerson(asInt(person.id), key);
         }
 
         setSummary(value) {
@@ -1532,7 +1567,6 @@
         }
 
         focusStore(id) {
-            if (this.session.isStoreUser) return;
             const storeId = asInt(id);
             this.focusedStoreIds = this.isStoreFocused(storeId)
                 ? this.focusedStoreIds.filter((item) => item !== storeId)
@@ -2377,6 +2411,10 @@
 
     function start(view, options = {}) {
         setLayoutPreference(options.layout);
+        if (window.StaffPlanner.getRoleId() === 3 && !['store', 'planner', 'nav'].includes(view)) {
+            window.location.href = 'calendario-tienda.html';
+            return Promise.resolve(null);
+        }
         const map = {
             planner: PlannerView,
             store: StoreMonthView,
