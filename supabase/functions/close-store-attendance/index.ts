@@ -55,11 +55,36 @@ function getServiceKey() {
   return serviceKeys()[0];
 }
 
-function isAuthorized(req: Request) {
-  const keys = new Set(serviceKeys());
+function requestKeys(req: Request) {
   const apikey = asText(req.headers.get("apikey"));
   const bearer = asText(req.headers.get("Authorization")).replace(/^Bearer\s+/i, "").trim();
-  return Boolean((apikey && keys.has(apikey)) || (bearer && keys.has(bearer)));
+  return [apikey, bearer].filter(Boolean);
+}
+
+function knownServiceKey(req: Request) {
+  const keys = new Set(serviceKeys());
+  return requestKeys(req).find((key) => keys.has(key));
+}
+
+async function canWriteAttendance(supabaseUrl: string, key: string) {
+  const probeClient = createClient(supabaseUrl, key, { auth: { persistSession: false } });
+  const { error } = await probeClient
+    .from(tableAttendance)
+    .update({ actualizado_en: new Date().toISOString() })
+    .eq("id", -1);
+  return !error;
+}
+
+async function authorizedServiceKey(req: Request, supabaseUrl: string) {
+  const envServiceKey = getServiceKey();
+  const matchedEnvKey = knownServiceKey(req);
+  if (matchedEnvKey) return envServiceKey || matchedEnvKey;
+
+  for (const key of requestKeys(req)) {
+    if (await canWriteAttendance(supabaseUrl, key)) return key;
+  }
+
+  return "";
 }
 
 function ecuadorDateKey(date = new Date()) {
@@ -92,12 +117,12 @@ Deno.serve(async (req) => {
     }
 
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
-    const SUPABASE_SERVICE_ROLE_KEY = getServiceKey();
-    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-      throw new Error("Supabase service credentials are not configured");
+    if (!SUPABASE_URL) {
+      throw new Error("Supabase URL is not configured");
     }
 
-    if (!isAuthorized(req)) {
+    const SUPABASE_SERVICE_ROLE_KEY = await authorizedServiceKey(req, SUPABASE_URL);
+    if (!SUPABASE_SERVICE_ROLE_KEY) {
       return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
