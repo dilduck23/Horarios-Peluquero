@@ -31,6 +31,7 @@
             return [
                 ['store', 'calendario-tienda.html', 'storefront', 'Tienda'],
                 ['planner', 'index.html', 'space_dashboard', 'Planificar'],
+                ['internal', 'personal.html', 'work_outline', 'Interno'],
                 ['nav', 'navegacion.html', 'apps', 'Navegación']
             ];
         }
@@ -2088,10 +2089,15 @@
         render() {
             const store = byId(this.stores, this.selectedStoreId);
             const actions = [
-                this.session.isManager && this.selectedStoreId ? iconButton('add_circle', 'mobileApp.openAssignmentForDate()', 'Nueva asignación', false, 'primary') : '',
+                this.canManageInternal() && this.selectedStoreId ? iconButton('add_circle', 'mobileApp.openAssignmentForDate()', 'Nueva asignación', false, 'primary') : '',
                 iconButton('refresh', 'mobileApp.reload()', 'Actualizar')
             ].join('');
             shell('internal', 'Interno', this.selectedStoreId ? `${asText(store?.nombre_display, 'Bodega/Tienda')} - ${monthLabel(this.selected)}` : 'Selecciona bodega o tienda', actions, this.content());
+        }
+
+        canManageInternal() {
+            if (this.session.isManager) return true;
+            return this.session.isStoreUser && asInt(this.selectedStoreId) === asInt(this.session.storeId);
         }
 
         filters() {
@@ -2144,7 +2150,7 @@
                     emptyTitle: 'Sin registros visibles',
                     emptyMessage: 'No hay días desde hoy para esta bodega.',
                     daySubtitle: (count) => `${count} registro${count === 1 ? '' : 's'} interno${count === 1 ? '' : 's'}`,
-                    addHandler: this.session.isManager ? 'mobileApp.openAssignmentForDate' : '',
+                    addHandler: this.canManageInternal() ? 'mobileApp.openAssignmentForDate' : '',
                     row: (row) => this.assignmentRow(row)
                 }) : emptyState('warehouse', 'Elige una bodega', 'Verás el calendario mensual del personal interno.')}
             `;
@@ -2172,6 +2178,17 @@
             this.showInternalForm(null, parseDate(key) || this.defaultAssignmentDate(), this.selectedStoreId);
         }
 
+        openDaySheet(key) {
+            const rowsForDay = this.visibleRows().filter((row) => asText(row.fecha) === key);
+            const date = parseDate(key);
+            Swal.fire({
+                title: prettyDate(date),
+                html: `<p class="text-slate-500 mb-3">${h(asText(byId(this.stores, this.selectedStoreId)?.nombre_display, 'Bodega/Tienda'))}</p>${rowsForDay.length ? rowsForDay.map((row) => this.assignmentRow(row)).join('') : emptyState('person_off', 'Sin registros', 'No hay personal interno en esta fecha.')}${this.canManageInternal() ? `<button class="bottom-action mt-3" onclick="Swal.close(); mobileApp.openAssignmentForDate('${key}')">Nueva asignación interna</button>` : ''}`,
+                showConfirmButton: false,
+                showCloseButton: true
+            });
+        }
+
         defaultAssignmentDate() {
             const today = new Date();
             if (today.getFullYear() === this.selected.getFullYear() && today.getMonth() === this.selected.getMonth()) {
@@ -2182,7 +2199,7 @@
 
         openActions(id) {
             const row = this.monthlyRows.find((item) => asInt(item.id) === id);
-            if (!row || !this.session.isManager) return;
+            if (!row || !this.canManageInternal() || asInt(row.tienda_id) !== asInt(this.selectedStoreId)) return;
             this.showInternalForm(row, parseDate(row.fecha), this.selectedStoreId);
         }
 
@@ -2411,7 +2428,7 @@
 
     function start(view, options = {}) {
         setLayoutPreference(options.layout);
-        if (window.StaffPlanner.getRoleId() === 3 && !['store', 'planner', 'nav'].includes(view)) {
+        if (window.StaffPlanner.getRoleId() === 3 && !['store', 'planner', 'internal', 'nav'].includes(view)) {
             window.location.href = 'calendario-tienda.html';
             return Promise.resolve(null);
         }

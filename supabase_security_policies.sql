@@ -67,6 +67,8 @@ DROP POLICY IF EXISTS "Escritura pública impulsadoras" ON public."Tiendas_Impul
 DROP POLICY IF EXISTS "Lectura pública impulsadoras" ON public."Tiendas_Impulsadoras";
 DROP POLICY IF EXISTS "Allow all for authenticated" ON public."Tiendas_Personal";
 DROP POLICY IF EXISTS "Allow all for authenticated" ON public."Tiendas_Personal_Horario";
+DROP POLICY IF EXISTS "personal_horario_insert_store_admins" ON public."Tiendas_Personal_Horario";
+DROP POLICY IF EXISTS "personal_horario_update_store_admins" ON public."Tiendas_Personal_Horario";
 DROP POLICY IF EXISTS "Escritura pública tiendas" ON public."Tiendas_Razonamiento";
 DROP POLICY IF EXISTS "Lectura pública tiendas" ON public."Tiendas_Razonamiento";
 DROP POLICY IF EXISTS "Admins can view all logs" ON public."Tiendas_Registros";
@@ -129,6 +131,24 @@ WITH CHECK (private.staffplanner_role_id() IN (1, 2));
 CREATE POLICY "personal_horario_write_managers" ON public."Tiendas_Personal_Horario"
 FOR ALL TO authenticated USING (private.staffplanner_role_id() IN (1, 2))
 WITH CHECK (private.staffplanner_role_id() IN (1, 2));
+
+CREATE POLICY "personal_horario_insert_store_admins" ON public."Tiendas_Personal_Horario"
+FOR INSERT TO authenticated
+WITH CHECK (
+    private.staffplanner_role_id() = 3
+    AND tienda_id = private.staffplanner_tienda_id()
+);
+
+CREATE POLICY "personal_horario_update_store_admins" ON public."Tiendas_Personal_Horario"
+FOR UPDATE TO authenticated
+USING (
+    private.staffplanner_role_id() = 3
+    AND tienda_id = private.staffplanner_tienda_id()
+)
+WITH CHECK (
+    private.staffplanner_role_id() = 3
+    AND tienda_id = private.staffplanner_tienda_id()
+);
 
 CREATE POLICY "roles_select_authenticated" ON public."Tiendas_Roles"
 FOR SELECT TO authenticated USING (true);
