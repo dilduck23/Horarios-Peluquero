@@ -9,6 +9,13 @@
     const monthShort = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
     const weekLabels = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'];
     const dayNamesFull = ['Domingo', 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado'];
+    const officialClock = {
+        offsetMs: 0,
+        status: 'syncing',
+        syncedAt: null,
+        tickTimer: null,
+        syncTimer: null
+    };
 
     const storeLegendItems = [
         ['C', '#FACE68', 'Rumichaca entre Sucre y Colon', 'https://maps.app.goo.gl/GFjNtPVYuY8TQZvm9'],
@@ -109,15 +116,23 @@
         return `${y}-${m}-${d}`;
     }
 
-    function todayKeyInGuayaquil() {
+    function officialNow() {
+        return new Date(Date.now() + officialClock.offsetMs);
+    }
+
+    function dateKeyInGuayaquil(date = officialNow()) {
         const parts = new Intl.DateTimeFormat('en-CA', {
             timeZone: 'America/Guayaquil',
             year: 'numeric',
             month: '2-digit',
             day: '2-digit'
-        }).formatToParts(new Date());
+        }).formatToParts(date);
         const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
         return `${values.year}-${values.month}-${values.day}`;
+    }
+
+    function todayKeyInGuayaquil() {
+        return dateKeyInGuayaquil();
     }
 
     function timeInGuayaquil(value) {
@@ -323,6 +338,82 @@
         input.remove();
     }
 
+    function officialClockLabel() {
+        const now = officialNow();
+        const time = new Intl.DateTimeFormat('es-EC', {
+            timeZone: 'America/Guayaquil',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+        }).format(now);
+        const date = new Intl.DateTimeFormat('es-EC', {
+            timeZone: 'America/Guayaquil',
+            weekday: 'short',
+            day: '2-digit',
+            month: 'short'
+        }).format(now).replace('.', '');
+        return { time, date };
+    }
+
+    function globalClockMarkup() {
+        return `
+            <div class="official-clock ${h(officialClock.status)}" title="Reloj oficial America/Guayaquil">
+                <span class="material-icons">schedule</span>
+                <span class="official-clock-copy">
+                    <strong data-official-clock-time>--:--:--</strong>
+                    <small><span data-official-clock-date>Sincronizando</span> · <span data-official-clock-status>Oficial</span></small>
+                </span>
+            </div>`;
+    }
+
+    function renderOfficialClock() {
+        const label = officialClockLabel();
+        document.querySelectorAll('[data-official-clock-time]').forEach((node) => { node.textContent = label.time; });
+        document.querySelectorAll('[data-official-clock-date]').forEach((node) => { node.textContent = label.date; });
+        document.querySelectorAll('[data-official-clock-status]').forEach((node) => {
+            node.textContent = officialClock.status === 'synced' ? 'Oficial' : 'Local';
+        });
+        document.querySelectorAll('.official-clock').forEach((node) => {
+            node.classList.toggle('synced', officialClock.status === 'synced');
+            node.classList.toggle('fallback', officialClock.status !== 'synced');
+        });
+    }
+
+    async function syncOfficialClock() {
+        const previousDateKey = todayKeyInGuayaquil();
+        try {
+            const requestStartedAt = Date.now();
+            const { data, error } = await db.functions.invoke('server-clock', { body: {} });
+            const requestFinishedAt = Date.now();
+            if (error) throw error;
+            const serverMs = Date.parse(data?.iso);
+            if (!Number.isFinite(serverMs)) throw new Error('Hora oficial invalida');
+            const networkMidpointMs = requestStartedAt + ((requestFinishedAt - requestStartedAt) / 2);
+            officialClock.offsetMs = serverMs - networkMidpointMs;
+            officialClock.status = 'synced';
+            officialClock.syncedAt = new Date().toISOString();
+        } catch (error) {
+            console.error('No se pudo sincronizar reloj oficial:', error);
+            officialClock.status = 'fallback';
+        }
+        renderOfficialClock();
+        if (previousDateKey !== todayKeyInGuayaquil() && window.mobileApp?.reload) {
+            window.mobileApp.reload();
+        }
+    }
+
+    function startOfficialClock() {
+        if (!officialClock.tickTimer) {
+            officialClock.tickTimer = window.setInterval(renderOfficialClock, 1000);
+        }
+        if (!officialClock.syncTimer) {
+            syncOfficialClock();
+            officialClock.syncTimer = window.setInterval(syncOfficialClock, 5 * 60 * 1000);
+        }
+        renderOfficialClock();
+    }
+
     function session() {
         const roleId = window.StaffPlanner.getRoleId();
         return {
@@ -396,11 +487,15 @@
                                 <h1>${h(title)}</h1>
                                 ${subtitle ? `<p>${h(subtitle)}</p>` : ''}
                             </div>
-                            <div class="planner-actions">${actions || ''}</div>
+                            <div class="desktop-topbar-tools">
+                                ${globalClockMarkup()}
+                                <div class="planner-actions">${actions || ''}</div>
+                            </div>
                         </header>
                         <main class="desktop-content">${content}</main>
                     </section>
                 </div>`;
+            startOfficialClock();
             updateDesktopScrollFrames();
             return;
         }
@@ -411,11 +506,13 @@
                         <h1 class="app-page-title">${h(title)}</h1>
                         ${subtitle ? `<p class="app-page-subtitle">${h(subtitle)}</p>` : ''}
                     </div>
+                    ${globalClockMarkup()}
                     <div class="planner-actions">${actions || ''}</div>
                 </header>
                 <main class="planner-content">${content}</main>
                 ${nav(active)}
             </div>`;
+        startOfficialClock();
     }
 
     function iconButton(icon, handler, title = '', active = false, tone = '') {
@@ -488,7 +585,7 @@
     }
 
     function dateStrip(selected, handlerPrefix) {
-        const today = new Date();
+        const today = officialNow();
         const days = [];
         for (let i = -2; i <= 4; i += 1) {
             days.push(new Date(today.getFullYear(), today.getMonth(), today.getDate() + i));
@@ -536,7 +633,7 @@
             const date = new Date(selected.getFullYear(), selected.getMonth(), day);
             const key = dateKey(date);
             const rowsForDay = grouped[day] || [];
-            const isToday = key === dateKey(new Date());
+            const isToday = key === todayKeyInGuayaquil();
             cells += `
                 <button class="calendar-cell ${isToday ? 'today' : ''}" onclick="${options.dayHandler}('${key}')">
                     <span class="calendar-day-number">${day}</span>
@@ -566,7 +663,7 @@
     function agendaList(options) {
         const grouped = groupByDay(options.rows, options.selected);
         const daysInMonth = monthEnd(options.selected).getDate();
-        const today = new Date();
+        const today = officialNow();
         const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
         const days = [];
         for (let day = 1; day <= daysInMonth; day += 1) {
@@ -1913,6 +2010,38 @@
             return { label: 'Pendiente', className: 'pending', icon: 'schedule' };
         }
 
+        lunchDuration(attendance) {
+            const stored = asInt(attendance?.almuerzo_minutos, NaN);
+            if (Number.isFinite(stored)) return stored;
+            const out = attendance?.almuerzo_salida_en ? new Date(attendance.almuerzo_salida_en).getTime() : NaN;
+            const back = attendance?.almuerzo_ingreso_en ? new Date(attendance.almuerzo_ingreso_en).getTime() : NaN;
+            if (!Number.isFinite(out) || !Number.isFinite(back) || back < out) return null;
+            return Math.max(0, Math.round((back - out) / 60000));
+        }
+
+        lunchBadge(attendance) {
+            const out = timeInGuayaquil(attendance?.almuerzo_salida_en);
+            const back = timeInGuayaquil(attendance?.almuerzo_ingreso_en);
+            if (!out) return '';
+            if (!back) {
+                return `<span class="attendance-lunch-pill active"><span class="material-icons">lunch_dining</span>Almuerzo desde ${h(out)}</span>`;
+            }
+            const minutes = this.lunchDuration(attendance);
+            const duration = minutes === null ? '' : ` - ${minutes} min`;
+            return `<span class="attendance-lunch-pill complete"><span class="material-icons">timer</span>${h(`${out} a ${back}${duration}`)}</span>`;
+        }
+
+        lunchButton(row, attendance, state) {
+            if (state.className !== 'approved') return '';
+            if (!attendance?.almuerzo_salida_en) {
+                return `<button class="attendance-lunch-btn" onclick="mobileApp.markLunch(${asInt(row.id)}, 'salida')">Marcar salida</button>`;
+            }
+            if (!attendance?.almuerzo_ingreso_en) {
+                return `<button class="attendance-lunch-btn return" onclick="mobileApp.markLunch(${asInt(row.id)}, 'ingreso')">Marcar ingreso</button>`;
+            }
+            return '';
+        }
+
         attendanceRow(row) {
             const person = byId(this.promoters, row.impulsadora_id);
             const category = byId(this.categories, person?.idCategoria) || byId(this.categories, row.categoria_asignada_id);
@@ -1921,6 +2050,10 @@
             const approvedAt = timeInGuayaquil(attendance?.aprobado_en);
             const approvedLabel = approvedAt ? ` - ${approvedAt}` : '';
             const canApprove = state.className === 'pending';
+            const actions = [
+                canApprove ? `<button class="attendance-approve-btn" onclick="mobileApp.approveAttendance(${asInt(row.id)})">Aprobar</button>` : '',
+                this.lunchButton(row, attendance, state)
+            ].filter(Boolean).join('');
             return `
                 <article class="attendance-row">
                     ${storeBadge(byId(this.stores, this.selectedStoreId), 38)}
@@ -1929,8 +2062,11 @@
                         <span class="app-list-title block truncate">${h(person ? promoterDisplayName(person) : 'Personal')}</span>
                         <span class="app-list-subtitle block truncate">${category ? h(asText(category.descripcion)) : 'Sin categoria'}</span>
                     </span>
-                    <span class="attendance-status ${state.className}"><span class="material-icons">${state.icon}</span>${h(state.label + approvedLabel)}</span>
-                    ${canApprove ? `<button class="attendance-approve-btn" onclick="mobileApp.approveAttendance(${asInt(row.id)})">Aprobar</button>` : ''}
+                    <span class="attendance-meta">
+                        <span class="attendance-status ${state.className}"><span class="material-icons">${state.icon}</span>${h(state.label + approvedLabel)}</span>
+                        ${this.lunchBadge(attendance)}
+                    </span>
+                    ${actions ? `<span class="attendance-actions">${actions}</span>` : ''}
                 </article>`;
         }
 
@@ -2016,6 +2152,34 @@
             }
         }
 
+        async markLunch(id, action) {
+            const isReturn = action === 'ingreso';
+            try {
+                Swal.fire({
+                    title: isReturn ? 'Marcando ingreso' : 'Marcando salida',
+                    allowOutsideClick: false,
+                    didOpen: () => Swal.showLoading()
+                });
+                const { data, error } = await db.functions.invoke('mark-store-lunch', {
+                    body: { horarioId: asInt(id), action }
+                });
+                if (error) throw error;
+                if (data?.error) throw new Error(data.error);
+                await this.reload();
+                const attendance = data?.attendance || {};
+                const minutes = this.lunchDuration(attendance);
+                Swal.fire({
+                    icon: 'success',
+                    title: isReturn ? 'Ingreso marcado' : 'Salida marcada',
+                    text: isReturn && minutes !== null ? `Almuerzo: ${minutes} min` : 'Hora guardada con reloj central.',
+                    timer: 1600,
+                    showConfirmButton: false
+                });
+            } catch (error) {
+                Swal.fire('Error', error.message || 'No se pudo marcar el almuerzo', 'error');
+            }
+        }
+
         openDaySheet(key) {
             const rowsForDay = this.visibleRows().filter((row) => asText(row.fecha) === key);
             const date = parseDate(key);
@@ -2036,17 +2200,23 @@
             if (!row) return;
             const person = byId(this.promoters, row.impulsadora_id);
             const store = byId(this.stores, row.tienda_id);
+            const canReport = this.canReportIncidentForRow(row);
             Swal.fire({
                 title: person ? promoterDisplayName(person) : 'Turno',
                 html: `
                     <p class="text-slate-500 mb-4 text-sm">${h(asText(store?.nombre_display, 'Tienda'))} - ${h(asText(row.fecha))}</p>
                     <div class="grid gap-2">
                         ${this.session.isManager ? `<button class="bottom-action full" onclick="Swal.close(); mobileApp.showPromoterFormById(${asInt(row.id)})">Modificar asignación</button><button class="bottom-action ink full" onclick="Swal.close(); mobileApp.deletePromoter(${asInt(row.id)})">Eliminar</button>` : ''}
-                        <button class="bottom-action teal full" onclick="Swal.close(); mobileApp.reportIncident(${asInt(row.id)})">Reportar incidencia</button>
+                        ${canReport ? `<button class="bottom-action teal full" onclick="Swal.close(); mobileApp.reportIncident(${asInt(row.id)})">Reportar incidencia</button>` : '<p class="app-list-subtitle text-center">Las incidencias futuras se habilitan el día del turno.</p>'}
                     </div>`,
                 showConfirmButton: false,
                 showCloseButton: true
             });
+        }
+
+        canReportIncidentForRow(row) {
+            if (this.session.isManager) return true;
+            return asText(row?.fecha) <= todayKeyInGuayaquil();
         }
 
         showPromoterFormById(id) {
@@ -2067,6 +2237,11 @@
         }
 
         reportIncident(id) {
+            const row = this.monthlyRows.find((item) => asInt(item.id) === asInt(id));
+            if (row && !this.canReportIncidentForRow(row)) {
+                Swal.fire('Turno futuro', 'Solo puedes reportar incidencias de hoy o de fechas anteriores.', 'warning');
+                return Promise.resolve(false);
+            }
             return PlannerView.prototype.reportIncident.call(this, id);
         }
     }
@@ -2090,6 +2265,7 @@
             const store = byId(this.stores, this.selectedStoreId);
             const actions = [
                 this.canManageInternal() && this.selectedStoreId ? iconButton('add_circle', 'mobileApp.openAssignmentForDate()', 'Nueva asignación', false, 'primary') : '',
+                this.canManageInternal() && this.selectedStoreId ? iconButton('event_repeat', 'mobileApp.openMonthlyInternalFill()', 'Llenar mes') : '',
                 iconButton('refresh', 'mobileApp.reload()', 'Actualizar')
             ].join('');
             shell('internal', 'Interno', this.selectedStoreId ? `${asText(store?.nombre_display, 'Bodega/Tienda')} - ${monthLabel(this.selected)}` : 'Selecciona bodega o tienda', actions, this.content());
@@ -2200,7 +2376,112 @@
         openActions(id) {
             const row = this.monthlyRows.find((item) => asInt(item.id) === id);
             if (!row || !this.canManageInternal() || asInt(row.tienda_id) !== asInt(this.selectedStoreId)) return;
+            const person = byId(this.staff, row.personal_id);
+            const store = byId(this.stores, row.tienda_id);
+            Swal.fire({
+                title: asText(person?.nombre_completo, 'Personal interno'),
+                html: `
+                    <p class="text-slate-500 mb-4 text-sm">${h(asText(store?.nombre_display, 'Bodega/Tienda'))} - ${h(asText(row.fecha))}</p>
+                    <div class="grid gap-2">
+                        <button class="bottom-action full" onclick="Swal.close(); mobileApp.editInternalAssignment(${asInt(row.id)})">Modificar asignación</button>
+                        <button class="bottom-action ink full" onclick="Swal.close(); mobileApp.deleteInternalAssignment(${asInt(row.id)})">Marcar día libre</button>
+                    </div>`,
+                showConfirmButton: false,
+                showCloseButton: true
+            });
+        }
+
+        editInternalAssignment(id) {
+            const row = this.monthlyRows.find((item) => asInt(item.id) === asInt(id));
+            if (!row || !this.canManageInternal() || asInt(row.tienda_id) !== asInt(this.selectedStoreId)) return;
             this.showInternalForm(row, parseDate(row.fecha), this.selectedStoreId);
+        }
+
+        async deleteInternalAssignment(id) {
+            const row = this.monthlyRows.find((item) => asInt(item.id) === asInt(id));
+            if (!row || !this.canManageInternal() || asInt(row.tienda_id) !== asInt(this.selectedStoreId)) return;
+            const ok = await Swal.fire({
+                title: 'Marcar día libre',
+                text: 'Se quitará este registro del horario interno.',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: 'Marcar libre',
+                cancelButtonText: 'Cancelar'
+            });
+            if (!ok.isConfirmed) return;
+            try {
+                await rows(db.from(tables.internalSchedule).delete().eq('id', asInt(id)).select());
+                await this.reload();
+                Swal.fire({ icon: 'success', title: 'Día libre marcado', timer: 1300, showConfirmButton: false });
+            } catch (error) {
+                Swal.fire('Error', error.message || 'No se pudo marcar el día libre', 'error');
+            }
+        }
+
+        async openMonthlyInternalFill() {
+            if (!this.canManageInternal() || !this.selectedStoreId) return;
+            const activeStaff = this.staff
+                .filter((person) => activeInternal(person))
+                .sort((a, b) => asText(a.nombre_completo).localeCompare(asText(b.nombre_completo)));
+            const currentStore = byId(this.stores, this.selectedStoreId);
+            const { value } = await Swal.fire({
+                title: 'Llenar mes',
+                html: `
+                    <div class="grid gap-3 text-left">
+                        <p class="text-sm font-bold text-slate-500">Se crearán registros de ${h(monthLabel(this.selected))} para ${h(asText(currentStore?.nombre_display, 'esta tienda'))}. Los días ya asignados se omiten.</p>
+                        <label class="text-xs font-bold text-slate-500">Personal<select id="mw-fill-person" class="w-full p-3 border rounded-xl mt-1"><option value="">Seleccionar</option>${activeStaff.map((person) => `<option value="${asInt(person.id)}">${h(asText(person.nombre_completo))}</option>`).join('')}</select></label>
+                        <label class="text-xs font-bold text-slate-500">Tipo<select id="mw-fill-type" class="w-full p-3 border rounded-xl mt-1">${['TRABAJO', 'VACACIONES', 'PERMISO', 'LICENCIA'].map((type) => `<option value="${type}" ${type === 'TRABAJO' ? 'selected' : ''}>${type}</option>`).join('')}</select></label>
+                    </div>`,
+                showCancelButton: true,
+                confirmButtonText: 'Llenar mes',
+                preConfirm: () => ({
+                    personal_id: asInt(document.getElementById('mw-fill-person').value),
+                    tipo: document.getElementById('mw-fill-type').value
+                })
+            });
+            if (!value) return;
+            if (!value.personal_id) {
+                Swal.fire('Faltan datos', 'Selecciona el personal interno.', 'warning');
+                return;
+            }
+
+            const first = dateKey(monthStart(this.selected));
+            const last = dateKey(monthEnd(this.selected));
+            try {
+                const existingRows = await rows(db.from(tables.internalSchedule)
+                    .select('id,fecha,personal_id,tienda_id')
+                    .eq('personal_id', value.personal_id)
+                    .gte('fecha', first)
+                    .lte('fecha', last));
+                const assignedDates = new Set(existingRows.map((row) => asText(row.fecha)));
+                const payload = [];
+                const daysInMonth = monthEnd(this.selected).getDate();
+                for (let day = 1; day <= daysInMonth; day += 1) {
+                    const key = dateKey(new Date(this.selected.getFullYear(), this.selected.getMonth(), day));
+                    if (assignedDates.has(key)) continue;
+                    payload.push({
+                        fecha: key,
+                        personal_id: value.personal_id,
+                        tienda_id: asInt(this.selectedStoreId),
+                        tipo: value.tipo
+                    });
+                }
+                if (!payload.length) {
+                    Swal.fire('Mes completo', 'Ese personal ya tiene registros para todos los días del mes.', 'info');
+                    return;
+                }
+                await rows(db.from(tables.internalSchedule).insert(payload).select());
+                await this.reload();
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Mes llenado',
+                    text: `${payload.length} días agregados. ${assignedDates.size ? `${assignedDates.size} días ya estaban asignados.` : ''}`,
+                    timer: 1800,
+                    showConfirmButton: false
+                });
+            } catch (error) {
+                Swal.fire('Error', window.StaffPlanner.duplicateMessage(error), 'error');
+            }
         }
 
         showInternalForm(existing, date, forcedStoreId) {

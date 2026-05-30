@@ -69,6 +69,7 @@ DROP POLICY IF EXISTS "Allow all for authenticated" ON public."Tiendas_Personal"
 DROP POLICY IF EXISTS "Allow all for authenticated" ON public."Tiendas_Personal_Horario";
 DROP POLICY IF EXISTS "personal_horario_insert_store_admins" ON public."Tiendas_Personal_Horario";
 DROP POLICY IF EXISTS "personal_horario_update_store_admins" ON public."Tiendas_Personal_Horario";
+DROP POLICY IF EXISTS "personal_horario_delete_store_admins" ON public."Tiendas_Personal_Horario";
 DROP POLICY IF EXISTS "Escritura pública tiendas" ON public."Tiendas_Razonamiento";
 DROP POLICY IF EXISTS "Lectura pública tiendas" ON public."Tiendas_Razonamiento";
 DROP POLICY IF EXISTS "Admins can view all logs" ON public."Tiendas_Registros";
@@ -117,6 +118,7 @@ WITH CHECK (
             FROM public."Tiendas_Horario" h
             WHERE h.id = id_horario
               AND h.tienda_id = private.staffplanner_tienda_id()
+              AND h.fecha <= ((now() AT TIME ZONE 'America/Guayaquil')::date)
         )
     )
 );
@@ -146,6 +148,13 @@ USING (
     AND tienda_id = private.staffplanner_tienda_id()
 )
 WITH CHECK (
+    private.staffplanner_role_id() = 3
+    AND tienda_id = private.staffplanner_tienda_id()
+);
+
+CREATE POLICY "personal_horario_delete_store_admins" ON public."Tiendas_Personal_Horario"
+FOR DELETE TO authenticated
+USING (
     private.staffplanner_role_id() = 3
     AND tienda_id = private.staffplanner_tienda_id()
 );
