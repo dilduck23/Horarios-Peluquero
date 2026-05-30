@@ -1370,6 +1370,60 @@ nav.fixed {
     min-height: 74px;
 }
 
+.self-assignment-stack {
+    display: grid;
+    gap: 3px;
+    margin-top: auto;
+}
+
+.self-attendance-pill {
+    display: inline-flex;
+    min-height: 28px;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    border-radius: 999px;
+    padding: 5px 9px;
+    font-size: 11px;
+    font-weight: 900;
+    white-space: nowrap;
+}
+
+.self-attendance-pill .material-icons {
+    font-size: 15px;
+}
+
+.self-attendance-pill.compact {
+    min-height: 18px;
+    width: 100%;
+    padding: 2px 3px;
+    font-size: 8px;
+    line-height: 1;
+}
+
+.self-attendance-pill.compact .material-icons {
+    display: none;
+}
+
+.self-attendance-pill.pending {
+    background: #fff7ed;
+    color: #c2410c;
+}
+
+.self-attendance-pill.approved {
+    background: #ecfdf5;
+    color: #047857;
+}
+
+.self-attendance-pill.closed {
+    background: #fef2f2;
+    color: #b91c1c;
+}
+
+.self-attendance-row {
+    align-items: center;
+}
+
 .desktop-app {
     display: grid;
     grid-template-columns: 280px minmax(0, 1fr);

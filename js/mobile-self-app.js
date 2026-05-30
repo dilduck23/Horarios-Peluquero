@@ -54,6 +54,33 @@
         return new Date(date.getFullYear(), date.getMonth() + 1, 0);
     }
 
+    function parseDate(value) {
+        if (!value) return null;
+        const [year, month, day] = asText(value).slice(0, 10).split('-').map(Number);
+        if (!year || !month || !day) return null;
+        return new Date(year, month - 1, day);
+    }
+
+    function formatDate(value) {
+        const parsed = parseDate(value);
+        if (!parsed) return asText(value);
+        return `${parsed.getDate()} ${monthShort[parsed.getMonth()]}`;
+    }
+
+    function timeInGuayaquil(value) {
+        if (!value) return '';
+        try {
+            return new Intl.DateTimeFormat('es-EC', {
+                timeZone: 'America/Guayaquil',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            }).format(new Date(value));
+        } catch (error) {
+            return asText(value).slice(11, 16);
+        }
+    }
+
     function isLightColor(hexColor) {
         const hex = asText(hexColor, '#ffffff').replace('#', '');
         if (hex.length < 6) return true;
@@ -96,6 +123,7 @@
         stores: [],
         categories: [],
         schedules: [],
+        attendanceRows: [],
 
         async init() {
             const logged = sessionStorage.getItem('staffPlannerAuth') === 'true';
@@ -174,6 +202,7 @@
                 this.profile = profileRows[0] || null;
                 this.schedules = schedules;
                 this.categories = [];
+                this.attendanceRows = [];
             } else {
                 const [stores, promoters, categories, schedules] = await Promise.all([
                     rows(db.from(tables.stores).select('*')),
@@ -185,8 +214,27 @@
                 this.profile = promoters[0] || null;
                 this.categories = categories;
                 this.schedules = schedules;
+                this.attendanceRows = await this.loadAttendance(first, last);
             }
             this.render();
+        },
+
+        async loadAttendance(first, last) {
+            try {
+                const { data, error } = await db.functions.invoke('self-attendance-status', {
+                    body: {
+                        impulsadoraId: this.staffId,
+                        from: first,
+                        to: last
+                    }
+                });
+                if (error) throw error;
+                if (data?.error) throw new Error(data.error);
+                return data?.attendance || [];
+            } catch (error) {
+                console.error('No se pudo cargar asistencia:', error);
+                return [];
+            }
         },
 
         renderLoading() {
@@ -212,6 +260,7 @@
                         <div class="self-calendar">${this.calendarGrid()}</div>
                         <p class="text-center text-[11px] font-bold text-[#756c65] mt-3">Novepsa Planner</p>
                     </section>
+                    ${this.attendanceSection()}
                     ${this.storeLegend()}
                 </div>`;
         },
@@ -236,11 +285,12 @@
 
         statsRow() {
             const stores = new Set(this.schedules.map((row) => asInt(row.tienda_id)));
+            const approved = this.kind === 'staff' ? this.schedules.filter((row) => this.attendanceState(this.attendanceForSchedule(row.id)).className === 'approved').length : stores.size;
             return `
                 <div class="grid grid-cols-3 gap-2 mb-4">
                     <div class="rounded-xl bg-[#f8f4f0] p-3 text-center"><div class="text-xl font-black">${this.schedules.length}</div><div class="text-[10px] font-bold text-[#756c65]">dias asignados</div></div>
                     <div class="rounded-xl bg-[#f8f4f0] p-3 text-center"><div class="text-xl font-black">${stores.size}</div><div class="text-[10px] font-bold text-[#756c65]">puntos</div></div>
-                    <div class="rounded-xl bg-[#f8f4f0] p-3 text-center"><div class="text-xl font-black">${monthShort[this.month.getMonth()]}</div><div class="text-[10px] font-bold text-[#756c65]">${this.month.getFullYear()}</div></div>
+                    <div class="rounded-xl bg-[#f8f4f0] p-3 text-center"><div class="text-xl font-black">${this.kind === 'staff' ? approved : monthShort[this.month.getMonth()]}</div><div class="text-[10px] font-bold text-[#756c65]">${this.kind === 'staff' ? 'aprobadas' : this.month.getFullYear()}</div></div>
                 </div>`;
         },
 
@@ -276,7 +326,53 @@
             const store = byId(this.stores, assignment.tienda_id);
             const color = asText(store?.color_hex, '#0E9F8F');
             const textColor = isLightColor(color) ? '#111827' : '#ffffff';
-            return `<span class="block rounded-md px-1 py-1 text-center text-[9px] font-black" style="background:${h(color)};color:${textColor}">${h(asText(store?.alias_tienda, 'T'))}</span>`;
+            return `<span class="self-assignment-stack"><span class="block rounded-md px-1 py-1 text-center text-[9px] font-black" style="background:${h(color)};color:${textColor}">${h(asText(store?.alias_tienda, 'T'))}</span>${this.attendancePill(assignment, true)}</span>`;
+        },
+
+        attendanceForSchedule(scheduleId) {
+            return this.attendanceRows.find((row) => asInt(row.horario_id) === asInt(scheduleId)) || null;
+        },
+
+        attendanceState(attendance) {
+            const state = asText(attendance?.estado, 'pendiente');
+            if (state === 'aprobada') return { label: 'Aprobada', shortLabel: 'OK', className: 'approved', icon: 'check_circle' };
+            if (state === 'falta_generada') return { label: 'Falta generada', shortLabel: 'Falta', className: 'closed', icon: 'warning_amber' };
+            return { label: 'Pendiente', shortLabel: 'Pend.', className: 'pending', icon: 'schedule' };
+        },
+
+        attendancePill(assignment, compact = false) {
+            if (!assignment || this.kind !== 'staff') return '';
+            const attendance = this.attendanceForSchedule(assignment.id);
+            const state = this.attendanceState(attendance);
+            const approvedAt = timeInGuayaquil(attendance?.aprobado_en);
+            const label = compact ? state.shortLabel : `${state.label}${approvedAt ? ` - ${approvedAt}` : ''}`;
+            return `<span class="self-attendance-pill ${state.className} ${compact ? 'compact' : ''}"><span class="material-icons">${state.icon}</span>${h(label)}</span>`;
+        },
+
+        attendanceSection() {
+            if (this.kind !== 'staff') return '';
+            if (!this.schedules.length) {
+                return `<section class="agenda-list"><h2>Asistencia</h2><div class="empty-state"><span class="material-icons">how_to_reg</span><strong>Sin turnos este mes</strong><p>Cuando tengas asignaciones apareceran aqui.</p></div></section>`;
+            }
+            const sorted = [...this.schedules].sort((a, b) => asText(a.fecha).localeCompare(asText(b.fecha)));
+            return `
+                <section class="agenda-list">
+                    <h2>Asistencia</h2>
+                    ${sorted.map((row) => this.attendanceRow(row)).join('')}
+                </section>`;
+        },
+
+        attendanceRow(row) {
+            const store = byId(this.stores, row.tienda_id);
+            return `
+                <article class="agenda-row self-attendance-row">
+                    ${storeBadge(store, 38)}
+                    <span class="flex-1 min-w-0">
+                        <span class="app-list-title block">${h(formatDate(row.fecha))}</span>
+                        <span class="app-list-subtitle block">${h(asText(store?.nombre_display, 'Tienda'))}</span>
+                    </span>
+                    ${this.attendancePill(row)}
+                </article>`;
         },
 
         monthControls() {
