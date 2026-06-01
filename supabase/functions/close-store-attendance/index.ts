@@ -7,9 +7,16 @@ const corsHeaders = {
 
 const tableAttendance = "Tiendas_Asistencia";
 const tableIncidents = "Tiendas_Faltas";
+const tablePromoters = "Tiendas_Impulsadoras";
+const tableStores = "Tiendas_Razonamiento";
 const tableSchedule = "Tiendas_Horario";
+const tableUsers = "Tiendas_Usuarios";
 const autoSubject = "FALTA NO APROBADA";
 const autoObservation = "Falta automatica: el punto de venta no aprobo la asistencia antes de las 20:00 America/Guayaquil.";
+const blockedRecipientEmails = new Set([
+  "croman@novepsa.com",
+  "liglesias@novepsa.com",
+]);
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -30,6 +37,38 @@ function asInt(value: unknown, fallback = 0) {
 
 function recordValue(record: Record<string, unknown> | null | undefined, key: string) {
   return record ? record[key] : undefined;
+}
+
+function escapeHtml(value: unknown) {
+  return asText(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function uniqueEmails(values: unknown[]) {
+  const seen = new Set<string>();
+  const emails: string[] = [];
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  values.flat().forEach((value) => {
+    const email = asText(value).trim().toLowerCase();
+    if (!email || !emailPattern.test(email) || blockedRecipientEmails.has(email) || seen.has(email)) return;
+    seen.add(email);
+    emails.push(email);
+  });
+
+  return emails;
+}
+
+function formatDate(value: unknown) {
+  const dateStr = asText(value);
+  if (!dateStr.includes("-")) return dateStr;
+  const parts = dateStr.slice(0, 10).split("-");
+  if (parts.length !== 3) return dateStr;
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
 }
 
 function valuesFromJsonEnv(envName: string) {
@@ -106,6 +145,162 @@ async function parseBody(req: Request) {
   }
 }
 
+async function sendAutomaticAbsenceEmail(
+  supabase: ReturnType<typeof createClient>,
+  schedule: Record<string, unknown>,
+  incidentId: number,
+  emailSentAt: string,
+) {
+  const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+  if (!RESEND_API_KEY) {
+    throw new Error("RESEND_API_KEY not configured");
+  }
+
+  const horarioId = asInt(recordValue(schedule, "id"));
+  const scheduleStoreId = asInt(recordValue(schedule, "tienda_id"));
+  const [promoterResult, storeResult, userResult] = await Promise.all([
+    supabase
+      .from(tablePromoters)
+      .select("id,nombre_completo,Marca,Correo")
+      .eq("id", recordValue(schedule, "impulsadora_id"))
+      .maybeSingle(),
+    supabase
+      .from(tableStores)
+      .select("id,nombre_display,alias_tienda")
+      .eq("id", scheduleStoreId)
+      .maybeSingle(),
+    supabase
+      .from(tableUsers)
+      .select("email,nombre,id_rol,activo")
+      .in("id_rol", [1, 2])
+      .eq("activo", true),
+  ]);
+
+  if (promoterResult.error) throw promoterResult.error;
+  if (storeResult.error) throw storeResult.error;
+  if (userResult.error) throw userResult.error;
+
+  const promoter = promoterResult.data;
+  const store = storeResult.data;
+  const adminEmails = (userResult.data || []).map((user) => asText(recordValue(user, "email")));
+  const recipients = uniqueEmails([adminEmails, recordValue(promoter, "Correo")]);
+
+  if (!recipients.length) {
+    console.warn(`No recipient emails found for automatic absence ${incidentId}`);
+    return false;
+  }
+
+  const personName = asText(recordValue(promoter, "nombre_completo"), "No especificado");
+  const brandName = asText(recordValue(promoter, "Marca"), "Sin marca");
+  const storeName = asText(recordValue(store, "nombre_display"), "No especificada");
+  const dateText = formatDate(recordValue(schedule, "fecha"));
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background-color: #f9f9f9; margin: 0; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        .header { background-color: #000000; padding: 20px; text-align: center; border-bottom: 4px solid #f20356; }
+        .header h1 { color: white; margin: 0; font-size: 20px; font-weight: 700; }
+        .content { padding: 30px; }
+        .field { margin-bottom: 20px; padding: 15px; background: #f8fafc; border-radius: 8px; border-left: 4px solid #f20356; }
+        .field-label { font-size: 12px; color: #64748b; text-transform: uppercase; font-weight: 700; margin-bottom: 5px; }
+        .field-value { font-size: 16px; color: #000000; font-weight: 500; }
+        .observation { background: #fff1f2; border-left-color: #f20356; }
+        .footer { background: #000000; color: #9ca3af; padding: 20px; text-align: center; font-size: 12px; }
+        .highlight { color: #f20356; font-weight: bold; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>Falta automática generada</h1>
+        </div>
+        <div class="content">
+          <div class="field">
+            <div class="field-label" style="color: #f20356;">Tipo de Incidencia</div>
+            <div class="field-value highlight">${escapeHtml(autoSubject)}</div>
+          </div>
+          <div class="field">
+            <div class="field-label">Personal</div>
+            <div class="field-value">${escapeHtml(personName)}</div>
+          </div>
+          <div class="field">
+            <div class="field-label">Marca</div>
+            <div class="field-value">${escapeHtml(brandName)}</div>
+          </div>
+          <div class="field">
+            <div class="field-label">Fecha</div>
+            <div class="field-value">${escapeHtml(dateText || "No especificada")}</div>
+          </div>
+          <div class="field">
+            <div class="field-label">Tienda</div>
+            <div class="field-value">${escapeHtml(storeName)}</div>
+          </div>
+          <div class="field observation">
+            <div class="field-label">Observación</div>
+            <div class="field-value">${escapeHtml(autoObservation)}</div>
+          </div>
+          <div class="field">
+            <div class="field-label">Reportado por</div>
+            <div class="field-value">Cierre automático de asistencia</div>
+          </div>
+        </div>
+        <div class="footer">
+          <p>StaffPlanner - Control Peluquero</p>
+          <p>Este es un mensaje automático, no responder.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${RESEND_API_KEY}`,
+      "Idempotency-Key": `auto-absence-${incidentId}`,
+    },
+    body: JSON.stringify({
+      from: "StaffPlanner <notificaciones@elpeluquero.ec>",
+      to: recipients,
+      subject: `Falta automática - ${personName} - ${autoSubject}`,
+      html: htmlContent,
+    }),
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.message || `Resend error: ${res.status}`);
+  }
+
+  const { error: sentError } = await supabase
+    .from(tableAttendance)
+    .update({ correo_falta_auto_enviado_en: emailSentAt, actualizado_en: emailSentAt })
+    .eq("horario_id", horarioId)
+    .eq("falta_id", incidentId)
+    .is("correo_falta_auto_enviado_en", null);
+  if (sentError) throw sentError;
+
+  return true;
+}
+
+async function trySendAutomaticAbsenceEmail(
+  supabase: ReturnType<typeof createClient>,
+  schedule: Record<string, unknown>,
+  incidentId: number,
+  emailSentAt: string,
+) {
+  try {
+    return await sendAutomaticAbsenceEmail(supabase, schedule, incidentId, emailSentAt);
+  } catch (error) {
+    console.error(`automatic absence email error for incident ${incidentId}:`, error);
+    return false;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -163,6 +358,8 @@ Deno.serve(async (req) => {
 
     let approved = 0;
     let generated = 0;
+    let emailed = 0;
+    let emailErrors = 0;
     let skipped = 0;
 
     for (const schedule of scheduleRows) {
@@ -185,6 +382,17 @@ Deno.serve(async (req) => {
         && recordValue(existingAttendance, "falta_id");
       if (alreadyClosed) {
         skipped += 1;
+        if (!recordValue(existingAttendance, "correo_falta_auto_enviado_en")) {
+          const incidentId = asInt(recordValue(existingAttendance, "falta_id"));
+          if (incidentId) {
+            const mailSent = await trySendAutomaticAbsenceEmail(supabase, schedule, incidentId, now);
+            if (mailSent) {
+              emailed += 1;
+            } else {
+              emailErrors += 1;
+            }
+          }
+        }
         continue;
       }
 
@@ -245,17 +453,34 @@ Deno.serve(async (req) => {
         if (insertAttendanceError && insertAttendanceError.code !== "23505") throw insertAttendanceError;
       }
 
+      if (await trySendAutomaticAbsenceEmail(supabase, schedule, incidentId, now)) {
+        emailed += 1;
+      } else {
+        emailErrors += 1;
+      }
       generated += 1;
     }
 
-    return jsonResponse({
+    const responseBody = {
       success: true,
       fecha,
       total: scheduleRows.length,
       approved,
       generated,
+      emailed,
+      emailErrors,
       skipped,
-    });
+    };
+
+    if (emailErrors > 0) {
+      return jsonResponse({
+        ...responseBody,
+        success: false,
+        error: "Una o mas faltas automaticas quedaron sin correo enviado.",
+      }, 500);
+    }
+
+    return jsonResponse(responseBody);
   } catch (error) {
     console.error("close-store-attendance error:", error);
     const message = error instanceof Error ? error.message : "Unknown error";

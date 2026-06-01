@@ -1926,19 +1926,25 @@
             this.promoters = [];
             this.categories = [];
             this.monthlyRows = [];
+            this.monthlyInternalRows = [];
+            this.internalRows = [];
             this.todayRows = [];
             this.attendanceRows = [];
+            this.assignmentFilter = 'all';
         }
 
         async load() {
             await this.loadBase();
             const todayKey = todayKeyInGuayaquil();
-            const [monthlyRows, todayRows, attendanceRows] = await Promise.all([
+            const [monthlyRows, monthlyInternalRows, todayRows, attendanceRows] = await Promise.all([
                 this.monthlyPromoterAssignments(this.selected),
+                this.monthlyInternalAssignments(this.selected),
                 this.promoterAssignmentsForKey(todayKey),
                 this.attendanceForKey(todayKey)
             ]);
             this.monthlyRows = monthlyRows;
+            this.monthlyInternalRows = monthlyInternalRows;
+            this.internalRows = monthlyInternalRows;
             this.todayRows = todayRows;
             this.attendanceRows = attendanceRows;
             if (this.session.isStoreUser) this.selectedStoreId = this.session.storeId;
@@ -1952,16 +1958,17 @@
 
         content() {
             const rowsForStore = this.visibleRows();
+            const attendanceSection = this.selectedStoreId && this.assignmentFilter !== 'interno' ? this.attendanceTodaySection() : '';
             return `
                 ${monthControls(this.selected, 'mobileApp.changeMonth(-1)', 'mobileApp.changeMonth(1)')}
                 ${this.filters()}
-                ${this.selectedStoreId ? this.attendanceTodaySection() + calendarBoard({
+                ${this.selectedStoreId ? attendanceSection + calendarBoard({
                     selected: this.selected,
                     rows: rowsForStore,
                     badge: storeBadge(byId(this.stores, this.selectedStoreId), 48),
                     subtitle: asText(byId(this.stores, this.selectedStoreId)?.nombre_display, 'Tienda'),
-                    countLabel: 'turnos',
-                    personId: (row) => promoterCanonicalKey(byId(this.promoters, row.impulsadora_id) || { id: row.impulsadora_id }),
+                    countLabel: this.storeCountLabel(),
+                    personId: (row) => this.rowPersonKey(row),
                     peopleLabel: (people) => `${people} personas`,
                     dayHandler: 'mobileApp.openDaySheet',
                     cellContent: (dayRows) => `<div>${dayRows.slice(0, 2).map((row) => this.calendarPersonLabel(row)).join('')}${dayRows.length > 2 ? `<div class="text-[8px] font-black text-[#756c65] mt-1">+${dayRows.length - 2} más</div>` : ''}</div>`
@@ -1970,10 +1977,10 @@
                     rows: rowsForStore,
                     onlyAssigned: this.onlyAssigned,
                     emptyIcon: 'person_off',
-                    emptyTitle: 'Sin turnos visibles',
-                    emptyMessage: 'No hay días desde hoy para este punto.',
-                    daySubtitle: (count) => `${count} persona${count === 1 ? '' : 's'} asignada${count === 1 ? '' : 's'}`,
-                    addHandler: this.session.isManager ? 'mobileApp.openAssignmentForDate' : '',
+                    emptyTitle: this.storeEmptyTitle(),
+                    emptyMessage: this.storeEmptyMessage(),
+                    daySubtitle: (count) => this.storeDaySubtitle(count),
+                    addHandler: this.storePrimaryAddHandler(),
                     row: (row) => this.assignmentRow(row)
                 }) : emptyState('storefront', 'Elige una tienda', 'Verás el calendario mensual de personal asignado.')}
             `;
@@ -2034,10 +2041,10 @@
         lunchButton(row, attendance, state) {
             if (state.className !== 'approved') return '';
             if (!attendance?.almuerzo_salida_en) {
-                return `<button class="attendance-lunch-btn" onclick="mobileApp.markLunch(${asInt(row.id)}, 'salida')">Marcar salida</button>`;
+                return `<button class="attendance-lunch-btn" onclick="mobileApp.markLunch(${asInt(row.id)}, 'salida')">Marcar salida al almuerzo</button>`;
             }
             if (!attendance?.almuerzo_ingreso_en) {
-                return `<button class="attendance-lunch-btn return" onclick="mobileApp.markLunch(${asInt(row.id)}, 'ingreso')">Marcar ingreso</button>`;
+                return `<button class="attendance-lunch-btn return" onclick="mobileApp.markLunch(${asInt(row.id)}, 'ingreso')">Marcar entrada del almuerzo</button>`;
             }
             return '';
         }
@@ -2075,34 +2082,124 @@
                 .filter((store) => (store.activo !== false || asInt(store.id) === this.selectedStoreId) && (!this.session.isStoreUser || asInt(store.id) === this.session.storeId))
                 .sort((a, b) => asText(a.nombre_display).localeCompare(asText(b.nombre_display)));
             return `
-                <section class="app-filter-stack">
+                <section class="app-filter-stack store-filter-stack">
+                    <div class="app-segment-three store-type-segment" aria-label="Filtro de personal">
+                        <button class="${this.assignmentFilter === 'all' ? 'active' : ''}" title="Todos: personal interno e impulsadoras" onclick="mobileApp.setAssignmentFilter('all')">Todos</button>
+                        <button class="${this.assignmentFilter === 'impulso' ? 'active' : ''}" title="Solo impulsadoras" onclick="mobileApp.setAssignmentFilter('impulso')">Impulsadoras</button>
+                        <button class="${this.assignmentFilter === 'interno' ? 'active' : ''}" title="Solo personal interno" onclick="mobileApp.setAssignmentFilter('interno')">Personal interno</button>
+                    </div>
                     <select class="w-full p-3 border rounded-xl font-bold" onchange="mobileApp.selectStore(this.value)" ${this.session.isStoreUser ? 'disabled' : ''}>
                         ${options.map((store) => `<option value="${asInt(store.id)}" ${asInt(store.id) === this.selectedStoreId ? 'selected' : ''}>${h(asText(store.nombre_display))}</option>`).join('')}
                     </select>
-                    <label class="app-search"><span class="material-icons">search</span><input data-search-input="${this.active === 'internal' ? 'internal-monthly' : 'store-monthly'}" value="${h(this.search)}" oninput="mobileApp.setSearch(this.value, this)" placeholder="Buscar nombre o marca"></label>
+                    <label class="app-search"><span class="material-icons">search</span><input data-search-input="${this.active === 'internal' ? 'internal-monthly' : 'store-monthly'}" value="${h(this.search)}" oninput="mobileApp.setSearch(this.value, this)" placeholder="Buscar persona, marca o tipo"></label>
                     <button class="mini-chip justify-center" onclick="mobileApp.toggleOnlyAssigned()">${this.onlyAssigned ? 'Solo asignadas' : 'Mostrar vacías'}</button>
                 </section>`;
         }
 
+        rowKind(row) {
+            return asText(row?._kind, 'impulso');
+        }
+
+        isInternalRow(row) {
+            return this.rowKind(row) === 'interno';
+        }
+
+        rowPersonKey(row) {
+            if (this.isInternalRow(row)) return `interno:${asInt(row.personal_id)}`;
+            return `impulso:${promoterCanonicalKey(byId(this.promoters, row.impulsadora_id) || { id: row.impulsadora_id })}`;
+        }
+
+        storeCountLabel() {
+            if (this.assignmentFilter === 'impulso') return 'turnos';
+            if (this.assignmentFilter === 'interno') return 'internos';
+            return 'registros';
+        }
+
+        storeDaySubtitle(count) {
+            if (this.assignmentFilter === 'impulso') return `${count} persona${count === 1 ? '' : 's'} asignada${count === 1 ? '' : 's'}`;
+            if (this.assignmentFilter === 'interno') return `${count} registro${count === 1 ? '' : 's'} interno${count === 1 ? '' : 's'}`;
+            return `${count} registro${count === 1 ? '' : 's'} visible${count === 1 ? '' : 's'}`;
+        }
+
+        storeEmptyTitle() {
+            if (this.assignmentFilter === 'impulso') return 'Sin impulsadoras visibles';
+            if (this.assignmentFilter === 'interno') return 'Sin personal interno visible';
+            return 'Sin registros visibles';
+        }
+
+        storeEmptyMessage() {
+            if (this.assignmentFilter === 'impulso') return 'No hay impulsadoras desde hoy para este punto.';
+            if (this.assignmentFilter === 'interno') return 'No hay personal interno desde hoy para este punto.';
+            return 'No hay personal visible desde hoy para este punto.';
+        }
+
+        storePrimaryAddHandler() {
+            if (this.assignmentFilter === 'interno') return this.canManageInternal() ? 'mobileApp.openInternalAssignmentForDate' : '';
+            if (this.assignmentFilter === 'impulso') return this.session.isManager ? 'mobileApp.openPromoterAssignmentForDate' : '';
+            if (this.session.isManager) return 'mobileApp.openPromoterAssignmentForDate';
+            return this.canManageInternal() ? 'mobileApp.openInternalAssignmentForDate' : '';
+        }
+
         visibleRows() {
-            const needle = this.search.trim().toLowerCase();
-            return this.monthlyRows
-                .filter((row) => asInt(row.tienda_id) === this.selectedStoreId)
+            const needle = normalizeSearch(this.search);
+            const rowsForStore = [];
+
+            if (this.assignmentFilter === 'all' || this.assignmentFilter === 'impulso') {
+                this.monthlyRows
+                    .filter((row) => asInt(row.tienda_id) === this.selectedStoreId)
+                    .forEach((row) => rowsForStore.push({ ...row, _kind: 'impulso' }));
+            }
+
+            if (this.assignmentFilter === 'all' || this.assignmentFilter === 'interno') {
+                this.monthlyInternalRows
+                    .filter((row) => asInt(row.tienda_id) === this.selectedStoreId)
+                    .forEach((row) => rowsForStore.push({ ...row, _kind: 'interno' }));
+            }
+
+            return rowsForStore
                 .filter((row) => {
-                    const person = byId(this.promoters, row.impulsadora_id);
-                    if (!person) return false;
-                    if (!needle) return true;
-                    return `${promoterDisplayName(person)} ${asText(person.Marca)}`.toLowerCase().includes(needle);
+                    const haystack = this.isInternalRow(row)
+                        ? this.internalSearchText(row)
+                        : this.promoterSearchText(row);
+                    return haystack && (!needle || normalizeSearch(haystack).includes(needle));
                 })
-                .sort((a, b) => asText(a.fecha).localeCompare(asText(b.fecha)) || asText(byId(this.promoters, a.impulsadora_id)?.Marca).localeCompare(asText(byId(this.promoters, b.impulsadora_id)?.Marca)));
+                .sort((a, b) => {
+                    const dateCompare = asText(a.fecha).localeCompare(asText(b.fecha));
+                    if (dateCompare) return dateCompare;
+                    if (this.rowKind(a) !== this.rowKind(b)) return this.isInternalRow(a) ? 1 : -1;
+                    if (this.isInternalRow(a)) return asText(a.tipo).localeCompare(asText(b.tipo)) || asText(byId(this.internalStaff, a.personal_id)?.nombre_completo).localeCompare(asText(byId(this.internalStaff, b.personal_id)?.nombre_completo));
+                    return asText(byId(this.promoters, a.impulsadora_id)?.Marca).localeCompare(asText(byId(this.promoters, b.impulsadora_id)?.Marca));
+                });
+        }
+
+        promoterSearchText(row) {
+            const person = byId(this.promoters, row.impulsadora_id);
+            if (!person) return '';
+            const category = byId(this.categories, person?.idCategoria) || byId(this.categories, row.categoria_asignada_id);
+            return `${promoterDisplayName(person)} ${asText(person.Marca)} ${asText(category?.descripcion)} Impulsadora Impulso`;
+        }
+
+        internalSearchText(row) {
+            const person = byId(this.internalStaff, row.personal_id);
+            if (!person) return '';
+            return `${asText(person.nombre_completo)} ${asText(person.idVendedor || person.idvendedor)} ${asText(row.tipo)} Personal Interno`;
         }
 
         calendarPersonLabel(row) {
+            if (this.isInternalRow(row)) return this.internalCalendarLabel(row);
             const person = byId(this.promoters, row.impulsadora_id);
             return `<div class="calendar-label"><strong>${h(asText(person?.Marca, 'Sin marca'))}</strong><span>${h(person ? promoterDisplayName(person) : 'Personal')}</span></div>`;
         }
 
+        internalCalendarLabel(row) {
+            const person = byId(this.internalStaff, row.personal_id);
+            const color = internalTypeColor(row.tipo);
+            const foreground = isLightColor(color) ? '#111827' : '#ffffff';
+            return `<div class="calendar-label" style="background:${h(color)}dd;border-color:${h(color)}"><strong style="color:${foreground}">${h(asText(row.tipo, 'TRABAJO'))}</strong><span style="color:${foreground}">${h(asText(person?.nombre_completo, 'Personal'))}</span></div>`;
+        }
+
         assignmentRow(row) {
+            if (this.isInternalRow(row)) return this.internalAssignmentRow(row);
             const person = byId(this.promoters, row.impulsadora_id);
             const category = byId(this.categories, person?.idCategoria) || byId(this.categories, row.categoria_asignada_id);
             return `
@@ -2114,8 +2211,25 @@
                 </button>`;
         }
 
+        internalAssignmentRow(row) {
+            const person = byId(this.internalStaff, row.personal_id);
+            const color = internalTypeColor(row.tipo);
+            return `
+                <button class="agenda-row w-full text-left" onclick="mobileApp.openInternalActions(${asInt(row.id)})">
+                    ${storeBadge(byId(this.stores, this.selectedStoreId), 38)}
+                    <span class="flex-1 min-w-0"><span class="app-list-title block truncate" style="color:${color}">${h(asText(row.tipo, 'TRABAJO'))}</span><span class="app-list-title block truncate">${h(asText(person?.nombre_completo, 'Personal interno'))}</span></span>
+                    ${miniChip('Interno', color)}
+                    <span class="material-icons text-slate-400">chevron_right</span>
+                </button>`;
+        }
+
         selectStore(value) {
             this.selectedStoreId = asInt(value) || null;
+            this.render();
+        }
+
+        setAssignmentFilter(value) {
+            this.assignmentFilter = ['all', 'impulso', 'interno'].includes(value) ? value : 'all';
             this.render();
         }
 
@@ -2156,7 +2270,7 @@
             const isReturn = action === 'ingreso';
             try {
                 Swal.fire({
-                    title: isReturn ? 'Marcando ingreso' : 'Marcando salida',
+                    title: isReturn ? 'Marcando entrada del almuerzo' : 'Marcando salida al almuerzo',
                     allowOutsideClick: false,
                     didOpen: () => Swal.showLoading()
                 });
@@ -2170,7 +2284,7 @@
                 const minutes = this.lunchDuration(attendance);
                 Swal.fire({
                     icon: 'success',
-                    title: isReturn ? 'Ingreso marcado' : 'Salida marcada',
+                    title: isReturn ? 'Entrada del almuerzo marcada' : 'Salida al almuerzo marcada',
                     text: isReturn && minutes !== null ? `Almuerzo: ${minutes} min` : 'Hora guardada con reloj central.',
                     timer: 1600,
                     showConfirmButton: false
@@ -2185,14 +2299,37 @@
             const date = parseDate(key);
             Swal.fire({
                 title: prettyDate(date),
-                html: `<p class="text-slate-500 mb-3">${h(asText(byId(this.stores, this.selectedStoreId)?.nombre_display, 'Tienda'))}</p>${rowsForDay.length ? rowsForDay.map((row) => this.assignmentRow(row)).join('') : emptyState('person_off', 'Sin asignaciones', 'No hay impulsadoras en este punto para esta fecha.')}${this.session.isManager ? `<button class="bottom-action mt-3" onclick="Swal.close(); mobileApp.openAssignmentForDate('${key}')">Asignar este día</button>` : ''}`,
+                html: `<p class="text-slate-500 mb-3">${h(asText(byId(this.stores, this.selectedStoreId)?.nombre_display, 'Tienda'))}</p>${rowsForDay.length ? rowsForDay.map((row) => this.assignmentRow(row)).join('') : emptyState('person_off', this.storeEmptyTitle(), 'No hay personal visible para esta fecha.')}${this.assignmentButtonsForDay(key)}`,
                 showConfirmButton: false,
                 showCloseButton: true
             });
         }
 
         openAssignmentForDate(key) {
+            if (this.assignmentFilter === 'interno') {
+                this.openInternalAssignmentForDate(key);
+                return;
+            }
+            this.openPromoterAssignmentForDate(key);
+        }
+
+        openPromoterAssignmentForDate(key) {
             this.showPromoterForm(null, parseDate(key) || this.selected, this.selectedStoreId);
+        }
+
+        openInternalAssignmentForDate(key) {
+            this.showInternalForm(null, parseDate(key) || this.defaultAssignmentDate(), this.selectedStoreId);
+        }
+
+        assignmentButtonsForDay(key) {
+            const buttons = [];
+            if (this.assignmentFilter !== 'interno' && this.session.isManager) {
+                buttons.push(`<button class="bottom-action mt-3" onclick="Swal.close(); mobileApp.openPromoterAssignmentForDate('${key}')">Asignar impulso</button>`);
+            }
+            if (this.assignmentFilter !== 'impulso' && this.canManageInternal()) {
+                buttons.push(`<button class="bottom-action teal mt-3" onclick="Swal.close(); mobileApp.openInternalAssignmentForDate('${key}')">Nueva asignación interna</button>`);
+            }
+            return buttons.join('');
         }
 
         openActions(id) {
@@ -2243,6 +2380,68 @@
                 return Promise.resolve(false);
             }
             return PlannerView.prototype.reportIncident.call(this, id);
+        }
+
+        canManageInternal() {
+            if (this.session.isManager) return true;
+            return this.session.isStoreUser && asInt(this.selectedStoreId) === asInt(this.session.storeId);
+        }
+
+        defaultAssignmentDate() {
+            const today = new Date();
+            if (today.getFullYear() === this.selected.getFullYear() && today.getMonth() === this.selected.getMonth()) {
+                return new Date(today.getFullYear(), today.getMonth(), today.getDate());
+            }
+            return this.selected;
+        }
+
+        openInternalActions(id) {
+            const row = this.monthlyInternalRows.find((item) => asInt(item.id) === asInt(id));
+            if (!row || asInt(row.tienda_id) !== asInt(this.selectedStoreId)) return;
+            const person = byId(this.internalStaff, row.personal_id);
+            const store = byId(this.stores, row.tienda_id);
+            Swal.fire({
+                title: asText(person?.nombre_completo, 'Personal interno'),
+                html: `
+                    <p class="text-slate-500 mb-4 text-sm">${h(asText(store?.nombre_display, 'Bodega/Tienda'))} - ${h(asText(row.fecha))}</p>
+                    <div class="grid gap-2">
+                        ${this.canManageInternal() ? `<button class="bottom-action full" onclick="Swal.close(); mobileApp.editInternalAssignment(${asInt(row.id)})">Modificar asignación</button><button class="bottom-action ink full" onclick="Swal.close(); mobileApp.deleteInternalAssignment(${asInt(row.id)})">Marcar día libre</button>` : `<p class="font-bold">${h(asText(row.tipo, 'TRABAJO'))}</p>`}
+                    </div>`,
+                showConfirmButton: false,
+                showCloseButton: true
+            });
+        }
+
+        editInternalAssignment(id) {
+            const row = this.monthlyInternalRows.find((item) => asInt(item.id) === asInt(id));
+            if (!row || !this.canManageInternal() || asInt(row.tienda_id) !== asInt(this.selectedStoreId)) return;
+            this.showInternalForm(row, parseDate(row.fecha), this.selectedStoreId);
+        }
+
+        async deleteInternalAssignment(id) {
+            const row = this.monthlyInternalRows.find((item) => asInt(item.id) === asInt(id));
+            if (!row || !this.canManageInternal() || asInt(row.tienda_id) !== asInt(this.selectedStoreId)) return;
+            const ok = await Swal.fire({
+                title: 'Marcar día libre',
+                text: 'Se quitará este registro del horario interno.',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: 'Marcar libre',
+                cancelButtonText: 'Cancelar'
+            });
+            if (!ok.isConfirmed) return;
+            try {
+                await rows(db.from(tables.internalSchedule).delete().eq('id', asInt(id)).select());
+                await this.reload();
+                Swal.fire({ icon: 'success', title: 'Día libre marcado', timer: 1300, showConfirmButton: false });
+            } catch (error) {
+                Swal.fire('Error', error.message || 'No se pudo marcar el día libre', 'error');
+            }
+        }
+
+        showInternalForm(existing, date, forcedStoreId) {
+            this.internalRows = this.monthlyInternalRows;
+            return PlannerView.prototype.showInternalForm.call(this, existing, date, forcedStoreId);
         }
     }
 

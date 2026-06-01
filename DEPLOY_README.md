@@ -91,7 +91,8 @@ La Beta de asistencia permite que el usuario **Punto de Venta** confirme la pres
     1.  El usuario rol 3 entra a `calendario-tienda.html` / pestaña Tienda.
     2.  En “Asistencia de hoy”, aprueba a las impulsadoras presentes en su local.
     3.  A las 20:00 Ecuador, GitHub Actions llama `close-store-attendance`.
-    4.  La función genera `FALTA NO APROBADA` para turnos que no fueron aprobados.
+    4.  La función genera `FALTA NO APROBADA` para turnos que no fueron aprobados y envía el correo automático por Resend.
+    5.  El cierre marca `correo_falta_auto_enviado_en` para no duplicar correos si se reintenta el proceso.
 
 ---
 

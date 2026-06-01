@@ -1815,6 +1815,15 @@ nav.fixed {
     align-items: center;
 }
 
+.desktop-content .store-filter-stack {
+    grid-template-columns: minmax(220px, 320px) minmax(260px, 1fr) auto;
+}
+
+.desktop-content .store-filter-stack .store-type-segment {
+    grid-column: 1 / -1;
+    max-width: 620px;
+}
+
 .desktop-content .vendor-filter-stack {
     grid-template-columns: minmax(320px, 1fr) auto;
 }
