@@ -129,6 +129,7 @@
                 searchQuery: '',
                 staff: [],
                 categorias: [],
+                brandCatalog: [],
                 filteredStaff: []
             },
 
@@ -154,13 +155,15 @@
 
             loadData: async () => {
                 try {
-                    const [staffRes, categoriasRes] = await Promise.all([
+                    const [staffRes, categoriasRes, brandCatalogRes] = await Promise.all([
                         db.from('Tiendas_Impulsadoras').select('*').order('nombre_completo'),
-                        db.from('Tiendas_Categorias').select('*')
+                        db.from('Tiendas_Categorias').select('*'),
+                        db.from(StaffPlanner.tables.brandCatalog).select('*').eq('activo', true).order('marca')
                     ]);
 
                     app.state.staff = staffRes.data || [];
                     app.state.categorias = categoriasRes.data || [];
+                    app.state.brandCatalog = brandCatalogRes.data || [];
 
                     app.applyFilters();
 
@@ -182,8 +185,9 @@
                     if (!search) return true;
                     const name = (s.nombre_completo || '').toLowerCase();
                     const marca = (s.Marca || '').toLowerCase();
+                    const proveedor = (s.Proveedor || '').toLowerCase();
                     const codigo = String(s.idVendedor || '').toLowerCase();
-                    return name.includes(search) || marca.includes(search) || codigo.includes(search);
+                    return name.includes(search) || marca.includes(search) || proveedor.includes(search) || codigo.includes(search);
                 });
 
                 app.renderStaffList();
@@ -191,6 +195,153 @@
 
             getCategory: (catId) => {
                 return app.state.categorias.find(c => c.id === catId);
+            },
+
+            escapeHtml: (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            }[char])),
+
+            normalizeText: (value) => String(value || '')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .trim()
+                .replace(/\s+/g, ' ')
+                .toLowerCase(),
+
+            usefulValue: (value) => {
+                const text = String(value ?? '').trim();
+                return text && text !== '0' ? text : '';
+            },
+
+            getBrandByIdMarca: (idMarca) => {
+                const id = parseInt(idMarca, 10);
+                if (!id) return null;
+                return app.state.brandCatalog.find(brand => parseInt(brand.idMarca, 10) === id) || null;
+            },
+
+            getUniqueBrandByName: (name) => {
+                const normalized = app.normalizeText(name);
+                if (!normalized) return null;
+                const matches = app.state.brandCatalog.filter(brand => app.normalizeText(brand.marca) === normalized);
+                return matches.length === 1 ? matches[0] : null;
+            },
+
+            getPersonBrand: (person) => {
+                return app.getBrandByIdMarca(person?.idMarca) || app.getUniqueBrandByName(person?.Marca);
+            },
+
+            brandLabel: (brand) => `${brand.marca || 'Sin marca'} - ${brand.proveedor || 'Sin proveedor'} (#${brand.idMarca})`,
+
+            brandOptionsHtml: () => app.state.brandCatalog
+                .map(brand => `<option value="${app.escapeHtml(app.brandLabel(brand))}"></option>`)
+                .join(''),
+
+            resolveBrandInput: (value) => {
+                const rawValue = String(value || '').trim();
+                if (!rawValue) return null;
+
+                const idMatch = rawValue.match(/#(\d+)/);
+                if (idMatch) {
+                    return app.getBrandByIdMarca(idMatch[1]);
+                }
+
+                const normalizedValue = app.normalizeText(rawValue);
+                const labelMatch = app.state.brandCatalog.find(brand => app.normalizeText(app.brandLabel(brand)) === normalizedValue);
+                if (labelMatch) return labelMatch;
+
+                return app.getUniqueBrandByName(rawValue);
+            },
+
+            brandFormHtml: (person = {}) => {
+                const brand = app.getPersonBrand(person);
+                const initialBrand = brand ? app.brandLabel(brand) : '';
+                const fallbackProvider = app.usefulValue(person.Proveedor);
+                const providerText = brand?.proveedor || fallbackProvider || 'Selecciona una marca registrada';
+                const emailValue = brand?.correo_proveedor || app.usefulValue(person.Correo);
+
+                return `
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 mb-1">Marca registrada *</label>
+                        <input type="text" id="swal-brand-search" list="swal-brand-options" class="w-full p-3 border rounded-xl" value="${app.escapeHtml(initialBrand)}" placeholder="Buscar marca o proveedor">
+                        <datalist id="swal-brand-options">${app.brandOptionsHtml()}</datalist>
+                        <div id="swal-brand-provider" class="mt-2 rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 text-xs text-slate-500">${app.escapeHtml(providerText)}</div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 mb-1">Correo del proveedor</label>
+                        <input type="email" id="swal-correo" class="w-full p-3 border rounded-xl" value="${app.escapeHtml(emailValue)}" placeholder="correo@proveedor.com">
+                    </div>
+                `;
+            },
+
+            bindBrandPicker: () => {
+                const input = document.getElementById('swal-brand-search');
+                const providerEl = document.getElementById('swal-brand-provider');
+                const emailInput = document.getElementById('swal-correo');
+                if (!input || !providerEl || !emailInput) return;
+
+                const renderBrand = () => {
+                    const brand = app.resolveBrandInput(input.value);
+                    if (!brand) {
+                        providerEl.textContent = 'Elige una marca de la lista para asociar proveedor e IDs internos.';
+                        providerEl.className = 'mt-2 rounded-xl bg-amber-50 border border-amber-100 px-3 py-2 text-xs text-amber-700';
+                        return;
+                    }
+
+                    providerEl.innerHTML = `
+                        <div class="font-bold text-slate-700">${app.escapeHtml(brand.proveedor || 'Sin proveedor')}</div>
+                        <div>ID marca ${app.escapeHtml(brand.idMarca)} · ID proveedor ${app.escapeHtml(brand.idProveedor)}</div>
+                    `;
+                    providerEl.className = 'mt-2 rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2 text-xs text-emerald-700';
+
+                    if (brand.correo_proveedor) {
+                        emailInput.value = brand.correo_proveedor;
+                    }
+                };
+
+                input.addEventListener('input', renderBrand);
+                renderBrand();
+            },
+
+            readBrandSelection: () => {
+                const brandInput = document.getElementById('swal-brand-search');
+                const emailInput = document.getElementById('swal-correo');
+                const brand = app.resolveBrandInput(brandInput?.value);
+                const correo = (emailInput?.value || '').trim();
+
+                if (!brand) {
+                    Swal.showValidationMessage('Selecciona una marca registrada de la lista.');
+                    return null;
+                }
+
+                if (correo && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) {
+                    Swal.showValidationMessage('El correo del proveedor no es válido.');
+                    return null;
+                }
+
+                return { brand, correo };
+            },
+
+            promoterBrandPayload: (brand, correo) => ({
+                Marca: brand.marca || null,
+                idMarca: parseInt(brand.idMarca, 10) || null,
+                Proveedor: brand.proveedor || null,
+                idProveedor: parseInt(brand.idProveedor, 10) || null,
+                Correo: correo || brand.correo_proveedor || null
+            }),
+
+            syncProviderEmail: async (idProveedor, correo) => {
+                if (!idProveedor || !correo) return;
+                const { error } = await db.from(StaffPlanner.tables.brandCatalog)
+                    .update({ correo_proveedor: correo, actualizado_en: new Date().toISOString() })
+                    .eq('idProveedor', idProveedor);
+
+                if (error) {
+                    console.warn('No se pudo sincronizar correo del proveedor:', error);
+                }
             },
 
             renderStaffList: () => {
@@ -218,6 +369,7 @@
                 staff.forEach(person => {
                     const category = app.getCategory(person.idCategoria);
                     const isActive = StaffPlanner.isActiveImpulsadora(person);
+                    const providerName = app.usefulValue(person.Proveedor);
                     const categoryBadge = category
                         ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${category.id_zona === 1 ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}">${category.descripcion || 'Sin cat.'}</span>`
                         : '';
@@ -237,6 +389,7 @@
                                     <div class="flex items-center gap-2 flex-wrap">
                                         <span class="text-xs text-slate-400">${person.idVendedor || ''}</span>
                                         ${person.Marca ? `<span class="text-xs text-slate-500">• ${person.Marca}</span>` : ''}
+                                        ${providerName ? `<span class="text-xs text-slate-400">• ${providerName}</span>` : ''}
                                     </div>
                                 </div>
 
@@ -262,6 +415,10 @@
                 const category = app.getCategory(person.idCategoria);
                 const isActive = StaffPlanner.isActiveImpulsadora(person);
                 const roleId = app.state.roleId;
+                const brand = app.getPersonBrand(person);
+                const providerName = app.usefulValue(person.Proveedor) || brand?.proveedor || '-';
+                const brandId = app.usefulValue(person.idMarca) || brand?.idMarca || '-';
+                const providerId = app.usefulValue(person.idProveedor) || brand?.idProveedor || '-';
 
                 let actionsHtml = '';
 
@@ -294,6 +451,11 @@
                             <div class="bg-slate-50 p-3 rounded-lg">
                                 <div class="text-xs text-slate-400">Marca</div>
                                 <div class="font-medium text-slate-700">${person.Marca || '-'}</div>
+                            </div>
+                            <div class="bg-slate-50 p-3 rounded-lg">
+                                <div class="text-xs text-slate-400">Proveedor</div>
+                                <div class="font-medium text-slate-700">${providerName}</div>
+                                <div class="text-[11px] text-slate-400 mt-1">ID marca: ${brandId} · ID proveedor: ${providerId}</div>
                             </div>
                             <div class="bg-slate-50 p-3 rounded-lg">
                                 <div class="text-xs text-slate-400">Categoría</div>
@@ -339,14 +501,7 @@
                                 <label class="block text-xs font-bold text-slate-500 mb-1">Nombre Completo</label>
                                 <input type="text" id="swal-nombre" class="w-full p-3 border rounded-xl" value="${person.nombre_completo || ''}">
                             </div>
-                            <div>
-                                <label class="block text-xs font-bold text-slate-500 mb-1">Marca</label>
-                                <input type="text" id="swal-marca" class="w-full p-3 border rounded-xl" value="${person.Marca || ''}">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-bold text-slate-500 mb-1">Correo</label>
-                                <input type="email" id="swal-correo" class="w-full p-3 border rounded-xl" value="${person.Correo || ''}">
-                            </div>
+                            ${app.brandFormHtml(person)}
                             <div>
                                 <label class="block text-xs font-bold text-slate-500 mb-1">Categoría</label>
                                 <select id="swal-categoria" class="w-full p-3 border rounded-xl">
@@ -360,22 +515,32 @@
                     confirmButtonText: 'Guardar',
                     cancelButtonText: 'Cancelar',
                     confirmButtonColor: '#6366f1',
-                    preConfirm: () => ({
-                        nombre_completo: document.getElementById('swal-nombre').value,
-                        Marca: document.getElementById('swal-marca').value,
-                        Correo: document.getElementById('swal-correo').value,
-                        idCategoria: parseInt(document.getElementById('swal-categoria').value) || null
-                    })
+                    didOpen: app.bindBrandPicker,
+                    preConfirm: () => {
+                        const brandSelection = app.readBrandSelection();
+                        if (!brandSelection) return false;
+
+                        return {
+                            data: {
+                                nombre_completo: document.getElementById('swal-nombre').value,
+                                ...app.promoterBrandPayload(brandSelection.brand, brandSelection.correo),
+                                idCategoria: parseInt(document.getElementById('swal-categoria').value) || null
+                            },
+                            providerId: brandSelection.brand.idProveedor,
+                            providerEmail: brandSelection.correo
+                        };
+                    }
                 });
 
                 if (formValues) {
                     const { error } = await db.from('Tiendas_Impulsadoras')
-                        .update(formValues)
+                        .update(formValues.data)
                         .eq('id', personId);
 
                     if (error) {
                         Swal.fire('Error', error.message, 'error');
                     } else {
+                        await app.syncProviderEmail(formValues.providerId, formValues.providerEmail);
                         Swal.fire({ icon: 'success', title: '¡Guardado!', timer: 1500, showConfirmButton: false });
                         await app.loadData();
                     }
@@ -430,14 +595,7 @@
                                 <label class="block text-xs font-bold text-slate-500 mb-1">PIN *</label>
                                 <input type="text" id="swal-pin" class="w-full p-3 border rounded-xl" placeholder="4 dígitos" maxlength="4" inputmode="numeric">
                             </div>
-                            <div>
-                                <label class="block text-xs font-bold text-slate-500 mb-1">Marca</label>
-                                <input type="text" id="swal-marca" class="w-full p-3 border rounded-xl" placeholder="Marca">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-bold text-slate-500 mb-1">Correo</label>
-                                <input type="email" id="swal-correo" class="w-full p-3 border rounded-xl" placeholder="correo@ejemplo.com">
-                            </div>
+                            ${app.brandFormHtml()}
                             <div>
                                 <label class="block text-xs font-bold text-slate-500 mb-1">Categoría</label>
                                 <select id="swal-categoria" class="w-full p-3 border rounded-xl">
@@ -451,34 +609,42 @@
                     confirmButtonText: '✅ Agregar',
                     cancelButtonText: 'Cancelar',
                     confirmButtonColor: '#10b981',
+                    didOpen: app.bindBrandPicker,
                     preConfirm: () => {
                         const nombre = document.getElementById('swal-nombre').value.trim();
                         const codigo = document.getElementById('swal-codigo').value.trim();
                         const pin = document.getElementById('swal-pin').value.trim();
+                        const brandSelection = app.readBrandSelection();
 
                         if (!nombre || !/^\d+$/.test(codigo) || !/^\d{4}$/.test(pin)) {
                             Swal.showValidationMessage('Nombre, código numérico y PIN de 4 dígitos son requeridos');
                             return false;
                         }
 
+                        if (!brandSelection) return false;
+
                         return {
-                            nombre_completo: nombre,
-                            idVendedor: parseInt(codigo, 10),
-                            pin,
-                            Marca: document.getElementById('swal-marca').value || null,
-                            Correo: document.getElementById('swal-correo').value || null,
-                            idCategoria: parseInt(document.getElementById('swal-categoria').value) || null,
-                            Habilitado: true
+                            data: {
+                                nombre_completo: nombre,
+                                idVendedor: parseInt(codigo, 10),
+                                pin,
+                                ...app.promoterBrandPayload(brandSelection.brand, brandSelection.correo),
+                                idCategoria: parseInt(document.getElementById('swal-categoria').value) || null,
+                                Habilitado: true
+                            },
+                            providerId: brandSelection.brand.idProveedor,
+                            providerEmail: brandSelection.correo
                         };
                     }
                 });
 
                 if (formValues) {
-                    const { error } = await db.from('Tiendas_Impulsadoras').insert(formValues);
+                    const { error } = await db.from('Tiendas_Impulsadoras').insert(formValues.data);
 
                     if (error) {
                         Swal.fire('Error', error.message, 'error');
                     } else {
+                        await app.syncProviderEmail(formValues.providerId, formValues.providerEmail);
                         Swal.fire({ icon: 'success', title: '¡Personal agregado!', timer: 1500, showConfirmButton: false });
                         await app.loadData();
                     }

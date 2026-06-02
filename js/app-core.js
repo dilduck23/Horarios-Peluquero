@@ -11,6 +11,7 @@
         roles: 'Tiendas_Roles',
         users: 'Tiendas_Usuarios',
         categories: 'Tiendas_Categorias',
+        brandCatalog: 'Tiendas_Marcas_Proveedores',
         internalStaff: 'Tiendas_Personal',
         internalSchedule: 'Tiendas_Personal_Horario',
         audit: 'Tiendas_Registros'

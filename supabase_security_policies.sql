@@ -40,6 +40,17 @@ REVOKE ALL ON FUNCTION private.staffplanner_tienda_id() FROM public, anon, authe
 GRANT EXECUTE ON FUNCTION private.staffplanner_role_id() TO authenticated;
 GRANT EXECUTE ON FUNCTION private.staffplanner_tienda_id() TO authenticated;
 
+CREATE TABLE IF NOT EXISTS public."Tiendas_Marcas_Proveedores" (
+    "idMarca" INTEGER PRIMARY KEY,
+    marca TEXT NOT NULL,
+    "idProveedor" INTEGER NOT NULL,
+    proveedor TEXT NOT NULL,
+    correo_proveedor TEXT,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE UNIQUE INDEX IF NOT EXISTS uq_horario_fecha_tienda_impulsadora
 ON public."Tiendas_Horario" (fecha, tienda_id, impulsadora_id);
 
@@ -50,6 +61,7 @@ ALTER TABLE public."Tiendas_Categorias" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public."Tiendas_Faltas" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public."Tiendas_Horario" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public."Tiendas_Impulsadoras" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public."Tiendas_Marcas_Proveedores" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public."Tiendas_Personal" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public."Tiendas_Personal_Horario" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public."Tiendas_Razonamiento" ENABLE ROW LEVEL SECURITY;
@@ -65,6 +77,8 @@ DROP POLICY IF EXISTS "Escritura pública horarios" ON public."Tiendas_Horario";
 DROP POLICY IF EXISTS "Lectura pública horarios" ON public."Tiendas_Horario";
 DROP POLICY IF EXISTS "Escritura pública impulsadoras" ON public."Tiendas_Impulsadoras";
 DROP POLICY IF EXISTS "Lectura pública impulsadoras" ON public."Tiendas_Impulsadoras";
+DROP POLICY IF EXISTS "marcas_proveedores_select_public" ON public."Tiendas_Marcas_Proveedores";
+DROP POLICY IF EXISTS "marcas_proveedores_write_managers" ON public."Tiendas_Marcas_Proveedores";
 DROP POLICY IF EXISTS "Allow all for authenticated" ON public."Tiendas_Personal";
 DROP POLICY IF EXISTS "Allow all for authenticated" ON public."Tiendas_Personal_Horario";
 DROP POLICY IF EXISTS "personal_horario_insert_store_admins" ON public."Tiendas_Personal_Horario";
@@ -80,6 +94,7 @@ DROP POLICY IF EXISTS "Users can view their own data" ON public."Tiendas_Usuario
 CREATE POLICY "categorias_select_public" ON public."Tiendas_Categorias" FOR SELECT TO public USING (true);
 CREATE POLICY "tiendas_select_public" ON public."Tiendas_Razonamiento" FOR SELECT TO public USING (true);
 CREATE POLICY "impulsadoras_select_public" ON public."Tiendas_Impulsadoras" FOR SELECT TO public USING (true);
+CREATE POLICY "marcas_proveedores_select_public" ON public."Tiendas_Marcas_Proveedores" FOR SELECT TO public USING (true);
 CREATE POLICY "horario_select_public" ON public."Tiendas_Horario" FOR SELECT TO public USING (true);
 CREATE POLICY "faltas_select_public" ON public."Tiendas_Faltas" FOR SELECT TO public USING (true);
 CREATE POLICY "personal_select_public" ON public."Tiendas_Personal" FOR SELECT TO public USING (true);
@@ -94,6 +109,10 @@ FOR ALL TO authenticated USING (private.staffplanner_role_id() = 1)
 WITH CHECK (private.staffplanner_role_id() = 1);
 
 CREATE POLICY "impulsadoras_write_managers" ON public."Tiendas_Impulsadoras"
+FOR ALL TO authenticated USING (private.staffplanner_role_id() IN (1, 2))
+WITH CHECK (private.staffplanner_role_id() IN (1, 2));
+
+CREATE POLICY "marcas_proveedores_write_managers" ON public."Tiendas_Marcas_Proveedores"
 FOR ALL TO authenticated USING (private.staffplanner_role_id() IN (1, 2))
 WITH CHECK (private.staffplanner_role_id() IN (1, 2));
 
