@@ -29,6 +29,22 @@
     const promoterAliases = [
         { brand: 'DMUJERES', from: 'SILVANA', to: 'SILVIA' }
     ];
+    const plannerIncidentOptions = [
+        ['FALTA INJUSTIFICADA', 'Falta injustificada'],
+        ['FALTA JUSTIFICADA', 'Falta justificada'],
+        ['IMPUNTUALIDAD', 'Impuntualidad'],
+        ['PRESENTACION', 'Presentación'],
+        ['ACTITUD', 'Actitud'],
+        ['QUEJA DE CLIENTE', 'Queja de cliente'],
+        ['OTROS', 'Otros']
+    ];
+    const storeIncidentOptions = [
+        ['IMPUNTUALIDAD', 'Impuntualidad'],
+        ['PRESENTACION', 'Presentación'],
+        ['ACTITUD', 'Actitud'],
+        ['QUEJA DE CLIENTE', 'Queja de cliente'],
+        ['OTROS', 'Otros']
+    ];
     const automaticAbsenceSubject = 'FALTA NO APROBADA';
     const attendanceCloseCutoffHour = 20;
     const desktopMediaQuery = '(min-width: 981px)';
@@ -232,6 +248,17 @@
         const name = normalizeSearch(person?.nombre_completo);
         const alias = promoterAliases.find((item) => normalizeSearch(item.brand) === brand && normalizeSearch(item.from) === name);
         return alias ? alias.to : asText(person?.nombre_completo, 'Sin nombre');
+    }
+
+    function promoterPin(person) {
+        return asText(person?.pin ?? person?.PIN);
+    }
+
+    function promoterVendorMeta(person) {
+        const parts = [asText(person?.Marca, 'Sin marca')];
+        if (asText(person?.idVendedor)) parts.push(`Codigo ${asText(person.idVendedor)}`);
+        if (promoterPin(person)) parts.push(`PIN ${promoterPin(person)}`);
+        return parts.join(' - ');
     }
 
     function promoterCanonicalKey(person) {
@@ -841,6 +868,25 @@
             setTimeout(() => syncScrollFrame(frame), 260);
         }
 
+        async sendIncidentEmail(scheduleId, incident, insertedIncident) {
+            try {
+                const { error } = await db.functions.invoke('send-incidence-email', {
+                    body: {
+                        idHorario: asInt(scheduleId),
+                        incidentId: asInt(insertedIncident?.id),
+                        incidenceType: incident.asunto,
+                        observation: incident.observacion,
+                        reportedBy: asText(this.session.user?.email, this.session.roleName)
+                    }
+                });
+                if (error) throw error;
+                return true;
+            } catch (error) {
+                console.error('No se pudo enviar correo de incidencia:', error);
+                return false;
+            }
+        }
+
         paintStorePicker(select) {
             if (!select) return;
             const store = byId(this.stores || [], select.value);
@@ -1237,7 +1283,7 @@
             return `
                 ${monthControls(this.selected, 'mobileApp.changeMonth(-1)', 'mobileApp.changeMonth(1)')}
                 <section class="app-filter-stack vendor-filter-stack">
-                    <label class="app-search"><span class="material-icons">search</span><input data-search-input="planner-vendor" value="${h(this.search)}" oninput="mobileApp.setSearch(this.value, this)" placeholder="Buscar vendedor, marca o codigo"></label>
+                    <label class="app-search"><span class="material-icons">search</span><input data-search-input="planner-vendor" value="${h(this.search)}" oninput="mobileApp.setSearch(this.value, this)" placeholder="Buscar vendedor, marca, codigo o PIN"></label>
                     <button class="mini-chip justify-center" onclick="mobileApp.toggleOnlyAssigned()">${this.onlyAssigned ? 'Solo con turnos' : 'Todos'}</button>
                 </section>
                 ${this.vendorSelector(people)}
@@ -1256,7 +1302,7 @@
                     if (this.onlyAssigned && !hasRows) return false;
                     if (!needle) return true;
                     const category = byId(this.categories, person?.idCategoria);
-                    return `${normalizeSearch(promoterDisplayName(person))} ${normalizeSearch(person.Marca)} ${normalizeSearch(person.idVendedor)} ${normalizeSearch(category?.descripcion)}`.includes(needle);
+                    return `${normalizeSearch(promoterDisplayName(person))} ${normalizeSearch(person.Marca)} ${normalizeSearch(person.idVendedor)} ${normalizeSearch(promoterPin(person))} ${normalizeSearch(category?.descripcion)}`.includes(needle);
                 });
             return mergePromoterOptions(candidates, selectedId).sort((a, b) => {
                 const aSelected = promoterIds(a).includes(selectedId);
@@ -1289,7 +1335,7 @@
                     <span class="vendor-avatar">${h(initials(promoterDisplayName(person), 1))}</span>
                     <span class="vendor-card-copy">
                         <strong>${h(promoterDisplayName(person))}</strong>
-                        <small>${h(asText(person.Marca, 'Sin marca'))} ${asText(person.idVendedor) ? `- ${h(asText(person.idVendedor))}` : ''}</small>
+                        <small>${h(promoterVendorMeta(person))}</small>
                     </span>
                     <span class="vendor-card-stats">
                         ${miniChip(`${rowsForPerson.length} días`, '#E85D75')}
@@ -1324,7 +1370,7 @@
                         <span class="vendor-avatar large">${h(initials(promoterDisplayName(person)))}</span>
                         <span class="flex-1 min-w-0">
                             <strong>${h(promoterDisplayName(person))}</strong>
-                            <small>${h(asText(person.Marca, 'Sin marca'))}${asText(person.idVendedor) ? ` - Codigo ${h(asText(person.idVendedor))}` : ''}</small>
+                            <small>${h(promoterVendorMeta(person))}</small>
                         </span>
                         ${this.canManagePlanner() ? `<button class="planner-icon-btn" title="Asignar día" onclick="mobileApp.showPromoterFormForPerson(${asInt(person.id)}, '${dateKey(this.defaultVendorDate())}')"><span class="material-icons">edit_calendar</span></button>` : ''}
                     </div>
@@ -1332,6 +1378,7 @@
                         ${this.vendorStat('Dias asignados', rowsForPerson.length, 'event_available', '#E85D75')}
                         ${this.vendorStat('Puntos', storeCount, 'storefront', '#0E9F8F')}
                         ${this.vendorStat('Mes', monthShort[this.selected.getMonth()], 'calendar_month', '#111827')}
+                        ${this.vendorStat('PIN', promoterPin(person) || '-', 'pin', '#111827')}
                     </div>
                     ${calendarBoard({
                         selected: this.selected,
@@ -1824,21 +1871,17 @@
             }
         }
 
-        async reportIncident(id) {
+        async reportIncident(id, options = {}) {
+            const incidentOptions = options.incidentOptions || plannerIncidentOptions;
+            const notePlaceholder = options.notePlaceholder || 'Observación';
             const { value } = await Swal.fire({
-                title: 'Reportar incidencia',
+                title: options.title || 'Reportar incidencia',
                 html: `
                     <div class="grid gap-3 text-left">
                         <select id="mw-subject" class="w-full p-3 border rounded-xl">
-                            <option value="FALTA INJUSTIFICADA">Falta injustificada</option>
-                            <option value="FALTA JUSTIFICADA">Falta justificada</option>
-                            <option value="IMPUNTUALIDAD">Impuntualidad</option>
-                            <option value="PRESENTACION">Presentación</option>
-                            <option value="ACTITUD">Actitud</option>
-                            <option value="QUEJA DE CLIENTE">Queja de cliente</option>
-                            <option value="OTROS">Otros</option>
+                            ${incidentOptions.map(([value, label]) => `<option value="${h(value)}">${h(label)}</option>`).join('')}
                         </select>
-                        <textarea id="mw-note" rows="3" class="w-full p-3 border rounded-xl resize-none" placeholder="Observación"></textarea>
+                        <textarea id="mw-note" rows="3" class="w-full p-3 border rounded-xl resize-none" placeholder="${h(notePlaceholder)}"></textarea>
                     </div>`,
                 showCancelButton: true,
                 confirmButtonText: 'Enviar',
@@ -1857,25 +1900,6 @@
                 });
             } catch (error) {
                 Swal.fire('Error', error.message, 'error');
-            }
-        }
-
-        async sendIncidentEmail(scheduleId, incident, insertedIncident) {
-            try {
-                const { error } = await db.functions.invoke('send-incidence-email', {
-                    body: {
-                        idHorario: asInt(scheduleId),
-                        incidentId: asInt(insertedIncident?.id),
-                        incidenceType: incident.asunto,
-                        observation: incident.observacion,
-                        reportedBy: asText(this.session.user?.email, this.session.roleName)
-                    }
-                });
-                if (error) throw error;
-                return true;
-            } catch (error) {
-                console.error('No se pudo enviar correo de incidencia:', error);
-                return false;
             }
         }
 
@@ -1981,9 +2005,10 @@
             const rowsForStore = this.visibleRows();
             const attendanceSection = this.selectedStoreId && this.assignmentFilter !== 'interno' ? this.attendanceTodaySection() : '';
             return `
+                ${attendanceSection}
                 ${monthControls(this.selected, 'mobileApp.changeMonth(-1)', 'mobileApp.changeMonth(1)')}
                 ${this.filters()}
-                ${this.selectedStoreId ? attendanceSection + calendarBoard({
+                ${this.selectedStoreId ? calendarBoard({
                     selected: this.selected,
                     rows: rowsForStore,
                     badge: storeBadge(byId(this.stores, this.selectedStoreId), 48),
@@ -2070,6 +2095,14 @@
             return '';
         }
 
+        incidentButton(row) {
+            return `
+                <button class="attendance-incident-btn" title="Reportar incidencia/observación" aria-label="Reportar incidencia u observación" onclick="mobileApp.reportAttendanceIncident(${asInt(row.id)})">
+                    <span class="material-icons">assignment_late</span>
+                    <span>Incidencia</span>
+                </button>`;
+        }
+
         attendanceRow(row) {
             const person = byId(this.promoters, row.impulsadora_id);
             const category = byId(this.categories, person?.idCategoria) || byId(this.categories, row.categoria_asignada_id);
@@ -2080,6 +2113,7 @@
             const canApprove = state.className === 'pending';
             const actions = [
                 canApprove ? `<button class="attendance-approve-btn" onclick="mobileApp.approveAttendance(${asInt(row.id)})">Aprobar</button>` : '',
+                this.incidentButton(row),
                 this.lunchButton(row, attendance, state)
             ].filter(Boolean).join('');
             return `
@@ -2096,6 +2130,14 @@
                     </span>
                     ${actions ? `<span class="attendance-actions">${actions}</span>` : ''}
                 </article>`;
+        }
+
+        reportAttendanceIncident(id) {
+            return PlannerView.prototype.reportIncident.call(this, id, {
+                title: 'Reportar incidencia/observación',
+                incidentOptions: storeIncidentOptions,
+                notePlaceholder: 'Observación del punto de venta'
+            });
         }
 
         filters() {

@@ -47,6 +47,44 @@
             transform: scale(0.98);
         }
 
+        .staff-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 12px;
+            padding: 16px;
+        }
+
+        .staff-pin-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            border-radius: 999px;
+            background: #111827;
+            color: #fff;
+            font-size: 11px;
+            font-weight: 900;
+            line-height: 1;
+            padding: 6px 8px;
+        }
+
+        .staff-pin-chip code {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 12px;
+            letter-spacing: 0.08em;
+        }
+
+        @media (min-width: 768px) {
+            .staff-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (min-width: 1280px) {
+            .staff-grid {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+        }
+
         @keyframes shimmer {
             0% {
                 background-position: -200% 0;
@@ -103,7 +141,7 @@
             <div class="relative mt-3">
                 <span
                     class="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
-                <input type="text" id="searchInput" placeholder="Buscar por nombre, marca o proveedor..."
+                <input type="text" id="searchInput" placeholder="Buscar por nombre, marca, proveedor o PIN..."
                     oninput="app.onSearchChange()"
                     class="w-full pl-10 pr-4 py-2 bg-slate-100 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400">
             </div>
@@ -215,7 +253,7 @@
                     : 'Impulsadoras y marcas';
                 document.getElementById('searchInput').placeholder = isCatalog
                     ? 'Buscar proveedor, marca o correo...'
-                    : 'Buscar por nombre, marca o proveedor...';
+                    : 'Buscar por nombre, marca, proveedor o PIN...';
 
                 document.getElementById('staffTabBtn').className = isCatalog
                     ? 'py-2 px-3 rounded-xl text-xs font-bold transition-colors text-slate-500'
@@ -239,7 +277,8 @@
                     const marca = (s.Marca || '').toLowerCase();
                     const proveedor = (s.Proveedor || '').toLowerCase();
                     const codigo = String(s.idVendedor || '').toLowerCase();
-                    return name.includes(search) || marca.includes(search) || proveedor.includes(search) || codigo.includes(search);
+                    const pin = String(s.pin || s.PIN || '').toLowerCase();
+                    return name.includes(search) || marca.includes(search) || proveedor.includes(search) || codigo.includes(search) || pin.includes(search);
                 });
             },
 
@@ -616,28 +655,32 @@
                     return;
                 }
 
-                let html = '<div class="p-4 space-y-3">';
+                let html = '<div class="staff-grid">';
 
                 staff.forEach(person => {
                     const category = app.getCategory(person.idCategoria);
                     const isActive = StaffPlanner.isActiveImpulsadora(person);
                     const providerName = app.usefulValue(person.Proveedor);
+                    const pin = app.usefulValue(person.pin || person.PIN);
                     const categoryBadge = category
                         ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${category.id_zona === 1 ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}">${category.descripcion || 'Sin cat.'}</span>`
                         : '';
 
                     html += `
-                        <div class="staff-card bg-white rounded-xl p-4 shadow-sm border border-slate-100 ${!isActive ? 'opacity-50' : ''}"
+                        <div class="staff-card bg-white rounded-xl p-4 shadow-sm border border-slate-100 h-full ${!isActive ? 'opacity-50' : ''}"
                              onclick="app.showStaffDetails(${person.id})">
-                            <div class="flex items-center gap-3">
+                            <div class="flex items-center gap-3 h-full">
                                 <!-- Avatar -->
-                                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-lg">
+                                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-lg flex-shrink-0">
                                     ${(person.nombre_completo || 'S').substring(0, 1).toUpperCase()}
                                 </div>
                                 
                                 <!-- Info -->
                                 <div class="flex-1 min-w-0">
                                     <div class="font-bold text-slate-800 truncate">${person.nombre_completo || 'Sin nombre'}</div>
+                                    <div class="mt-1">
+                                        <span class="staff-pin-chip">PIN <code>${pin || '-'}</code></span>
+                                    </div>
                                     <div class="flex items-center gap-2 flex-wrap">
                                         <span class="text-xs text-slate-400">${person.idVendedor || ''}</span>
                                         ${person.Marca ? `<span class="text-xs text-slate-500">• ${person.Marca}</span>` : ''}

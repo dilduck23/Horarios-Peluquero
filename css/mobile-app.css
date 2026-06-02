@@ -993,7 +993,8 @@ nav.fixed {
 }
 
 .attendance-approve-btn,
-.attendance-lunch-btn {
+.attendance-lunch-btn,
+.attendance-incident-btn {
     min-height: 36px;
     flex: 1 1 132px;
     border-radius: 999px;
@@ -1014,6 +1015,20 @@ nav.fixed {
     background: #2563eb;
 }
 
+.attendance-incident-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    border: 1px solid #e9d5ff;
+    background: #faf5ff;
+    color: #7c3aed;
+}
+
+.attendance-incident-btn .material-icons {
+    font-size: 16px;
+}
+
 @media (min-width: 520px) {
     .attendance-row {
         grid-template-columns: auto minmax(0, 1fr) auto auto;
@@ -1030,7 +1045,8 @@ nav.fixed {
     }
 
     .attendance-approve-btn,
-    .attendance-lunch-btn {
+    .attendance-lunch-btn,
+    .attendance-incident-btn {
         flex: 0 0 auto;
         min-width: 104px;
         padding: 0 16px;
@@ -1311,7 +1327,7 @@ nav.fixed {
 
 .vendor-stat-row {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
     margin: 0 18px 12px;
 }
@@ -1858,6 +1874,10 @@ nav.fixed {
 
 .desktop-content .vendor-filter-stack {
     grid-template-columns: minmax(320px, 1fr) auto;
+}
+
+.desktop-content .vendor-stat-row {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .desktop-content .app-filter-stack > .app-segment,
