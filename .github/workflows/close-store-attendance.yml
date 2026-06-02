@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       fecha:
-        description: "Fecha Ecuador a cerrar, formato YYYY-MM-DD. Vacio usa el dia actual."
+        description: "Fecha Ecuador a cerrar, formato YYYY-MM-DD. Vacio calcula la fecha segura segun hora Ecuador."
         required: false
         type: string
 
@@ -30,10 +30,18 @@ jobs:
           : "${SUPABASE_SERVICE_ROLE_KEY:?Missing SUPABASE_SERVICE_ROLE_KEY secret}"
 
           supabase_url="${SUPABASE_URL%/}"
-          body="{}"
-          if [ -n "${FECHA_INPUT}" ]; then
-            body=$(printf '{"fecha":"%s"}' "${FECHA_INPUT}")
+          close_fecha="${FECHA_INPUT}"
+          if [ -z "${close_fecha}" ]; then
+            ecuador_hour="$(TZ=America/Guayaquil date '+%H')"
+            if [ "${ecuador_hour}" -lt 20 ]; then
+              close_fecha="$(TZ=America/Guayaquil date -d 'yesterday' '+%F')"
+            else
+              close_fecha="$(TZ=America/Guayaquil date '+%F')"
+            fi
           fi
+          body=$(printf '{"fecha":"%s"}' "${close_fecha}")
+
+          echo "Closing store attendance for ${close_fecha}"
 
           curl --silent --show-error --fail \
             --request POST "${supabase_url}/functions/v1/close-store-attendance" \

@@ -13,6 +13,7 @@ const tableSchedule = "Tiendas_Horario";
 const tableUsers = "Tiendas_Usuarios";
 const autoSubject = "FALTA NO APROBADA";
 const autoObservation = "Falta automatica: el punto de venta no aprobo la asistencia antes de las 20:00 America/Guayaquil.";
+const closeCutoffHour = 20;
 const blockedRecipientEmails = new Set([
   "croman@novepsa.com",
   "liglesias@novepsa.com",
@@ -126,15 +127,43 @@ async function authorizedServiceKey(req: Request, supabaseUrl: string) {
   return "";
 }
 
-function ecuadorDateKey(date = new Date()) {
+function ecuadorDateParts(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Guayaquil",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
+    hour: "2-digit",
+    hour12: false,
+    hourCycle: "h23",
   }).formatToParts(date);
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${values.year}-${values.month}-${values.day}`;
+  return {
+    date: `${values.year}-${values.month}-${values.day}`,
+    hour: asInt(values.hour),
+  };
+}
+
+function ecuadorDateKey(date = new Date()) {
+  return ecuadorDateParts(date).date;
+}
+
+function previousDateKey(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
+}
+
+function defaultCloseDateKey(date = new Date()) {
+  const ecuador = ecuadorDateParts(date);
+  return ecuador.hour >= closeCutoffHour ? ecuador.date : previousDateKey(ecuador.date);
+}
+
+function canCloseDate(value: string, date = new Date()) {
+  const ecuador = ecuadorDateParts(date);
+  if (value < ecuador.date) return true;
+  return value === ecuador.date && ecuador.hour >= closeCutoffHour;
 }
 
 async function parseBody(req: Request) {
@@ -324,7 +353,13 @@ Deno.serve(async (req) => {
     const body = await parseBody(req);
     const fecha = /^\d{4}-\d{2}-\d{2}$/.test(asText(body?.fecha))
       ? asText(body.fecha)
-      : ecuadorDateKey();
+      : defaultCloseDateKey();
+    if (!canCloseDate(fecha)) {
+      return jsonResponse({
+        error: "No se puede cerrar la asistencia del dia actual antes de las 20:00 America/Guayaquil.",
+        fecha,
+      }, 409);
+    }
     const now = new Date().toISOString();
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
