@@ -1628,13 +1628,21 @@ nav.fixed {
 
 .desktop-user-card {
     display: flex;
-    align-items: center;
-    gap: 10px;
+    flex-direction: column;
+    gap: 12px;
     margin-top: auto;
     border: 1px solid var(--app-border);
     border-radius: 18px;
     background: #fff;
     padding: 12px;
+}
+
+.desktop-user-profile {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-width: 0;
 }
 
 .desktop-user-card strong,
@@ -1655,6 +1663,30 @@ nav.fixed {
     color: var(--app-muted);
     font-size: 11px;
     font-weight: 700;
+}
+
+.desktop-logout-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 40px;
+    border-radius: 12px;
+    background: #f8f4f0;
+    color: #756c65;
+    font-size: 12px;
+    font-weight: 900;
+    transition: background 0.18s ease, color 0.18s ease;
+}
+
+.desktop-logout-btn:hover {
+    background: rgba(232, 93, 117, 0.13);
+    color: var(--app-rose);
+}
+
+.desktop-logout-btn .material-icons {
+    font-size: 18px;
 }
 
 .desktop-main {

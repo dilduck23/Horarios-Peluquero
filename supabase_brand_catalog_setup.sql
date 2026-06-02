@@ -177,6 +177,7 @@ WITH provider_emails("idProveedor", correo_proveedor) AS (
         (2902, 'djimenez@macronegocios.ec'),
         (3963, 'blancazhongor1@hotmail.com'),
         (4335, 'jmadrigal@sistemacapilarpro.com'),
+        (4347, 'ecuacosmeticventas@hotmail.com'),
         (4375, 'alliguin@lafabril.com.ec'),
         (4427, 'ccedeno@cosmeticosceva.com.ec'),
         (4571, 'Ventasgye@dous.ec'),

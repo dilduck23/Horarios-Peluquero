@@ -87,7 +87,7 @@
                     </a>
                     <div>
                         <h1 class="app-page-title text-xl">Datos</h1>
-                        <p class="app-page-subtitle">Impulsadoras y marcas</p>
+                        <p id="pageSubtitle" class="app-page-subtitle">Impulsadoras y marcas</p>
                         <p id="staffCount" class="text-xs text-slate-400">Cargando...</p>
                     </div>
                 </div>
@@ -103,9 +103,20 @@
             <div class="relative mt-3">
                 <span
                     class="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
-                <input type="text" id="searchInput" placeholder="Buscar por nombre o marca..."
+                <input type="text" id="searchInput" placeholder="Buscar por nombre, marca o proveedor..."
                     oninput="app.onSearchChange()"
                     class="w-full pl-10 pr-4 py-2 bg-slate-100 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400">
+            </div>
+
+            <div class="mt-3 grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1">
+                <button id="staffTabBtn" type="button" onclick="app.setTab('staff')"
+                    class="py-2 px-3 rounded-xl text-xs font-bold transition-colors bg-white text-slate-900 shadow-sm">
+                    Impulsadoras
+                </button>
+                <button id="catalogTabBtn" type="button" onclick="app.setTab('catalog')"
+                    class="py-2 px-3 rounded-xl text-xs font-bold transition-colors text-slate-500">
+                    Marcas/Proveedores
+                </button>
             </div>
         </header>
 
@@ -126,6 +137,7 @@
             state: {
                 roleId: 0,
                 user: null,
+                activeTab: 'staff',
                 searchQuery: '',
                 staff: [],
                 categorias: [],
@@ -165,7 +177,7 @@
                     app.state.categorias = categoriasRes.data || [];
                     app.state.brandCatalog = brandCatalogRes.data || [];
 
-                    app.applyFilters();
+                    app.renderCurrentTab();
 
                 } catch (err) {
                     console.error('Error loading data:', err);
@@ -175,7 +187,47 @@
 
             onSearchChange: () => {
                 app.state.searchQuery = document.getElementById('searchInput').value.toLowerCase().trim();
+                app.renderCurrentTab();
+            },
+
+            setTab: (tab) => {
+                app.state.activeTab = tab;
+                app.state.searchQuery = '';
+                const searchInput = document.getElementById('searchInput');
+                if (searchInput) searchInput.value = '';
+                app.renderCurrentTab();
+            },
+
+            renderCurrentTab: () => {
                 app.applyFilters();
+                app.renderTabs();
+                if (app.state.activeTab === 'catalog') {
+                    app.renderProviderList();
+                    return;
+                }
+                app.renderStaffList();
+            },
+
+            renderTabs: () => {
+                const isCatalog = app.state.activeTab === 'catalog';
+                document.getElementById('pageSubtitle').textContent = isCatalog
+                    ? 'Proveedores, marcas y correos'
+                    : 'Impulsadoras y marcas';
+                document.getElementById('searchInput').placeholder = isCatalog
+                    ? 'Buscar proveedor, marca o correo...'
+                    : 'Buscar por nombre, marca o proveedor...';
+
+                document.getElementById('staffTabBtn').className = isCatalog
+                    ? 'py-2 px-3 rounded-xl text-xs font-bold transition-colors text-slate-500'
+                    : 'py-2 px-3 rounded-xl text-xs font-bold transition-colors bg-white text-slate-900 shadow-sm';
+                document.getElementById('catalogTabBtn').className = isCatalog
+                    ? 'py-2 px-3 rounded-xl text-xs font-bold transition-colors bg-white text-slate-900 shadow-sm'
+                    : 'py-2 px-3 rounded-xl text-xs font-bold transition-colors text-slate-500';
+
+                const addButton = document.getElementById('addStaffBtn');
+                const canAddStaff = app.state.roleId === 1 && !isCatalog;
+                addButton.classList.toggle('hidden', !canAddStaff);
+                addButton.classList.toggle('flex', canAddStaff);
             },
 
             applyFilters: () => {
@@ -189,8 +241,6 @@
                     const codigo = String(s.idVendedor || '').toLowerCase();
                     return name.includes(search) || marca.includes(search) || proveedor.includes(search) || codigo.includes(search);
                 });
-
-                app.renderStaffList();
             },
 
             getCategory: (catId) => {
@@ -261,7 +311,7 @@
                 const initialBrand = brand ? app.brandLabel(brand) : '';
                 const fallbackProvider = app.usefulValue(person.Proveedor);
                 const providerText = brand?.proveedor || fallbackProvider || 'Selecciona una marca registrada';
-                const emailValue = brand?.correo_proveedor || app.usefulValue(person.Correo);
+                const emailValue = brand ? app.getProviderEmail(brand.idProveedor) : app.usefulValue(person.Correo);
 
                 return `
                     <div>
@@ -297,8 +347,9 @@
                     `;
                     providerEl.className = 'mt-2 rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2 text-xs text-emerald-700';
 
-                    if (brand.correo_proveedor) {
-                        emailInput.value = brand.correo_proveedor;
+                    const providerEmail = app.getProviderEmail(brand.idProveedor);
+                    if (providerEmail) {
+                        emailInput.value = providerEmail;
                     }
                 };
 
@@ -330,18 +381,219 @@
                 idMarca: parseInt(brand.idMarca, 10) || null,
                 Proveedor: brand.proveedor || null,
                 idProveedor: parseInt(brand.idProveedor, 10) || null,
-                Correo: correo || brand.correo_proveedor || null
+                Correo: correo || app.getProviderEmail(brand.idProveedor) || brand.correo_proveedor || null
             }),
+
+            getProviderEmail: (idProveedor) => {
+                const providerId = parseInt(idProveedor, 10);
+                if (!providerId) return '';
+
+                const catalogEmail = app.state.brandCatalog
+                    .filter(brand => parseInt(brand.idProveedor, 10) === providerId)
+                    .map(brand => app.usefulValue(brand.correo_proveedor))
+                    .find(Boolean);
+
+                if (catalogEmail) return catalogEmail;
+
+                const staffEmails = [...new Set(app.state.staff
+                    .filter(person => parseInt(person.idProveedor, 10) === providerId)
+                    .map(person => app.usefulValue(person.Correo))
+                    .filter(Boolean)
+                )];
+
+                return staffEmails.length === 1 ? staffEmails[0] : '';
+            },
+
+            providerGroups: () => {
+                const groups = new Map();
+
+                app.state.brandCatalog.forEach(brand => {
+                    const providerId = parseInt(brand.idProveedor, 10);
+                    if (!providerId) return;
+
+                    if (!groups.has(providerId)) {
+                        groups.set(providerId, {
+                            idProveedor: providerId,
+                            proveedor: brand.proveedor || 'Sin proveedor',
+                            correo: app.getProviderEmail(providerId),
+                            marcas: [],
+                            staffEmails: new Set()
+                        });
+                    }
+
+                    groups.get(providerId).marcas.push({
+                        idMarca: brand.idMarca,
+                        marca: brand.marca
+                    });
+                });
+
+                app.state.staff.forEach(person => {
+                    const providerId = parseInt(person.idProveedor, 10);
+                    const email = app.usefulValue(person.Correo);
+                    if (providerId && email && groups.has(providerId)) {
+                        groups.get(providerId).staffEmails.add(email);
+                    }
+                });
+
+                return [...groups.values()]
+                    .map(group => ({
+                        ...group,
+                        marcas: group.marcas.sort((a, b) => String(a.marca).localeCompare(String(b.marca), 'es')),
+                        staffEmails: [...group.staffEmails]
+                    }))
+                    .sort((a, b) => a.proveedor.localeCompare(b.proveedor, 'es'));
+            },
 
             syncProviderEmail: async (idProveedor, correo) => {
                 if (!idProveedor || !correo) return;
+                const timestamp = new Date().toISOString();
                 const { error } = await db.from(StaffPlanner.tables.brandCatalog)
-                    .update({ correo_proveedor: correo, actualizado_en: new Date().toISOString() })
+                    .update({ correo_proveedor: correo, actualizado_en: timestamp })
                     .eq('idProveedor', idProveedor);
 
                 if (error) {
                     console.warn('No se pudo sincronizar correo del proveedor:', error);
+                    return;
                 }
+
+                const { error: staffError } = await db.from('Tiendas_Impulsadoras')
+                    .update({ Correo: correo })
+                    .eq('idProveedor', idProveedor);
+
+                if (staffError) {
+                    console.warn('No se pudo sincronizar correo en impulsadoras:', staffError);
+                }
+
+                app.state.brandCatalog = app.state.brandCatalog.map(brand => (
+                    parseInt(brand.idProveedor, 10) === parseInt(idProveedor, 10)
+                        ? { ...brand, correo_proveedor: correo, actualizado_en: timestamp }
+                        : brand
+                ));
+
+                app.state.staff = app.state.staff.map(person => (
+                    parseInt(person.idProveedor, 10) === parseInt(idProveedor, 10)
+                        ? { ...person, Correo: correo }
+                        : person
+                ));
+            },
+
+            renderProviderList: () => {
+                const container = document.getElementById('staffList');
+                const search = app.state.searchQuery;
+                const allProviders = app.providerGroups();
+                const providers = allProviders.filter(provider => {
+                    if (!search) return true;
+                    const haystack = [
+                        provider.proveedor,
+                        provider.idProveedor,
+                        provider.correo,
+                        provider.marcas.map(brand => `${brand.marca} ${brand.idMarca}`).join(' '),
+                        provider.staffEmails.join(' ')
+                    ].join(' ').toLowerCase();
+                    return haystack.includes(search);
+                });
+
+                document.getElementById('staffCount').textContent = search
+                    ? `${providers.length} de ${allProviders.length} proveedores`
+                    : `${allProviders.length} proveedores`;
+
+                if (providers.length === 0) {
+                    container.innerHTML = `
+                        <div class="text-center py-16">
+                            <span class="material-icons text-5xl text-slate-300 mb-3">inventory_2</span>
+                            <p class="text-slate-400 font-medium">No se encontraron proveedores</p>
+                        </div>`;
+                    return;
+                }
+
+                container.innerHTML = `
+                    <div class="p-4 space-y-3">
+                        ${providers.map(provider => {
+                            const brandsPreview = provider.marcas.slice(0, 8).map(brand => `
+                                <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-600">
+                                    ${app.escapeHtml(brand.marca)} #${app.escapeHtml(brand.idMarca)}
+                                </span>
+                            `).join('');
+                            const extraBrands = provider.marcas.length > 8
+                                ? `<span class="text-[11px] font-bold text-slate-400">+${provider.marcas.length - 8} marcas</span>`
+                                : '';
+                            const existingEmails = provider.staffEmails.filter(email => email !== provider.correo);
+
+                            return `
+                                <article class="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
+                                    <div class="flex items-start gap-3">
+                                        <div class="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center font-black">
+                                            ${(provider.proveedor || 'P').substring(0, 1).toUpperCase()}
+                                        </div>
+                                        <div class="flex-1 min-w-0">
+                                            <div class="font-black text-slate-800 leading-tight">${app.escapeHtml(provider.proveedor)}</div>
+                                            <div class="text-xs text-slate-400">ID proveedor ${app.escapeHtml(provider.idProveedor)} · ${provider.marcas.length} marcas</div>
+                                        </div>
+                                    </div>
+                                    <div class="mt-3 flex flex-wrap gap-1.5">
+                                        ${brandsPreview}
+                                        ${extraBrands}
+                                    </div>
+                                    <div class="mt-3">
+                                        <label class="block text-xs font-bold text-slate-500 mb-1">Correo del proveedor</label>
+                                        <div class="flex gap-2">
+                                            <input id="provider-email-${provider.idProveedor}" type="email" class="min-w-0 flex-1 p-3 border rounded-xl text-sm" value="${app.escapeHtml(provider.correo)}" placeholder="correo@proveedor.com">
+                                            <button type="button" onclick="app.saveProviderEmail(${provider.idProveedor})" class="px-3 rounded-xl bg-[#E85D75] text-white font-bold text-xs">
+                                                Guardar
+                                            </button>
+                                        </div>
+                                        ${existingEmails.length ? `<p class="mt-2 text-[11px] text-amber-600">Correos usados actualmente: ${app.escapeHtml(existingEmails.join(', '))}</p>` : ''}
+                                    </div>
+                                </article>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+            },
+
+            saveProviderEmail: async (idProveedor) => {
+                const input = document.getElementById(`provider-email-${idProveedor}`);
+                const correo = (input?.value || '').trim();
+
+                if (!correo || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) {
+                    Swal.fire('Correo inválido', 'Escribe un correo válido para el proveedor.', 'warning');
+                    return;
+                }
+
+                Swal.fire({
+                    title: 'Guardando correo',
+                    allowOutsideClick: false,
+                    didOpen: () => Swal.showLoading()
+                });
+
+                await app.syncProviderEmail(idProveedor, correo);
+                Swal.fire({ icon: 'success', title: 'Correo actualizado', timer: 1400, showConfirmButton: false });
+                app.renderCurrentTab();
+            },
+
+            generatePin: () => {
+                const existingPins = new Set(app.state.staff.map(person => app.usefulValue(person.pin)).filter(Boolean));
+                for (let attempt = 0; attempt < 100; attempt += 1) {
+                    let value;
+                    if (window.crypto?.getRandomValues) {
+                        const buffer = new Uint32Array(1);
+                        window.crypto.getRandomValues(buffer);
+                        value = String(buffer[0] % 10000).padStart(4, '0');
+                    } else {
+                        value = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+                    }
+                    if (!existingPins.has(value)) return value;
+                }
+
+                return String(Date.now() % 10000).padStart(4, '0');
+            },
+
+            refreshGeneratedPin: () => {
+                const input = document.getElementById('swal-pin');
+                const display = document.getElementById('swal-pin-display');
+                const pin = app.generatePin();
+                if (input) input.value = pin;
+                if (display) display.textContent = pin;
             },
 
             renderStaffList: () => {
@@ -578,6 +830,7 @@
                 const categoryOptions = app.state.categorias.map(c =>
                     `<option value="${c.id}">${c.descripcion}</option>`
                 ).join('');
+                const generatedPin = app.generatePin();
 
                 const { value: formValues } = await Swal.fire({
                     title: 'Agregar Personal',
@@ -592,8 +845,14 @@
                                 <input type="text" id="swal-codigo" class="w-full p-3 border rounded-xl" placeholder="Código de venta" inputmode="numeric">
                             </div>
                             <div>
-                                <label class="block text-xs font-bold text-slate-500 mb-1">PIN *</label>
-                                <input type="text" id="swal-pin" class="w-full p-3 border rounded-xl" placeholder="4 dígitos" maxlength="4" inputmode="numeric">
+                                <label class="block text-xs font-bold text-slate-500 mb-1">PIN automático</label>
+                                <input type="hidden" id="swal-pin" value="${generatedPin}">
+                                <div class="flex items-center gap-2">
+                                    <div id="swal-pin-display" class="flex-1 rounded-xl border border-slate-200 bg-slate-50 p-3 font-mono text-lg font-black tracking-[0.3em] text-slate-800">${generatedPin}</div>
+                                    <button type="button" onclick="app.refreshGeneratedPin()" class="w-12 h-12 rounded-xl bg-slate-900 text-white flex items-center justify-center">
+                                        <span class="material-icons text-base">sync</span>
+                                    </button>
+                                </div>
                             </div>
                             ${app.brandFormHtml()}
                             <div>
@@ -617,7 +876,7 @@
                         const brandSelection = app.readBrandSelection();
 
                         if (!nombre || !/^\d+$/.test(codigo) || !/^\d{4}$/.test(pin)) {
-                            Swal.showValidationMessage('Nombre, código numérico y PIN de 4 dígitos son requeridos');
+                            Swal.showValidationMessage('Nombre y código numérico son requeridos. El PIN se genera automáticamente.');
                             return false;
                         }
 

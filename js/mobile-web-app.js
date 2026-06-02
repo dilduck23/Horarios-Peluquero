@@ -29,6 +29,8 @@
     const promoterAliases = [
         { brand: 'DMUJERES', from: 'SILVANA', to: 'SILVIA' }
     ];
+    const automaticAbsenceSubject = 'FALTA NO APROBADA';
+    const attendanceCloseCutoffHour = 20;
     const desktopMediaQuery = '(min-width: 981px)';
     let layoutMode = 'mobile';
     let layoutPreference = 'auto';
@@ -154,6 +156,19 @@
         const [year, month, day] = String(value).slice(0, 10).split('-').map(Number);
         if (!year || !month || !day) return null;
         return new Date(year, month - 1, day);
+    }
+
+    function closeCutoffInstant(fecha) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(asText(fecha))) return null;
+        const date = new Date(`${fecha}T${String(attendanceCloseCutoffHour).padStart(2, '0')}:00:00-05:00`);
+        return Number.isFinite(date.getTime()) ? date : null;
+    }
+
+    function isPrematureAutomaticAbsence(incident, schedule) {
+        if (asText(incident?.asunto).toUpperCase() !== automaticAbsenceSubject) return false;
+        const cutoff = closeCutoffInstant(asText(schedule?.fecha));
+        const createdAt = incident?.creado_en ? new Date(incident.creado_en) : null;
+        return Boolean(cutoff && createdAt && Number.isFinite(createdAt.getTime()) && createdAt < cutoff);
     }
 
     function monthStart(date) {
@@ -473,11 +488,17 @@
                         </div>
                         ${nav(active)}
                         <div class="desktop-user-card">
-                            <span class="store-badge-ui" style="width:42px;height:42px;background:#111827;color:#fff">${h(initials(asText(user.user?.email, 'U'), 1))}</span>
-                            <span class="min-w-0">
-                                <strong>${h(user.roleName)}</strong>
-                                <small>${h(asText(user.user?.email, 'Usuario'))}</small>
-                            </span>
+                            <div class="desktop-user-profile">
+                                <span class="store-badge-ui" style="width:42px;height:42px;background:#111827;color:#fff">${h(initials(asText(user.user?.email, 'U'), 1))}</span>
+                                <span class="min-w-0">
+                                    <strong>${h(user.roleName)}</strong>
+                                    <small>${h(asText(user.user?.email, 'Usuario'))}</small>
+                                </span>
+                            </div>
+                            <button class="desktop-logout-btn" type="button" onclick="mobileApp.logout()">
+                                <span class="material-icons">logout</span>
+                                <span>Cerrar sesión</span>
+                            </button>
                         </div>
                     </aside>
                     <section class="desktop-main">
@@ -2732,6 +2753,7 @@
                     created: parseDate(asText(incident.creado_en).slice(0, 10))
                 };
             }).filter((item) => {
+                if (isPrematureAutomaticAbsence(item.raw, item.schedule)) return false;
                 if (this.personFilter && item.personName !== this.personFilter) return false;
                 if (this.subjectFilter && asText(item.raw.asunto) !== this.subjectFilter) return false;
                 if (this.from && item.created && item.created < parseDate(this.from)) return false;
@@ -2763,9 +2785,10 @@
         filters() {
             const filteredPeople = [...new Set(this.incidents.map((incident) => {
                 const schedule = byId(this.schedules, incident.id_horario);
+                if (isPrematureAutomaticAbsence(incident, schedule)) return '';
                 const person = byId(this.promoters, schedule?.impulsadora_id);
                 return person ? promoterDisplayName(person) : 'Desconocido';
-            }))].sort();
+            }).filter(Boolean))].sort();
             const subjects = ['FALTA NO APROBADA', 'FALTA INJUSTIFICADA', 'FALTA JUSTIFICADA', 'IMPUNTUALIDAD', 'PRESENTACION', 'ACTITUD', 'QUEJA DE CLIENTE', 'OTROS'];
             return `
                 <section class="calendar-card app-card mb-3">

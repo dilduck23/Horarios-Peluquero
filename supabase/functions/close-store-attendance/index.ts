@@ -160,10 +160,21 @@ function defaultCloseDateKey(date = new Date()) {
   return ecuador.hour >= closeCutoffHour ? ecuador.date : previousDateKey(ecuador.date);
 }
 
+function closeCutoffInstant(value: string) {
+  return new Date(`${value}T${String(closeCutoffHour).padStart(2, "0")}:00:00-05:00`);
+}
+
 function canCloseDate(value: string, date = new Date()) {
-  const ecuador = ecuadorDateParts(date);
-  if (value < ecuador.date) return true;
-  return value === ecuador.date && ecuador.hour >= closeCutoffHour;
+  const cutoff = closeCutoffInstant(value);
+  return Number.isFinite(cutoff.getTime()) && date.getTime() >= cutoff.getTime();
+}
+
+function happenedBeforeCloseCutoff(fecha: string, value: unknown) {
+  const cutoff = closeCutoffInstant(fecha);
+  const happenedAt = new Date(asText(value));
+  return Number.isFinite(cutoff.getTime())
+    && Number.isFinite(happenedAt.getTime())
+    && happenedAt < cutoff;
 }
 
 async function parseBody(req: Request) {
@@ -358,6 +369,7 @@ Deno.serve(async (req) => {
       return jsonResponse({
         error: "No se puede cerrar la asistencia del dia actual antes de las 20:00 America/Guayaquil.",
         fecha,
+        cierre_permitido_desde: closeCutoffInstant(fecha).toISOString(),
       }, 409);
     }
     const now = new Date().toISOString();
@@ -380,7 +392,7 @@ Deno.serve(async (req) => {
 
     const [attendanceResult, incidentResult] = await Promise.all([
       supabase.from(tableAttendance).select("*").in("horario_id", scheduleIds),
-      supabase.from(tableIncidents).select("id,id_horario,asunto").in("id_horario", scheduleIds).eq("asunto", autoSubject),
+      supabase.from(tableIncidents).select("id,id_horario,asunto,creado_en").in("id_horario", scheduleIds).eq("asunto", autoSubject),
     ]);
     if (attendanceResult.error) throw attendanceResult.error;
     if (incidentResult.error) throw incidentResult.error;
@@ -388,18 +400,56 @@ Deno.serve(async (req) => {
     const attendanceBySchedule = new Map<number, Record<string, unknown>>();
     (attendanceResult.data || []).forEach((row) => attendanceBySchedule.set(asInt(recordValue(row, "horario_id")), row));
 
-    const incidentBySchedule = new Map<number, Record<string, unknown>>();
-    (incidentResult.data || []).forEach((row) => incidentBySchedule.set(asInt(recordValue(row, "id_horario")), row));
-
     let approved = 0;
     let generated = 0;
     let emailed = 0;
     let emailErrors = 0;
     let skipped = 0;
+    let cleanedPremature = 0;
+
+    const scheduleDateById = new Map<number, string>();
+    scheduleRows.forEach((row) => scheduleDateById.set(asInt(recordValue(row, "id")), asText(recordValue(row, "fecha"))));
+
+    const validIncidentRows: Record<string, unknown>[] = [];
+    const prematureIncidentIds: number[] = [];
+    (incidentResult.data || []).forEach((row) => {
+      const horarioId = asInt(recordValue(row, "id_horario"));
+      const shiftDate = scheduleDateById.get(horarioId) || fecha;
+      if (happenedBeforeCloseCutoff(shiftDate, recordValue(row, "creado_en"))) {
+        const incidentId = asInt(recordValue(row, "id"));
+        if (incidentId) prematureIncidentIds.push(incidentId);
+        return;
+      }
+      validIncidentRows.push(row);
+    });
+
+    if (prematureIncidentIds.length) {
+      const { error: deletePrematureError } = await supabase
+        .from(tableIncidents)
+        .delete()
+        .in("id", prematureIncidentIds);
+      if (deletePrematureError) throw deletePrematureError;
+      cleanedPremature += prematureIncidentIds.length;
+    }
+
+    const incidentBySchedule = new Map<number, Record<string, unknown>>();
+    validIncidentRows.forEach((row) => incidentBySchedule.set(asInt(recordValue(row, "id_horario")), row));
 
     for (const schedule of scheduleRows) {
       const horarioId = asInt(recordValue(schedule, "id"));
-      const existingAttendance = attendanceBySchedule.get(horarioId);
+      let existingAttendance = attendanceBySchedule.get(horarioId);
+      if (
+        asText(recordValue(existingAttendance, "estado")) === "falta_generada"
+        && happenedBeforeCloseCutoff(asText(recordValue(schedule, "fecha")), recordValue(existingAttendance, "cerrado_en"))
+      ) {
+        const incidentId = asInt(recordValue(existingAttendance, "falta_id"));
+        if (incidentId) {
+          await supabase.from(tableIncidents).delete().eq("id", incidentId);
+        }
+        await supabase.from(tableAttendance).delete().eq("horario_id", horarioId).eq("estado", "falta_generada");
+        existingAttendance = undefined;
+        cleanedPremature += 1;
+      }
 
       if (asText(recordValue(existingAttendance, "estado")) === "aprobada") {
         approved += 1;
@@ -505,6 +555,7 @@ Deno.serve(async (req) => {
       emailed,
       emailErrors,
       skipped,
+      cleanedPremature,
     };
 
     if (emailErrors > 0) {
