@@ -9,5 +9,8 @@ verify_jwt = false
 [functions.mark-store-lunch]
 verify_jwt = true
 
+[functions.mark-store-exit]
+verify_jwt = true
+
 [functions.server-clock]
 verify_jwt = false

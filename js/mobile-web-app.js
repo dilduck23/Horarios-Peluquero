@@ -153,6 +153,20 @@
         return dateKeyInGuayaquil();
     }
 
+    function pageParams() {
+        return new URLSearchParams(window.location.search || '');
+    }
+
+    function storeViewUrl(storeId, fecha) {
+        const params = new URLSearchParams();
+        const id = asInt(storeId, null);
+        const key = asText(fecha).slice(0, 10);
+        if (id) params.set('store', String(id));
+        if (/^\d{4}-\d{2}-\d{2}$/.test(key)) params.set('date', key);
+        const query = params.toString();
+        return `calendario-tienda.html${query ? `?${query}` : ''}`;
+    }
+
     function timeInGuayaquil(value) {
         if (!value) return '';
         try {
@@ -165,6 +179,32 @@
         } catch (error) {
             return asText(value).slice(11, 16);
         }
+    }
+
+    function dateTimeInGuayaquil(value) {
+        if (!value) return '';
+        try {
+            return new Intl.DateTimeFormat('es-EC', {
+                timeZone: 'America/Guayaquil',
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            }).format(new Date(value));
+        } catch (error) {
+            return asText(value);
+        }
+    }
+
+    function attendanceLunchMinutes(attendance) {
+        const stored = asInt(attendance?.almuerzo_minutos, NaN);
+        if (Number.isFinite(stored)) return stored;
+        const out = attendance?.almuerzo_salida_en ? new Date(attendance.almuerzo_salida_en).getTime() : NaN;
+        const back = attendance?.almuerzo_ingreso_en ? new Date(attendance.almuerzo_ingreso_en).getTime() : NaN;
+        if (!Number.isFinite(out) || !Number.isFinite(back) || back < out) return null;
+        return Math.max(0, Math.round((back - out) / 60000));
     }
 
     function parseDate(value) {
@@ -720,28 +760,36 @@
             if (options.onlyAssigned && !(grouped[day] || []).length) continue;
             days.push(date);
         }
+        const title = options.title || 'Listado desde hoy';
+        const summary = options.collapsible ? `
+            <summary class="agenda-toggle">
+                <span>
+                    <strong>${h(title)}</strong>
+                    <small>${days.length} ${days.length === 1 ? 'día' : 'días'}</small>
+                </span>
+                <span class="material-icons agenda-toggle-icon">expand_more</span>
+            </summary>` : '';
+        const wrap = (content) => options.collapsible
+            ? `<details class="agenda-list agenda-collapsible">${summary}<div class="agenda-body">${content}</div></details>`
+            : `<section class="agenda-list"><h2>${h(title)}</h2>${content}</section>`;
         if (!days.length) {
-            return `<section class="agenda-list"><h2>Listado desde hoy</h2>${emptyState(options.emptyIcon, options.emptyTitle, options.emptyMessage)}</section>`;
+            return wrap(emptyState(options.emptyIcon, options.emptyTitle, options.emptyMessage));
         }
-        return `
-            <section class="agenda-list">
-                <h2>Listado desde hoy</h2>
-                ${days.map((date) => {
-                    const dayRows = grouped[date.getDate()] || [];
-                    return `
-                        <article class="agenda-day-card app-card">
-                            <div class="agenda-day-head">
-                                <div class="agenda-day-box">${date.getDate()}</div>
-                                <div class="flex-1 min-w-0">
-                                    <div class="app-list-title">${h(dayNamesFull[date.getDay()])}</div>
-                                    <div class="app-list-subtitle">${h(options.daySubtitle(dayRows.length))}</div>
-                                </div>
-                                ${options.addHandler ? `<button class="planner-icon-btn" onclick="${options.addHandler}('${dateKey(date)}')"><span class="material-icons">add_circle_outline</span></button>` : ''}
-                            </div>
-                            ${dayRows.length ? dayRows.map(options.row).join('') : '<p class="app-list-subtitle">Sin personal asignado.</p>'}
-                        </article>`;
-                }).join('')}
-            </section>`;
+        return wrap(days.map((date) => {
+            const dayRows = grouped[date.getDate()] || [];
+            return `
+                <article class="agenda-day-card app-card">
+                    <div class="agenda-day-head">
+                        <div class="agenda-day-box">${date.getDate()}</div>
+                        <div class="flex-1 min-w-0">
+                            <div class="app-list-title">${h(dayNamesFull[date.getDay()])}</div>
+                            <div class="app-list-subtitle">${h(options.daySubtitle(dayRows.length))}</div>
+                        </div>
+                        ${options.addHandler ? `<button class="planner-icon-btn" onclick="${options.addHandler}('${dateKey(date)}')"><span class="material-icons">add_circle_outline</span></button>` : ''}
+                    </div>
+                    ${dayRows.length ? dayRows.map(options.row).join('') : '<p class="app-list-subtitle">Sin personal asignado.</p>'}
+                </article>`;
+        }).join(''));
     }
 
     function statCard(label, value, icon, color = '#E85D75') {
@@ -751,6 +799,36 @@
     function progressBar(value, color) {
         const pct = Math.max(0, Math.min(100, Math.round(value * 100)));
         return `<div class="h-2 rounded-full bg-[#e9e2dd] overflow-hidden"><div class="h-full rounded-full" style="width:${pct}%;background:${h(color)}"></div></div>`;
+    }
+
+    const internalGreenTones = [
+        { bg: '#2F9E8F', border: '#23867A', avatar: '#0F766E', text: '#FFFFFF' },
+        { bg: '#43B39E', border: '#2D9B89', avatar: '#047857', text: '#FFFFFF' },
+        { bg: '#64C49A', border: '#43A979', avatar: '#15803D', text: '#0B3328' },
+        { bg: '#7ACF8B', border: '#55B86B', avatar: '#166534', text: '#0B3328' },
+        { bg: '#2DAE75', border: '#16845A', avatar: '#065F46', text: '#FFFFFF' },
+        { bg: '#58BC6C', border: '#389B50', avatar: '#166534', text: '#0B3328' },
+        { bg: '#36A98D', border: '#21866F', avatar: '#0F766E', text: '#FFFFFF' },
+        { bg: '#8AD79C', border: '#65BE77', avatar: '#14532D', text: '#0B3328' }
+    ];
+
+    function stableToneIndex(value) {
+        const text = asText(value);
+        let hash = 0;
+        for (let index = 0; index < text.length; index += 1) {
+            hash = ((hash << 5) - hash) + text.charCodeAt(index);
+            hash |= 0;
+        }
+        return Math.abs(hash) % internalGreenTones.length;
+    }
+
+    function internalPersonTone(person, row) {
+        const key = asText(person?.id || row?.personal_id || person?.nombre_completo || row?.id);
+        return internalGreenTones[stableToneIndex(key || 'interno')];
+    }
+
+    function internalPersonInitials(person) {
+        return initials(asText(person?.nombre_completo, 'P'), 2);
     }
 
     function internalTypeColor(type) {
@@ -927,18 +1005,28 @@
             this.promoterRows = [];
             this.internalRows = [];
             this.monthlyRows = [];
+            this.attendanceRows = [];
+            this.incidentRows = [];
+            this.brandCatalog = [];
         }
 
         async load() {
             await this.loadBase();
-            const [promoterRows, internalRows, monthlyRows] = await Promise.all([
+            const [promoterRows, internalRows, monthlyRows, attendanceRows] = await Promise.all([
                 this.promoterAssignments(this.selected),
                 this.internalAssignments(this.selected),
-                this.monthlyPromoterAssignments(this.selected)
+                this.monthlyPromoterAssignments(this.selected),
+                this.attendanceForKey(dateKey(this.selected))
             ]);
             this.promoterRows = promoterRows;
             this.internalRows = internalRows;
             this.monthlyRows = monthlyRows;
+            this.attendanceRows = attendanceRows;
+            const scheduleIds = promoterRows.map((row) => asInt(row.id)).filter(Boolean);
+            this.incidentRows = scheduleIds.length
+                ? (await rows(db.from(tables.incidences).select('*').in('id_horario', scheduleIds).order('creado_en', { ascending: false })))
+                    .filter((incident) => asText(incident.asunto).toUpperCase() !== automaticAbsenceSubject)
+                : [];
         }
 
         shouldScopeToStore() {
@@ -946,6 +1034,10 @@
         }
 
         canManagePlanner() {
+            return this.session.isManager;
+        }
+
+        canEditVendor() {
             return this.session.isManager;
         }
 
@@ -1098,7 +1190,7 @@
                         <button class="${this.filter === 'impulso' ? 'active' : ''}" onclick="mobileApp.setFilter('impulso')">Impulso</button>
                         <button class="${this.filter === 'interno' ? 'active' : ''}" onclick="mobileApp.setFilter('interno')">Interno</button>
                     </div>
-                    <label class="app-search"><span class="material-icons">search</span><input data-search-input="planner-daily" value="${h(this.search)}" oninput="mobileApp.setSearch(this.value, this)" placeholder="Buscar persona, marca o tienda"></label>
+                    <label class="app-search"><span class="material-icons">search</span><input data-search-input="planner-daily" value="${h(this.search)}" oninput="mobileApp.setSearch(this.value, this)" placeholder="Buscar persona, marca, proveedor o tienda"></label>
                 </section>`;
         }
 
@@ -1122,8 +1214,8 @@
                 .filter((entry) => {
                     if (this.hasStoreFocus() && !this.focusedStoreIds.includes(entry.storeId)) return false;
                     if (!needle) return true;
-                    const haystack = `${promoterDisplayName(entry.person)} ${asText(entry.person?.Marca)} ${asText(entry.store?.nombre_display)} ${asText(entry.row.tipo)}`.toLowerCase();
-                    return haystack.includes(needle);
+                    const haystack = `${promoterDisplayName(entry.person)} ${asText(entry.person?.Marca)} ${asText(entry.person?.Proveedor)} ${asText(entry.store?.nombre_display)} ${asText(entry.row.tipo)}`;
+                    return normalizeSearch(haystack).includes(normalizeSearch(needle));
                 })
                 .sort((a, b) => {
                     const storeCompare = asText(a.store?.nombre_display).localeCompare(asText(b.store?.nombre_display));
@@ -1157,21 +1249,138 @@
                 }).join('');
         }
 
+        plannerAttendanceForSchedule(scheduleId) {
+            return this.attendanceRows.find((row) => asInt(row.horario_id) === asInt(scheduleId)) || null;
+        }
+
+        plannerIncidentsForSchedule(scheduleId) {
+            return this.incidentRows.filter((row) => asInt(row.id_horario) === asInt(scheduleId));
+        }
+
+        plannerAttendanceState(attendance) {
+            const state = asText(attendance?.estado, '');
+            if (state === 'aprobada') return { label: 'Aprobada', className: 'approved', icon: 'check_circle' };
+            if (state === 'falta_generada') return { label: 'Falta generada', className: 'closed', icon: 'warning_amber' };
+            if (state) return { label: 'Pendiente', className: 'pending', icon: 'schedule' };
+            return { label: 'Pendiente', className: 'pending', icon: 'schedule' };
+        }
+
+        plannerStatusBadges(entry) {
+            if (entry.kind !== 'impulso') return '';
+            const attendance = this.plannerAttendanceForSchedule(entry.row.id);
+            const attendanceState = this.plannerAttendanceState(attendance);
+            const incidents = this.plannerIncidentsForSchedule(entry.row.id);
+            const attendanceLabel = attendanceState
+                ? `${attendanceState.label}${attendance?.aprobado_en ? ` - ${timeInGuayaquil(attendance.aprobado_en)}` : ''}`
+                : '';
+            const attendanceBadge = attendanceState ? `
+                <button type="button" class="planner-status-badge icon-only ${attendanceState.className}" title="${h(attendanceLabel)}" aria-label="${h(attendanceLabel)}" onclick="mobileApp.showPlannerAttendance(${asInt(entry.row.id)})">
+                    <span class="material-icons">${h(attendanceState.icon)}</span>
+                </button>` : '';
+            const incidentBadge = incidents.length ? `
+                <button type="button" class="planner-status-badge incident" title="Ver incidencias reportadas" onclick="mobileApp.showPlannerIncidents(${asInt(entry.row.id)})">
+                    <span class="material-icons">report_problem</span>
+                    <span>${incidents.length}</span>
+                </button>` : '';
+            return [attendanceBadge, incidentBadge].filter(Boolean).join('');
+        }
+
         entryTile(entry) {
             const isPromoter = entry.kind === 'impulso';
             const color = isPromoter ? colorFromStore(entry.store) : internalTypeColor(entry.row.tipo);
             const subtitle = isPromoter
                 ? `${asText(entry.person?.Marca, 'Sin marca')} - ${asText(entry.category?.descripcion, 'Sin cat.')}`
                 : `${asText(entry.row.tipo, 'TRABAJO')} - ${asText(entry.store?.nombre_display, 'Tienda')}`;
+            const statusBadges = this.plannerStatusBadges(entry);
+            if (isPromoter) {
+                return `
+                    <article class="app-list-card app-card daily-entry-card">
+                        <button type="button" class="daily-entry-main" onclick="mobileApp.openEntryActions('${entry.kind}', ${asInt(entry.row.id)})">
+                            <div class="app-list-card-row">
+                                ${storeBadge(entry.store, 48)}
+                                <span class="flex-1 min-w-0"><span class="app-list-title truncate block">${h(promoterDisplayName(entry.person))}</span><span class="app-list-subtitle truncate block">${h(subtitle)}</span></span>
+                                ${miniChip('Impulso', color)}
+                                <span class="material-icons text-slate-400">chevron_right</span>
+                            </div>
+                        </button>
+                        ${statusBadges ? `<span class="daily-entry-badges">${statusBadges}</span>` : ''}
+                    </article>`;
+            }
             return `
                 <button class="app-list-card app-card" onclick="mobileApp.openEntryActions('${entry.kind}', ${asInt(entry.row.id)})">
                     <div class="app-list-card-row">
-                        ${isPromoter ? storeBadge(entry.store, 48) : `<span class="store-badge-ui" style="width:48px;height:48px;background:${color}2e;color:${color}"><span class="material-icons">inventory_2</span></span>`}
-                        <span class="flex-1 min-w-0"><span class="app-list-title truncate block">${h(isPromoter ? promoterDisplayName(entry.person) : asText(entry.person?.nombre_completo, 'Personal'))}</span><span class="app-list-subtitle truncate block">${h(subtitle)}</span></span>
-                        ${miniChip(isPromoter ? 'Impulso' : 'Interno', color)}
+                        <span class="store-badge-ui" style="width:48px;height:48px;background:${color}2e;color:${color}"><span class="material-icons">inventory_2</span></span>
+                        <span class="flex-1 min-w-0"><span class="app-list-title truncate block">${h(asText(entry.person?.nombre_completo, 'Personal'))}</span><span class="app-list-subtitle truncate block">${h(subtitle)}</span></span>
+                        ${miniChip('Interno', color)}
                         <span class="material-icons text-slate-400">chevron_right</span>
                     </div>
                 </button>`;
+        }
+
+        showPlannerAttendance(id) {
+            const row = this.promoterRows.find((item) => asInt(item.id) === asInt(id));
+            const attendance = this.plannerAttendanceForSchedule(id);
+            if (!row) {
+                Swal.fire('Sin turno', 'No se encontró el turno seleccionado.', 'info');
+                return;
+            }
+            const person = byId(this.promoters, row.impulsadora_id);
+            const store = byId(this.stores, row.tienda_id);
+            const state = this.plannerAttendanceState(attendance);
+            const lunchMinutes = attendanceLunchMinutes(attendance);
+            const field = (label, value) => `
+                <div class="attendance-detail-field">
+                    <span>${h(label)}</span>
+                    <strong>${h(value || '-')}</strong>
+                </div>`;
+            Swal.fire({
+                title: person ? promoterDisplayName(person) : 'Asistencia',
+                html: `
+                    <div class="attendance-detail-modal text-left">
+                        <p class="app-list-subtitle mb-3">${h(asText(store?.nombre_display, 'Tienda'))} - ${h(asText(row.fecha))}</p>
+                        ${field('Estado', state.label)}
+                        ${field('Aprobación / llegada', timeInGuayaquil(attendance?.aprobado_en))}
+                        ${field('Salida al almuerzo', timeInGuayaquil(attendance?.almuerzo_salida_en))}
+                        ${field('Entrada del almuerzo', timeInGuayaquil(attendance?.almuerzo_ingreso_en))}
+                        ${field('Tiempo de almuerzo', lunchMinutes === null ? '' : `${lunchMinutes} min`)}
+                        ${field('Salida de jornada', timeInGuayaquil(attendance?.salida_en))}
+                        ${field('Cierre', dateTimeInGuayaquil(attendance?.cerrado_en))}
+                    </div>`,
+                confirmButtonText: 'Ir a Tienda',
+                showCloseButton: true
+            }).then((result) => {
+                if (result.isConfirmed) this.goToStoreFromPlanner(row);
+            });
+        }
+
+        goToStoreFromPlanner(row) {
+            if (this.session.isStoreUser && asInt(row?.tienda_id) !== asInt(this.session.storeId)) {
+                Swal.fire('Punto no vinculado', 'Tu usuario de tienda solo puede abrir su propio punto de venta.', 'info');
+                return;
+            }
+            window.location.href = storeViewUrl(row?.tienda_id, row?.fecha);
+        }
+
+        showPlannerIncidents(id) {
+            const row = this.promoterRows.find((item) => asInt(item.id) === asInt(id));
+            const incidents = this.plannerIncidentsForSchedule(id);
+            if (!row || !incidents.length) {
+                Swal.fire('Sin incidencias', 'No hay incidencias reportadas para este turno.', 'info');
+                return;
+            }
+            const person = byId(this.promoters, row.impulsadora_id);
+            const incidentRows = incidents.map((incident) => `
+                <article class="attendance-incident-detail">
+                    <strong>${h(asText(incident.asunto, 'Incidencia'))}</strong>
+                    <small>${h(dateTimeInGuayaquil(incident.creado_en))}</small>
+                    <p>${h(asText(incident.observacion, 'Sin observación'))}</p>
+                </article>`).join('');
+            Swal.fire({
+                title: person ? promoterDisplayName(person) : 'Incidencias',
+                html: `<div class="grid gap-2 text-left">${incidentRows}</div>`,
+                showConfirmButton: false,
+                showCloseButton: true
+            });
         }
 
         renderMonthly() {
@@ -1199,7 +1408,7 @@
                         <button class="${this.zoneFilter === '1' ? 'active' : ''}" onclick="mobileApp.setZone('1')">Zona A</button>
                         <button class="${this.zoneFilter === '2' ? 'active' : ''}" onclick="mobileApp.setZone('2')">Zona B</button>
                     </div>
-                    <label class="app-search"><span class="material-icons">search</span><input data-search-input="planner-side" value="${h(this.search)}" oninput="mobileApp.setSearch(this.value, this)" placeholder="Buscar persona o marca"></label>
+                    <label class="app-search"><span class="material-icons">search</span><input data-search-input="planner-side" value="${h(this.search)}" oninput="mobileApp.setSearch(this.value, this)" placeholder="Buscar persona, marca o proveedor"></label>
                     <button class="mini-chip justify-center" onclick="mobileApp.toggleOnlyAssigned()">${this.onlyAssigned ? 'Solo con turnos' : 'Todos'}</button>
                 </section>
                 ${this.sideTable()}
@@ -1217,7 +1426,7 @@
                     if (this.zoneFilter && String(asInt(category?.id_zona)) !== this.zoneFilter) return false;
                     if (this.onlyAssigned && !rowPersonIds.has(asInt(person.id))) return false;
                     if (!needle) return true;
-                    return `${promoterDisplayName(person)} ${asText(person.Marca)} ${asText(category?.descripcion)}`.toLowerCase().includes(needle);
+                    return normalizeSearch(`${promoterDisplayName(person)} ${asText(person.Marca)} ${asText(person.Proveedor)} ${asText(category?.descripcion)}`).includes(normalizeSearch(needle));
                 });
             return mergePromoterOptions(candidates).sort((a, b) => {
                 const zoneA = asInt(byId(this.categories, a?.idCategoria)?.id_zona, 99);
@@ -1283,7 +1492,7 @@
             return `
                 ${monthControls(this.selected, 'mobileApp.changeMonth(-1)', 'mobileApp.changeMonth(1)')}
                 <section class="app-filter-stack vendor-filter-stack">
-                    <label class="app-search"><span class="material-icons">search</span><input data-search-input="planner-vendor" value="${h(this.search)}" oninput="mobileApp.setSearch(this.value, this)" placeholder="Buscar vendedor, marca, codigo o PIN"></label>
+                    <label class="app-search"><span class="material-icons">search</span><input data-search-input="planner-vendor" value="${h(this.search)}" oninput="mobileApp.setSearch(this.value, this)" placeholder="Buscar vendedor, marca, proveedor, codigo o PIN"></label>
                     <button class="mini-chip justify-center" onclick="mobileApp.toggleOnlyAssigned()">${this.onlyAssigned ? 'Solo con turnos' : 'Todos'}</button>
                 </section>
                 ${this.vendorSelector(people)}
@@ -1302,7 +1511,7 @@
                     if (this.onlyAssigned && !hasRows) return false;
                     if (!needle) return true;
                     const category = byId(this.categories, person?.idCategoria);
-                    return `${normalizeSearch(promoterDisplayName(person))} ${normalizeSearch(person.Marca)} ${normalizeSearch(person.idVendedor)} ${normalizeSearch(promoterPin(person))} ${normalizeSearch(category?.descripcion)}`.includes(needle);
+                    return `${normalizeSearch(promoterDisplayName(person))} ${normalizeSearch(person.Marca)} ${normalizeSearch(person.Proveedor)} ${normalizeSearch(person.idVendedor)} ${normalizeSearch(promoterPin(person))} ${normalizeSearch(category?.descripcion)}`.includes(needle);
                 });
             return mergePromoterOptions(candidates, selectedId).sort((a, b) => {
                 const aSelected = promoterIds(a).includes(selectedId);
@@ -1372,7 +1581,11 @@
                             <strong>${h(promoterDisplayName(person))}</strong>
                             <small>${h(promoterVendorMeta(person))}</small>
                         </span>
-                        ${this.canManagePlanner() ? `<button class="planner-icon-btn" title="Asignar día" onclick="mobileApp.showPromoterFormForPerson(${asInt(person.id)}, '${dateKey(this.defaultVendorDate())}')"><span class="material-icons">edit_calendar</span></button>` : ''}
+                        ${this.canEditVendor() || this.canManagePlanner() ? `
+                            <span class="vendor-schedule-actions">
+                                ${this.canEditVendor() ? `<button class="planner-icon-btn" title="Editar vendedor" onclick="mobileApp.showVendorEditForm(${asInt(person.id)})"><span class="material-icons">manage_accounts</span></button>` : ''}
+                                <button class="planner-icon-btn" title="Asignar día" onclick="mobileApp.showPromoterFormForPerson(${asInt(person.id)}, '${dateKey(this.defaultVendorDate())}')"><span class="material-icons">edit_calendar</span></button>
+                            </span>` : ''}
                     </div>
                     <div class="vendor-stat-row">
                         ${this.vendorStat('Dias asignados', rowsForPerson.length, 'event_available', '#E85D75')}
@@ -1391,6 +1604,230 @@
                         cellContent: (dayRows) => `<div>${dayRows.slice(0, 3).map((row) => this.vendorCalendarLabel(row)).join('')}${dayRows.length > 3 ? `<div class="text-[8px] font-black text-[#756c65] mt-1">+${dayRows.length - 3} más</div>` : ''}</div>`
                     })}
                 </section>`;
+        }
+
+        async ensureBrandCatalog() {
+            if (this.brandCatalog?.length) return this.brandCatalog;
+            this.brandCatalog = await rows(db.from(tables.brandCatalog).select('*').eq('activo', true).order('marca'));
+            return this.brandCatalog;
+        }
+
+        usefulValue(value) {
+            const text = asText(value).trim();
+            return text && text !== '0' ? text : '';
+        }
+
+        brandLabel(brand) {
+            return `${asText(brand?.marca, 'Sin marca')} - ${asText(brand?.proveedor, 'Sin proveedor')} (#${asText(brand?.idMarca, '-')})`;
+        }
+
+        brandOptionsHtml() {
+            return this.brandCatalog.map((brand) => `<option value="${h(this.brandLabel(brand))}"></option>`).join('');
+        }
+
+        getBrandByIdMarca(idMarca) {
+            const id = asInt(idMarca);
+            if (!id) return null;
+            return this.brandCatalog.find((brand) => asInt(brand.idMarca) === id) || null;
+        }
+
+        getUniqueBrandByName(name) {
+            const normalized = normalizeSearch(name);
+            if (!normalized) return null;
+            const matches = this.brandCatalog.filter((brand) => normalizeSearch(brand.marca) === normalized);
+            return matches.length === 1 ? matches[0] : null;
+        }
+
+        getPersonBrand(person) {
+            return this.getBrandByIdMarca(person?.idMarca) || this.getUniqueBrandByName(person?.Marca);
+        }
+
+        resolveBrandInput(value) {
+            const rawValue = asText(value).trim();
+            if (!rawValue) return null;
+            const idMatch = rawValue.match(/#(\d+)/);
+            if (idMatch) return this.getBrandByIdMarca(idMatch[1]);
+            const normalizedValue = normalizeSearch(rawValue);
+            return this.brandCatalog.find((brand) => normalizeSearch(this.brandLabel(brand)) === normalizedValue)
+                || this.getUniqueBrandByName(rawValue);
+        }
+
+        getProviderEmail(idProveedor) {
+            const providerId = asInt(idProveedor);
+            if (!providerId) return '';
+            const catalogEmail = this.brandCatalog
+                .filter((brand) => asInt(brand.idProveedor) === providerId)
+                .map((brand) => this.usefulValue(brand.correo_proveedor))
+                .find(Boolean);
+            if (catalogEmail) return catalogEmail;
+            const staffEmails = [...new Set(this.promoters
+                .filter((person) => asInt(person.idProveedor) === providerId)
+                .map((person) => this.usefulValue(person.Correo))
+                .filter(Boolean))];
+            return staffEmails.length === 1 ? staffEmails[0] : '';
+        }
+
+        vendorBrandFormHtml(person) {
+            const brand = this.getPersonBrand(person);
+            const initialBrand = brand ? this.brandLabel(brand) : '';
+            const providerText = brand?.proveedor || this.usefulValue(person.Proveedor) || 'Selecciona una marca registrada';
+            const emailValue = brand ? this.getProviderEmail(brand.idProveedor) : this.usefulValue(person.Correo);
+            return `
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1">Marca registrada *</label>
+                    <input type="text" id="swal-brand-search" list="swal-brand-options" class="w-full p-3 border rounded-xl" value="${h(initialBrand)}" placeholder="Buscar marca o proveedor">
+                    <datalist id="swal-brand-options">${this.brandOptionsHtml()}</datalist>
+                    <div id="swal-brand-provider" class="mt-2 rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 text-xs text-slate-500">${h(providerText)}</div>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1">Correo del proveedor</label>
+                    <input type="email" id="swal-correo" class="w-full p-3 border rounded-xl" value="${h(emailValue)}" placeholder="correo@proveedor.com">
+                </div>`;
+        }
+
+        bindVendorBrandPicker() {
+            const input = document.getElementById('swal-brand-search');
+            const providerEl = document.getElementById('swal-brand-provider');
+            const emailInput = document.getElementById('swal-correo');
+            if (!input || !providerEl || !emailInput) return;
+
+            const renderBrand = () => {
+                const brand = this.resolveBrandInput(input.value);
+                if (!brand) {
+                    providerEl.textContent = 'Elige una marca de la lista para asociar proveedor e IDs internos.';
+                    providerEl.className = 'mt-2 rounded-xl bg-amber-50 border border-amber-100 px-3 py-2 text-xs text-amber-700';
+                    return;
+                }
+                providerEl.innerHTML = `
+                    <div class="font-bold text-slate-700">${h(asText(brand.proveedor, 'Sin proveedor'))}</div>
+                    <div>ID marca ${h(asText(brand.idMarca))} · ID proveedor ${h(asText(brand.idProveedor))}</div>`;
+                providerEl.className = 'mt-2 rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2 text-xs text-emerald-700';
+                const providerEmail = this.getProviderEmail(brand.idProveedor);
+                if (providerEmail) emailInput.value = providerEmail;
+            };
+
+            input.addEventListener('input', renderBrand);
+            renderBrand();
+        }
+
+        readVendorBrandSelection() {
+            const brand = this.resolveBrandInput(document.getElementById('swal-brand-search')?.value);
+            const correo = asText(document.getElementById('swal-correo')?.value).trim();
+            if (!brand) {
+                Swal.showValidationMessage('Selecciona una marca registrada de la lista.');
+                return null;
+            }
+            if (correo && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) {
+                Swal.showValidationMessage('El correo del proveedor no es válido.');
+                return null;
+            }
+            return { brand, correo };
+        }
+
+        promoterBrandPayload(brand, correo) {
+            return {
+                Marca: brand.marca || null,
+                idMarca: asInt(brand.idMarca) || null,
+                Proveedor: brand.proveedor || null,
+                idProveedor: asInt(brand.idProveedor) || null,
+                Correo: correo || this.getProviderEmail(brand.idProveedor) || brand.correo_proveedor || null
+            };
+        }
+
+        async syncProviderEmail(idProveedor, correo) {
+            const providerId = asInt(idProveedor);
+            if (!providerId || !correo) return;
+            const timestamp = new Date().toISOString();
+            const { error: catalogError } = await db.from(tables.brandCatalog)
+                .update({ correo_proveedor: correo, actualizado_en: timestamp })
+                .eq('idProveedor', providerId);
+            if (catalogError) console.warn('No se pudo sincronizar correo del proveedor:', catalogError);
+            const { error: staffError } = await db.from(tables.impulsadoras)
+                .update({ Correo: correo })
+                .eq('idProveedor', providerId);
+            if (staffError) console.warn('No se pudo sincronizar correo en impulsadoras:', staffError);
+        }
+
+        async showVendorEditForm(personId) {
+            if (!this.canEditVendor()) return;
+            const person = byId(this.promoters, personId);
+            if (!person) return;
+            let value;
+            try {
+                await this.ensureBrandCatalog();
+                const categoryOptions = this.categories.map((category) =>
+                    `<option value="${asInt(category.id)}" ${asInt(category.id) === asInt(person.idCategoria) ? 'selected' : ''}>${h(asText(category.descripcion))}</option>`
+                ).join('');
+                const active = person.Habilitado !== false;
+                const result = await Swal.fire({
+                    title: 'Editar vendedor',
+                    html: `
+                        <div class="text-left space-y-3">
+                            <div class="bg-slate-100 p-3 rounded-xl">
+                                <label class="block text-xs font-bold text-slate-500 mb-1">PIN (no editable)</label>
+                                <div class="font-mono font-bold text-slate-800">${h(promoterPin(person) || '-')}</div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Nombre completo *</label>
+                                <input type="text" id="swal-nombre" class="w-full p-3 border rounded-xl" value="${h(asText(person.nombre_completo))}">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Código de venta *</label>
+                                <input type="text" id="swal-codigo" class="w-full p-3 border rounded-xl" value="${h(asText(person.idVendedor))}" inputmode="numeric">
+                            </div>
+                            ${this.vendorBrandFormHtml(person)}
+                            <div>
+                                <label class="block text-xs font-bold text-slate-500 mb-1">Categoría</label>
+                                <select id="swal-categoria" class="w-full p-3 border rounded-xl">
+                                    <option value="">Sin categoría</option>
+                                    ${categoryOptions}
+                                </select>
+                            </div>
+                            <label class="flex items-center gap-2 rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 text-sm font-bold text-slate-600">
+                                <input type="checkbox" id="swal-habilitado" ${active ? 'checked' : ''}>
+                                Vendedor activo
+                            </label>
+                        </div>`,
+                    showCancelButton: true,
+                    confirmButtonText: 'Guardar',
+                    cancelButtonText: 'Cancelar',
+                    didOpen: () => this.bindVendorBrandPicker(),
+                    preConfirm: () => {
+                        const name = asText(document.getElementById('swal-nombre')?.value).trim();
+                        const code = asText(document.getElementById('swal-codigo')?.value).trim();
+                        const brandSelection = this.readVendorBrandSelection();
+                        if (!name || !/^\d+$/.test(code) || !brandSelection) {
+                            Swal.showValidationMessage('Nombre, código numérico y marca registrada son requeridos.');
+                            return false;
+                        }
+                        return {
+                            data: {
+                                nombre_completo: name,
+                                idVendedor: asInt(code),
+                                ...this.promoterBrandPayload(brandSelection.brand, brandSelection.correo),
+                                idCategoria: asInt(document.getElementById('swal-categoria')?.value) || null,
+                                Habilitado: document.getElementById('swal-habilitado')?.checked === true
+                            },
+                            providerId: brandSelection.brand.idProveedor,
+                            providerEmail: brandSelection.correo
+                        };
+                    }
+                });
+                value = result.value;
+            } catch (error) {
+                Swal.fire('Error', error.message || 'No se pudo cargar el formulario del vendedor', 'error');
+                return;
+            }
+            if (!value) return;
+            try {
+                await rows(db.from(tables.impulsadoras).update(value.data).eq('id', asInt(person.id)).select());
+                await this.syncProviderEmail(value.providerId, value.providerEmail);
+                this.selectedPromoterId = asInt(person.id);
+                await this.reload();
+                Swal.fire({ icon: 'success', title: 'Vendedor actualizado', timer: 1400, showConfirmButton: false });
+            } catch (error) {
+                Swal.fire('Error', error.message || 'No se pudo guardar el vendedor', 'error');
+            }
         }
 
         vendorStat(label, value, icon, color) {
@@ -1428,7 +1865,7 @@
                         <button class="${this.zoneFilter === '1' ? 'active' : ''}" onclick="mobileApp.setZone('1')">Zona A</button>
                         <button class="${this.zoneFilter === '2' ? 'active' : ''}" onclick="mobileApp.setZone('2')">Zona B</button>
                     </div>
-                    <label class="app-search"><span class="material-icons">search</span><input data-search-input="planner-monthly" value="${h(this.search)}" oninput="mobileApp.setSearch(this.value, this)" placeholder="Buscar nombre o marca"></label>
+                    <label class="app-search"><span class="material-icons">search</span><input data-search-input="planner-monthly" value="${h(this.search)}" oninput="mobileApp.setSearch(this.value, this)" placeholder="Buscar nombre, marca o proveedor"></label>
                     <button class="mini-chip justify-center" onclick="mobileApp.toggleOnlyAssigned()">${this.onlyAssigned ? 'Solo asignadas' : 'Mostrar vacías'}</button>
                 </section>
                 ${this.summaryMode ? this.monthlySummary() : calendarBoard({
@@ -1445,6 +1882,7 @@
                     selected: this.selected,
                     rows: visible,
                     onlyAssigned: this.onlyAssigned,
+                    collapsible: true,
                     emptyIcon: 'calendar_month',
                     emptyTitle: 'Sin fechas pendientes',
                     emptyMessage: 'No hay días desde hoy que coincidan con los filtros.',
@@ -1465,7 +1903,7 @@
                     if (!person) return false;
                     if (this.zoneFilter && String(asInt(category?.id_zona)) !== this.zoneFilter) return false;
                     if (!needle) return true;
-                    return `${promoterDisplayName(person)} ${asText(person.Marca)} ${asText(store?.nombre_display)} ${asText(store?.alias_tienda)} ${asText(category?.descripcion)}`.toLowerCase().includes(needle);
+                    return normalizeSearch(`${promoterDisplayName(person)} ${asText(person.Marca)} ${asText(person.Proveedor)} ${asText(store?.nombre_display)} ${asText(store?.alias_tienda)} ${asText(category?.descripcion)}`).includes(normalizeSearch(needle));
                 })
                 .sort((a, b) => asText(a.fecha).localeCompare(asText(b.fecha)) || asText(byId(this.stores, a.tienda_id)?.nombre_display).localeCompare(asText(byId(this.stores, b.tienda_id)?.nombre_display)));
         }
@@ -1963,8 +2401,10 @@
     class StoreMonthView extends BaseView {
         constructor() {
             super('store');
-            this.selected = monthStart(new Date());
-            this.selectedStoreId = null;
+            const params = pageParams();
+            const linkedDate = parseDate(params.get('date'));
+            this.selected = monthStart(linkedDate || new Date());
+            this.selectedStoreId = asInt(params.get('store'), null);
             this.search = '';
             this.onlyAssigned = true;
             this.stores = [];
@@ -1976,24 +2416,42 @@
             this.todayRows = [];
             this.attendanceRows = [];
             this.assignmentFilter = 'all';
+            this.exitFeatureAvailable = false;
         }
 
         async load() {
             await this.loadBase();
             const todayKey = todayKeyInGuayaquil();
-            const [monthlyRows, monthlyInternalRows, todayRows, attendanceRows] = await Promise.all([
+            const [monthlyRows, monthlyInternalRows, todayRows, attendanceRows, exitFeatureAvailable] = await Promise.all([
                 this.monthlyPromoterAssignments(this.selected),
                 this.monthlyInternalAssignments(this.selected),
                 this.promoterAssignmentsForKey(todayKey),
-                this.attendanceForKey(todayKey)
+                this.attendanceForKey(todayKey),
+                this.checkExitFeature()
             ]);
             this.monthlyRows = monthlyRows;
             this.monthlyInternalRows = monthlyInternalRows;
             this.internalRows = monthlyInternalRows;
             this.todayRows = todayRows;
             this.attendanceRows = attendanceRows;
+            this.exitFeatureAvailable = exitFeatureAvailable;
+            if (this.selectedStoreId && !byId(this.stores, this.selectedStoreId)) this.selectedStoreId = null;
             if (this.session.isStoreUser) this.selectedStoreId = this.session.storeId;
             if (!this.selectedStoreId && this.stores.length) this.selectedStoreId = asInt(this.stores[0].id);
+        }
+
+        async checkExitFeature() {
+            try {
+                const { error } = await db.from(tables.attendance).select('salida_en').limit(1);
+                if (error) return false;
+                const response = await fetch(`${window.StaffPlanner.supabaseUrl}/functions/v1/mark-store-exit`, {
+                    method: 'OPTIONS',
+                    headers: { apikey: window.StaffPlanner.supabaseKey }
+                });
+                return response.ok;
+            } catch (error) {
+                return false;
+            }
         }
 
         render() {
@@ -2017,11 +2475,12 @@
                     personId: (row) => this.rowPersonKey(row),
                     peopleLabel: (people) => `${people} personas`,
                     dayHandler: 'mobileApp.openDaySheet',
-                    cellContent: (dayRows) => `<div>${dayRows.slice(0, 2).map((row) => this.calendarPersonLabel(row)).join('')}${dayRows.length > 2 ? `<div class="text-[8px] font-black text-[#756c65] mt-1">+${dayRows.length - 2} más</div>` : ''}</div>`
+                    cellContent: (dayRows) => this.calendarCellContent(dayRows)
                 }) + agendaList({
                     selected: this.selected,
                     rows: rowsForStore,
                     onlyAssigned: this.onlyAssigned,
+                    collapsible: true,
                     emptyIcon: 'person_off',
                     emptyTitle: this.storeEmptyTitle(),
                     emptyMessage: this.storeEmptyMessage(),
@@ -2064,12 +2523,7 @@
         }
 
         lunchDuration(attendance) {
-            const stored = asInt(attendance?.almuerzo_minutos, NaN);
-            if (Number.isFinite(stored)) return stored;
-            const out = attendance?.almuerzo_salida_en ? new Date(attendance.almuerzo_salida_en).getTime() : NaN;
-            const back = attendance?.almuerzo_ingreso_en ? new Date(attendance.almuerzo_ingreso_en).getTime() : NaN;
-            if (!Number.isFinite(out) || !Number.isFinite(back) || back < out) return null;
-            return Math.max(0, Math.round((back - out) / 60000));
+            return attendanceLunchMinutes(attendance);
         }
 
         lunchBadge(attendance) {
@@ -2084,6 +2538,12 @@
             return `<span class="attendance-lunch-pill complete"><span class="material-icons">timer</span>${h(`${out} a ${back}${duration}`)}</span>`;
         }
 
+        exitBadge(attendance) {
+            const out = timeInGuayaquil(attendance?.salida_en);
+            if (!out) return '';
+            return `<span class="attendance-exit-pill"><span class="material-icons">logout</span>Salida ${h(out)}</span>`;
+        }
+
         lunchButton(row, attendance, state) {
             if (state.className !== 'approved') return '';
             if (!attendance?.almuerzo_salida_en) {
@@ -2095,11 +2555,15 @@
             return '';
         }
 
+        exitButton(row, attendance, state) {
+            if (!this.exitFeatureAvailable || state.className !== 'approved' || !attendance?.almuerzo_ingreso_en || attendance?.salida_en) return '';
+            return `<button class="attendance-exit-btn" onclick="mobileApp.markExit(${asInt(row.id)})">Marcar salida</button>`;
+        }
+
         incidentButton(row) {
             return `
                 <button class="attendance-incident-btn" title="Reportar incidencia/observación" aria-label="Reportar incidencia u observación" onclick="mobileApp.reportAttendanceIncident(${asInt(row.id)})">
                     <span class="material-icons">assignment_late</span>
-                    <span>Incidencia</span>
                 </button>`;
         }
 
@@ -2114,7 +2578,8 @@
             const actions = [
                 canApprove ? `<button class="attendance-approve-btn" onclick="mobileApp.approveAttendance(${asInt(row.id)})">Aprobar</button>` : '',
                 this.incidentButton(row),
-                this.lunchButton(row, attendance, state)
+                this.lunchButton(row, attendance, state),
+                this.exitButton(row, attendance, state)
             ].filter(Boolean).join('');
             return `
                 <article class="attendance-row">
@@ -2127,6 +2592,7 @@
                     <span class="attendance-meta">
                         <span class="attendance-status ${state.className}"><span class="material-icons">${state.icon}</span>${h(state.label + approvedLabel)}</span>
                         ${this.lunchBadge(attendance)}
+                        ${this.exitBadge(attendance)}
                     </span>
                     ${actions ? `<span class="attendance-actions">${actions}</span>` : ''}
                 </article>`;
@@ -2154,7 +2620,7 @@
                     <select class="w-full p-3 border rounded-xl font-bold" onchange="mobileApp.selectStore(this.value)" ${this.session.isStoreUser ? 'disabled' : ''}>
                         ${options.map((store) => `<option value="${asInt(store.id)}" ${asInt(store.id) === this.selectedStoreId ? 'selected' : ''}>${h(asText(store.nombre_display))}</option>`).join('')}
                     </select>
-                    <label class="app-search"><span class="material-icons">search</span><input data-search-input="${this.active === 'internal' ? 'internal-monthly' : 'store-monthly'}" value="${h(this.search)}" oninput="mobileApp.setSearch(this.value, this)" placeholder="Buscar persona, marca o tipo"></label>
+                    <label class="app-search"><span class="material-icons">search</span><input data-search-input="${this.active === 'internal' ? 'internal-monthly' : 'store-monthly'}" value="${h(this.search)}" oninput="mobileApp.setSearch(this.value, this)" placeholder="Buscar persona, marca, proveedor o tipo"></label>
                     <button class="mini-chip justify-center" onclick="mobileApp.toggleOnlyAssigned()">${this.onlyAssigned ? 'Solo asignadas' : 'Mostrar vacías'}</button>
                 </section>`;
         }
@@ -2239,7 +2705,7 @@
             const person = byId(this.promoters, row.impulsadora_id);
             if (!person) return '';
             const category = byId(this.categories, person?.idCategoria) || byId(this.categories, row.categoria_asignada_id);
-            return `${promoterDisplayName(person)} ${asText(person.Marca)} ${asText(category?.descripcion)} Impulsadora Impulso`;
+            return `${promoterDisplayName(person)} ${asText(person.Marca)} ${asText(person.Proveedor)} ${asText(category?.descripcion)} Impulsadora Impulso`;
         }
 
         internalSearchText(row) {
@@ -2254,11 +2720,23 @@
             return `<div class="calendar-label"><strong>${h(asText(person?.Marca, 'Sin marca'))}</strong><span>${h(person ? promoterDisplayName(person) : 'Personal')}</span></div>`;
         }
 
+        calendarCellContent(dayRows) {
+            if (dayRows.every((row) => this.isInternalRow(row))) {
+                return `<div class="internal-calendar-list">${dayRows.map((row) => this.calendarPersonLabel(row)).join('')}</div>`;
+            }
+            return `<div>${dayRows.slice(0, 2).map((row) => this.calendarPersonLabel(row)).join('')}${dayRows.length > 2 ? `<div class="text-[8px] font-black text-[#756c65] mt-1">+${dayRows.length - 2} más</div>` : ''}</div>`;
+        }
+
         internalCalendarLabel(row) {
             const person = byId(this.internalStaff, row.personal_id);
-            const color = internalTypeColor(row.tipo);
-            const foreground = isLightColor(color) ? '#111827' : '#ffffff';
-            return `<div class="calendar-label" style="background:${h(color)}dd;border-color:${h(color)}"><strong style="color:${foreground}">${h(asText(row.tipo, 'TRABAJO'))}</strong><span style="color:${foreground}">${h(asText(person?.nombre_completo, 'Personal'))}</span></div>`;
+            const tone = internalPersonTone(person, row);
+            return `
+                <div class="calendar-label internal-calendar-label" title="${h(asText(person?.nombre_completo, 'Personal'))}" style="--internal-bg:${h(tone.bg)};--internal-border:${h(tone.border)};--internal-avatar:${h(tone.avatar)};--internal-text:${h(tone.text)}">
+                    <span class="internal-calendar-avatar">${h(internalPersonInitials(person))}</span>
+                    <span class="internal-calendar-copy">
+                        <span>${h(asText(person?.nombre_completo, 'Personal'))}</span>
+                    </span>
+                </div>`;
         }
 
         assignmentRow(row) {
@@ -2354,6 +2832,32 @@
                 });
             } catch (error) {
                 Swal.fire('Error', error.message || 'No se pudo marcar el almuerzo', 'error');
+            }
+        }
+
+        async markExit(id) {
+            try {
+                Swal.fire({
+                    title: 'Marcando salida',
+                    allowOutsideClick: false,
+                    didOpen: () => Swal.showLoading()
+                });
+                const { data, error } = await db.functions.invoke('mark-store-exit', {
+                    body: { horarioId: asInt(id) }
+                });
+                if (error) throw error;
+                if (data?.error) throw new Error(data.error);
+                await this.reload();
+                const out = timeInGuayaquil(data?.attendance?.salida_en);
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Salida marcada',
+                    text: out ? `Hora: ${out}` : 'Hora guardada con reloj central.',
+                    timer: 1600,
+                    showConfirmButton: false
+                });
+            } catch (error) {
+                Swal.fire('Error', error.message || 'No se pudo marcar la salida', 'error');
             }
         }
 
@@ -2579,7 +3083,7 @@
                     personId: (row) => asInt(row.personal_id),
                     peopleLabel: (people) => `${people} personas`,
                     dayHandler: 'mobileApp.openDaySheet',
-                    cellContent: (dayRows) => `<div>${dayRows.slice(0, 2).map((row) => this.calendarPersonLabel(row)).join('')}${dayRows.length > 2 ? `<div class="text-[8px] font-black text-[#756c65] mt-1">+${dayRows.length - 2} más</div>` : ''}</div>`
+                    cellContent: (dayRows) => `<div class="internal-calendar-grid">${dayRows.map((row) => this.calendarPersonLabel(row)).join('')}</div>`
                 }) + agendaList({
                     selected: this.selected,
                     rows: rowsForStore,
@@ -2596,9 +3100,11 @@
 
         calendarPersonLabel(row) {
             const person = byId(this.staff, row.personal_id);
-            const color = internalTypeColor(row.tipo);
-            const foreground = isLightColor(color) ? '#111827' : '#ffffff';
-            return `<div class="calendar-label" style="background:${h(color)}dd;border-color:${h(color)}"><strong style="color:${foreground}">${h(asText(row.tipo, 'TRABAJO'))}</strong><span style="color:${foreground}">${h(asText(person?.nombre_completo, 'Personal'))}</span></div>`;
+            const tone = internalPersonTone(person, row);
+            return `
+                <div class="calendar-label internal-calendar-label initials-only" title="${h(asText(person?.nombre_completo, 'Personal'))}" style="--internal-bg:${h(tone.bg)};--internal-border:${h(tone.border)};--internal-avatar:${h(tone.avatar)};--internal-text:${h(tone.text)}">
+                    <span class="internal-calendar-avatar">${h(internalPersonInitials(person))}</span>
+                </div>`;
         }
 
         assignmentRow(row) {

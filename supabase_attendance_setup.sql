@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS public."Tiendas_Asistencia" (
     almuerzo_salida_en TIMESTAMPTZ,
     almuerzo_ingreso_en TIMESTAMPTZ,
     almuerzo_minutos INTEGER CHECK (almuerzo_minutos IS NULL OR almuerzo_minutos >= 0),
+    salida_en TIMESTAMPTZ,
     correo_falta_auto_enviado_en TIMESTAMPTZ,
     cerrado_en TIMESTAMPTZ,
     falta_id INTEGER REFERENCES public."Tiendas_Faltas"(id),
@@ -27,8 +28,14 @@ CREATE TABLE IF NOT EXISTS public."Tiendas_Asistencia" (
 ALTER TABLE public."Tiendas_Asistencia"
 ADD COLUMN IF NOT EXISTS correo_falta_auto_enviado_en TIMESTAMPTZ;
 
+ALTER TABLE public."Tiendas_Asistencia"
+ADD COLUMN IF NOT EXISTS salida_en TIMESTAMPTZ;
+
 COMMENT ON COLUMN public."Tiendas_Asistencia".correo_falta_auto_enviado_en
 IS 'Marca idempotente de envio de correo cuando se genera una FALTA NO APROBADA automatica.';
+
+COMMENT ON COLUMN public."Tiendas_Asistencia".salida_en
+IS 'Hora opcional en que el punto de venta marca salida de jornada de la impulsadora. No afecta el cierre automatico de faltas.';
 
 CREATE INDEX IF NOT EXISTS idx_asistencia_fecha_tienda
 ON public."Tiendas_Asistencia" (fecha, tienda_id);

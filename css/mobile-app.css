@@ -681,6 +681,132 @@ nav.fixed {
     gap: 12px;
 }
 
+.daily-entry-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.daily-entry-main {
+    min-width: 0;
+    flex: 1;
+    text-align: left;
+}
+
+.daily-entry-badges {
+    display: inline-flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.planner-status-badge {
+    display: inline-flex;
+    min-height: 28px;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    border-radius: 999px;
+    padding: 5px 9px;
+    font-size: 11px;
+    font-weight: 900;
+    white-space: nowrap;
+}
+
+.planner-status-badge.icon-only {
+    width: 30px;
+    min-width: 30px;
+    height: 30px;
+    padding: 0;
+}
+
+.planner-status-badge .material-icons {
+    font-size: 15px;
+}
+
+.planner-status-badge.approved {
+    background: #ecfdf5;
+    color: #047857;
+}
+
+.planner-status-badge.pending {
+    background: #fff7ed;
+    color: #c2410c;
+}
+
+.planner-status-badge.closed,
+.planner-status-badge.incident {
+    background: #fef2f2;
+    color: #b91c1c;
+}
+
+.attendance-detail-field {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid var(--app-border);
+    padding: 10px 0;
+}
+
+.attendance-detail-field span {
+    color: var(--app-muted);
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.attendance-detail-field strong {
+    color: var(--app-ink);
+    font-size: 13px;
+    font-weight: 900;
+    text-align: right;
+}
+
+.attendance-incident-detail {
+    border: 1px solid var(--app-border);
+    border-radius: 14px;
+    background: #fff;
+    padding: 12px;
+}
+
+.attendance-incident-detail strong,
+.attendance-incident-detail small,
+.attendance-incident-detail p {
+    display: block;
+}
+
+.attendance-incident-detail strong {
+    color: var(--app-ink);
+    font-size: 13px;
+    font-weight: 900;
+}
+
+.attendance-incident-detail small {
+    margin-top: 2px;
+    color: var(--app-muted);
+    font-size: 11px;
+    font-weight: 750;
+}
+
+.attendance-incident-detail p {
+    margin-top: 8px;
+    color: var(--app-muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+@media (max-width: 640px) {
+    .daily-entry-card {
+        display: grid;
+        grid-template-columns: 1fr;
+    }
+
+    .daily-entry-badges {
+        justify-content: flex-start;
+        padding-left: 60px;
+    }
+}
+
 .app-list-title {
     color: var(--app-ink);
     font-weight: 900;
@@ -863,6 +989,84 @@ nav.fixed {
     color: var(--app-rose);
 }
 
+.internal-calendar-label {
+    display: flex;
+    min-height: 26px;
+    align-items: center;
+    gap: 4px;
+    border-color: var(--internal-border);
+    background: var(--internal-bg);
+    color: var(--internal-text);
+}
+
+.internal-calendar-avatar {
+    display: inline-flex !important;
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: var(--internal-avatar);
+    color: #fff !important;
+    font-size: 7px !important;
+    font-weight: 950 !important;
+    letter-spacing: 0;
+    line-height: 1 !important;
+}
+
+.internal-calendar-copy {
+    display: block;
+    min-width: 0;
+    flex: 1;
+}
+
+.internal-calendar-copy strong,
+.internal-calendar-copy span {
+    color: var(--internal-text) !important;
+}
+
+.internal-calendar-grid {
+    display: flex;
+    flex: 1;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    justify-content: center;
+    gap: 4px;
+    padding: 16px 4px 2px;
+    overflow: hidden;
+}
+
+.internal-calendar-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding-top: 4px;
+    overflow: hidden;
+}
+
+.internal-calendar-label.initials-only {
+    display: inline-flex;
+    width: auto;
+    min-height: 0;
+    margin-top: 0;
+    margin-right: 3px;
+    padding: 2px;
+    border-color: transparent;
+    background: transparent;
+    vertical-align: top;
+}
+
+.internal-calendar-label.initials-only .internal-calendar-avatar {
+    width: 24px;
+    height: 24px;
+    flex-basis: 24px;
+    border: 1px solid var(--internal-border);
+    background: var(--internal-bg);
+    color: var(--internal-text) !important;
+    font-size: 8px !important;
+}
+
 .attendance-panel {
     margin: 8px 18px 14px;
     padding: 14px;
@@ -958,7 +1162,8 @@ nav.fixed {
     min-width: 0;
 }
 
-.attendance-lunch-pill {
+.attendance-lunch-pill,
+.attendance-exit-pill {
     display: inline-flex;
     min-height: 28px;
     align-items: center;
@@ -971,7 +1176,8 @@ nav.fixed {
     font-weight: 900;
 }
 
-.attendance-lunch-pill .material-icons {
+.attendance-lunch-pill .material-icons,
+.attendance-exit-pill .material-icons {
     font-size: 15px;
 }
 
@@ -985,6 +1191,11 @@ nav.fixed {
     color: #1d4ed8;
 }
 
+.attendance-exit-pill {
+    background: #f1f5f9;
+    color: #334155;
+}
+
 .attendance-actions {
     display: flex;
     flex-wrap: wrap;
@@ -994,7 +1205,8 @@ nav.fixed {
 
 .attendance-approve-btn,
 .attendance-lunch-btn,
-.attendance-incident-btn {
+.attendance-incident-btn,
+.attendance-exit-btn {
     min-height: 36px;
     flex: 1 1 132px;
     border-radius: 999px;
@@ -1015,11 +1227,17 @@ nav.fixed {
     background: #2563eb;
 }
 
+.attendance-exit-btn {
+    background: #475569;
+}
+
 .attendance-incident-btn {
     display: inline-flex;
+    width: 38px;
+    min-width: 38px;
+    flex: 0 0 38px;
     align-items: center;
     justify-content: center;
-    gap: 5px;
     border: 1px solid #e9d5ff;
     background: #faf5ff;
     color: #7c3aed;
@@ -1046,7 +1264,7 @@ nav.fixed {
 
     .attendance-approve-btn,
     .attendance-lunch-btn,
-    .attendance-incident-btn {
+    .attendance-exit-btn {
         flex: 0 0 auto;
         min-width: 104px;
         padding: 0 16px;
@@ -1304,6 +1522,13 @@ nav.fixed {
     padding: 14px;
 }
 
+.vendor-schedule-actions {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 4px;
+}
+
 .vendor-schedule-head strong,
 .vendor-schedule-head small {
     display: block;
@@ -1379,6 +1604,61 @@ nav.fixed {
 
 .agenda-list {
     padding: 16px 18px 0;
+}
+
+.agenda-collapsible {
+    display: block;
+}
+
+.agenda-toggle {
+    display: flex;
+    min-height: 58px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+    padding: 12px 14px;
+    border: 1px solid var(--app-border);
+    border-radius: 18px;
+    background: #fff;
+    color: var(--app-ink);
+    cursor: pointer;
+    box-shadow: var(--app-shadow);
+}
+
+.agenda-toggle::-webkit-details-marker {
+    display: none;
+}
+
+.agenda-toggle::marker {
+    content: "";
+}
+
+.agenda-toggle strong,
+.agenda-toggle small {
+    display: block;
+}
+
+.agenda-toggle strong {
+    font-size: 16px;
+    font-weight: 900;
+}
+
+.agenda-toggle small {
+    margin-top: 2px;
+    color: var(--app-muted);
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.agenda-toggle-icon {
+    flex: 0 0 auto;
+    color: var(--app-muted);
+    transition: transform .2s ease;
+}
+
+.agenda-collapsible[open] .agenda-toggle-icon {
+    transform: rotate(180deg);
 }
 
 .agenda-list h2 {
