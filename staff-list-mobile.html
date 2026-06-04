@@ -183,6 +183,8 @@
                 filteredStaff: []
             },
 
+            canManageStaff: () => [1, 2].includes(app.state.roleId),
+
             init: async () => {
                 // Auth check
                 if (sessionStorage.getItem('staffPlannerAuth') !== 'true') {
@@ -194,8 +196,8 @@
                 app.state.roleId = roleId;
                 app.state.user = JSON.parse(sessionStorage.getItem('staffPlannerUser') || '{}');
 
-                // Show add button for Admin only
-                if (roleId === 1) {
+                // Show add button for Admin and Organizador.
+                if ([1, 2].includes(roleId)) {
                     document.getElementById('addStaffBtn').classList.remove('hidden');
                     document.getElementById('addStaffBtn').classList.add('flex');
                 }
@@ -263,7 +265,7 @@
                     : 'py-2 px-3 rounded-xl text-xs font-bold transition-colors text-slate-500';
 
                 const addButton = document.getElementById('addStaffBtn');
-                const canAddStaff = app.state.roleId === 1 && !isCatalog;
+                const canAddStaff = app.canManageStaff() && !isCatalog;
                 addButton.classList.toggle('hidden', !canAddStaff);
                 addButton.classList.toggle('flex', canAddStaff);
             },
@@ -870,6 +872,7 @@
             },
 
             openAddStaffModal: async () => {
+                if (!app.canManageStaff()) return;
                 const categoryOptions = app.state.categorias.map(c =>
                     `<option value="${c.id}">${c.descripcion}</option>`
                 ).join('');
