@@ -2380,9 +2380,10 @@
                 Swal.fire('Faltan datos', 'Selecciona fecha, personal y tienda.', 'warning');
                 return;
             }
-            const duplicate = this.internalRows.some((row) => asInt(row.personal_id) === value.personal_id && asText(row.fecha) === value.fecha && asInt(row.id) !== asInt(existing?.id));
-            if (duplicate) {
-                Swal.fire('Asignación duplicada', 'Ese personal ya tiene registro ese día.', 'warning');
+            const localConflict = this.internalRows.find((row) => asInt(row.personal_id) === value.personal_id && asText(row.fecha) === value.fecha && asInt(row.id) !== asInt(existing?.id));
+            const remoteConflict = localConflict || await this.findInternalAssignmentConflict(value, existing);
+            if (remoteConflict) {
+                this.showInternalAssignmentConflict(value, remoteConflict);
                 return;
             }
             try {
@@ -2395,6 +2396,27 @@
             } catch (error) {
                 Swal.fire('Error', window.StaffPlanner.duplicateMessage(error), 'error');
             }
+        }
+
+        async findInternalAssignmentConflict(value, existing) {
+            let query = db.from(tables.internalSchedule)
+                .select('id,fecha,personal_id,tienda_id,tipo')
+                .eq('personal_id', value.personal_id)
+                .eq('fecha', value.fecha)
+                .limit(1);
+            if (existing?.id) query = query.neq('id', asInt(existing.id));
+            const conflicts = await rows(query);
+            return conflicts[0] || null;
+        }
+
+        showInternalAssignmentConflict(value, conflict) {
+            const person = byId(this.internalStaff, value.personal_id);
+            const store = byId(this.stores, conflict.tienda_id);
+            Swal.fire({
+                icon: 'warning',
+                title: 'Asignación duplicada',
+                text: `${asText(person?.nombre_completo, 'Ese personal')} ya está asignado en ${asText(store?.nombre_display, 'otra tienda')} el ${asText(value.fecha)}. Modifica esa asignación o márcala como día libre antes de moverlo.`
+            });
         }
     }
 
