@@ -603,9 +603,10 @@
         startOfficialClock();
     }
 
-    function iconButton(icon, handler, title = '', active = false, tone = '') {
-        const label = layoutMode === 'desktop' && title ? `<span class="planner-btn-label">${h(title)}</span>` : '';
-        return `<button type="button" class="planner-icon-btn ${tone ? h(tone) : ''} ${active ? 'active' : ''}" title="${h(title)}" aria-label="${h(title || icon)}" onclick="${handler}"><span class="material-icons">${h(icon)}</span>${label}</button>`;
+    function iconButton(icon, handler, title = '', active = false, tone = '', iconOnly = false) {
+        const compact = iconOnly || title === 'Actualizar';
+        const label = layoutMode === 'desktop' && title && !compact ? `<span class="planner-btn-label">${h(title)}</span>` : '';
+        return `<button type="button" class="planner-icon-btn ${tone ? h(tone) : ''} ${compact ? 'icon-only' : ''} ${active ? 'active' : ''}" title="${h(title)}" aria-label="${h(title || icon)}" onclick="${handler}"><span class="material-icons">${h(icon)}</span>${label}</button>`;
     }
 
     function syncScrollFrame(frame) {
@@ -801,16 +802,7 @@
         return `<div class="h-2 rounded-full bg-[#e9e2dd] overflow-hidden"><div class="h-full rounded-full" style="width:${pct}%;background:${h(color)}"></div></div>`;
     }
 
-    const internalGreenTones = [
-        { bg: '#2F9E8F', border: '#23867A', avatar: '#0F766E', text: '#FFFFFF' },
-        { bg: '#43B39E', border: '#2D9B89', avatar: '#047857', text: '#FFFFFF' },
-        { bg: '#64C49A', border: '#43A979', avatar: '#15803D', text: '#0B3328' },
-        { bg: '#7ACF8B', border: '#55B86B', avatar: '#166534', text: '#0B3328' },
-        { bg: '#2DAE75', border: '#16845A', avatar: '#065F46', text: '#FFFFFF' },
-        { bg: '#58BC6C', border: '#389B50', avatar: '#166534', text: '#0B3328' },
-        { bg: '#36A98D', border: '#21866F', avatar: '#0F766E', text: '#FFFFFF' },
-        { bg: '#8AD79C', border: '#65BE77', avatar: '#14532D', text: '#0B3328' }
-    ];
+    const internalStoreToneShifts = [-0.28, -0.16, -0.06, 0.08, 0.18, 0.28, 0.38, -0.36, 0.48, -0.22];
 
     function stableToneIndex(value) {
         const text = asText(value);
@@ -819,12 +811,54 @@
             hash = ((hash << 5) - hash) + text.charCodeAt(index);
             hash |= 0;
         }
-        return Math.abs(hash) % internalGreenTones.length;
+        return Math.abs(hash) % internalStoreToneShifts.length;
     }
 
-    function internalPersonTone(person, row) {
+    function parseHexParts(hexColor, fallback = '#0E9F8F') {
+        let hex = asText(hexColor, fallback).trim().replace('#', '');
+        if (hex.length === 3) hex = hex.split('').map((char) => char + char).join('');
+        if (!/^[0-9a-fA-F]{6}$/.test(hex)) return parseHexParts(fallback, '#0E9F8F');
+        return {
+            r: parseInt(hex.slice(0, 2), 16),
+            g: parseInt(hex.slice(2, 4), 16),
+            b: parseInt(hex.slice(4, 6), 16)
+        };
+    }
+
+    function rgbToHex({ r, g, b }) {
+        return `#${[r, g, b].map((value) => Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0')).join('')}`;
+    }
+
+    function mixHexColor(source, target, amount) {
+        const a = parseHexParts(source);
+        const b = parseHexParts(target);
+        const mix = Math.max(0, Math.min(1, amount));
+        return rgbToHex({
+            r: a.r + (b.r - a.r) * mix,
+            g: a.g + (b.g - a.g) * mix,
+            b: a.b + (b.b - a.b) * mix
+        });
+    }
+
+    function shiftHexColor(source, shift) {
+        return shift < 0
+            ? mixHexColor(source, '#111827', Math.abs(shift))
+            : mixHexColor(source, '#ffffff', shift);
+    }
+
+    function internalPersonTone(person, row, store) {
         const key = asText(person?.id || row?.personal_id || person?.nombre_completo || row?.id);
-        return internalGreenTones[stableToneIndex(key || 'interno')];
+        const base = colorFromStore(store, '#0E9F8F');
+        const bg = shiftHexColor(base, internalStoreToneShifts[stableToneIndex(key || 'interno')]);
+        const border = shiftHexColor(bg, -0.18);
+        const avatar = shiftHexColor(bg, -0.28);
+        return {
+            bg,
+            border,
+            avatar,
+            text: isLightColor(bg) ? '#111827' : '#FFFFFF',
+            avatarText: isLightColor(avatar) ? '#111827' : '#FFFFFF'
+        };
     }
 
     function internalPersonInitials(person) {
@@ -914,13 +948,14 @@
             return rows(query);
         }
 
-        async monthlyInternalAssignments(date) {
+        async monthlyInternalAssignments(date, options = {}) {
             let query = db.from(tables.internalSchedule)
                 .select('*')
                 .gte('fecha', dateKey(monthStart(date)))
                 .lte('fecha', dateKey(monthEnd(date)))
                 .order('fecha');
-            if (this.shouldScopeToStore() && this.session.storeId) query = query.eq('tienda_id', this.session.storeId);
+            const shouldScope = options.scopeToStore !== false && this.shouldScopeToStore();
+            if (shouldScope && this.session.storeId) query = query.eq('tienda_id', this.session.storeId);
             return rows(query);
         }
 
@@ -996,7 +1031,9 @@
             this.filter = 'all';
             this.search = '';
             this.zoneFilter = '';
+            this.vendorKind = 'impulso';
             this.selectedPromoterId = null;
+            this.selectedInternalVendorId = null;
             this.focusedStoreIds = [];
             this.stores = [];
             this.promoters = [];
@@ -1005,6 +1042,7 @@
             this.promoterRows = [];
             this.internalRows = [];
             this.monthlyRows = [];
+            this.monthlyInternalRows = [];
             this.attendanceRows = [];
             this.incidentRows = [];
             this.brandCatalog = [];
@@ -1012,15 +1050,17 @@
 
         async load() {
             await this.loadBase();
-            const [promoterRows, internalRows, monthlyRows, attendanceRows] = await Promise.all([
+            const [promoterRows, internalRows, monthlyRows, monthlyInternalRows, attendanceRows] = await Promise.all([
                 this.promoterAssignments(this.selected),
                 this.internalAssignments(this.selected),
                 this.monthlyPromoterAssignments(this.selected),
+                this.monthlyInternalAssignments(this.selected),
                 this.attendanceForKey(dateKey(this.selected))
             ]);
             this.promoterRows = promoterRows;
             this.internalRows = internalRows;
             this.monthlyRows = monthlyRows;
+            this.monthlyInternalRows = monthlyInternalRows;
             this.attendanceRows = attendanceRows;
             const scheduleIds = promoterRows.map((row) => asInt(row.id)).filter(Boolean);
             this.incidentRows = scheduleIds.length
@@ -1396,7 +1436,10 @@
         renderVendorView() {
             const person = this.selectedVendor();
             const actions = this.plannerActions('vendor');
-            shell('planner', 'Horario por vendedor', person ? `${asText(person.Marca, 'Sin marca')} - ${promoterDisplayName(person)}` : monthLabel(this.selected), actions, this.vendorContent());
+            const subtitle = person
+                ? (this.vendorKind === 'interno' ? `INTERNO - ${asText(person.nombre_completo, 'Personal')}` : `${asText(person.Marca, 'Sin marca')} - ${promoterDisplayName(person)}`)
+                : monthLabel(this.selected);
+            shell('planner', 'Horario por vendedor', subtitle, actions, this.vendorContent());
         }
 
         sideContent() {
@@ -1489,18 +1532,24 @@
         vendorContent() {
             const person = this.selectedVendor();
             const people = this.vendorPeopleRows();
+            const internalMode = this.vendorKind === 'interno';
             return `
                 ${monthControls(this.selected, 'mobileApp.changeMonth(-1)', 'mobileApp.changeMonth(1)')}
                 <section class="app-filter-stack vendor-filter-stack">
-                    <label class="app-search"><span class="material-icons">search</span><input data-search-input="planner-vendor" value="${h(this.search)}" oninput="mobileApp.setSearch(this.value, this)" placeholder="Buscar vendedor, marca, proveedor, codigo o PIN"></label>
+                    <div class="app-segment">
+                        <button class="${!internalMode ? 'active' : ''}" onclick="mobileApp.setVendorKind('impulso')">Impulsadoras</button>
+                        <button class="${internalMode ? 'active' : ''}" onclick="mobileApp.setVendorKind('interno')">Personal interno</button>
+                    </div>
+                    <label class="app-search"><span class="material-icons">search</span><input data-search-input="planner-vendor" value="${h(this.search)}" oninput="mobileApp.setSearch(this.value, this)" placeholder="${internalMode ? 'Buscar personal, tienda, codigo o PIN' : 'Buscar vendedor, marca, proveedor, codigo o PIN'}"></label>
                     <button class="mini-chip justify-center" onclick="mobileApp.toggleOnlyAssigned()">${this.onlyAssigned ? 'Solo con turnos' : 'Todos'}</button>
                 </section>
                 ${this.vendorSelector(people)}
-                ${person ? this.vendorSchedule(person) : (people.length ? emptyState('badge', 'Elige un vendedor', 'Selecciona una persona para ver su horario mensual.') : '')}
+                ${person ? this.vendorSchedule(person) : (people.length ? emptyState('badge', internalMode ? 'Elige personal interno' : 'Elige un vendedor', 'Selecciona una persona para ver su horario mensual.') : '')}
             `;
         }
 
         vendorPeopleRows() {
+            if (this.vendorKind === 'interno') return this.internalVendorPeopleRows();
             const rowPersonIds = new Set(this.monthlyRows.map((row) => asInt(row.impulsadora_id)));
             const selectedId = asInt(this.selectedPromoterId);
             const needle = normalizeSearch(this.search);
@@ -1526,16 +1575,42 @@
             });
         }
 
+        internalVendorPeopleRows() {
+            const rowPersonIds = new Set(this.monthlyInternalRows.map((row) => asInt(row.personal_id)));
+            const selectedId = asInt(this.selectedInternalVendorId);
+            const needle = normalizeSearch(this.search);
+            return this.internalStaff
+                .filter((person) => activeInternal(person) || rowPersonIds.has(asInt(person.id)))
+                .filter((person) => {
+                    const personRows = this.internalVendorScheduleRows(person);
+                    if (this.onlyAssigned && !personRows.length) return false;
+                    if (!needle) return true;
+                    const storeNames = personRows.map((row) => asText(byId(this.stores, row.tienda_id)?.nombre_display)).join(' ');
+                    return `${normalizeSearch(person.nombre_completo)} ${normalizeSearch(person.idVendedor || person.idvendedor)} ${normalizeSearch(person.PIN || person.pin)} ${normalizeSearch(storeNames)}`.includes(needle);
+                })
+                .sort((a, b) => {
+                    const aSelected = asInt(a.id) === selectedId;
+                    const bSelected = asInt(b.id) === selectedId;
+                    if (aSelected !== bSelected) return aSelected ? -1 : 1;
+                    const countA = this.internalVendorScheduleRows(a).length;
+                    const countB = this.internalVendorScheduleRows(b).length;
+                    if (countA !== countB) return countB - countA;
+                    return asText(a.nombre_completo).localeCompare(asText(b.nombre_completo));
+                });
+        }
+
         vendorSelector(people) {
             if (!people.length) {
-                return emptyState('person_search', 'Sin vendedores visibles', 'Ajusta la busqueda o muestra tambien personas sin turnos.');
+                return emptyState('person_search', 'Sin personas visibles', 'Ajusta la busqueda o muestra tambien personas sin turnos.');
             }
+            const selected = this.vendorKind === 'interno' ? this.selectedInternalVendorId : this.selectedPromoterId;
             return `
-                <div class="section-title-row"><h2>Vendedores</h2>${this.selectedPromoterId ? `<button class="mini-chip" onclick="mobileApp.clearVendorSelection()">Limpiar</button>` : ''}</div>
+                <div class="section-title-row"><h2>${this.vendorKind === 'interno' ? 'Personal interno' : 'Vendedores'}</h2>${selected ? `<button class="mini-chip" onclick="mobileApp.clearVendorSelection()">Limpiar</button>` : ''}</div>
                 ${scrollFrame('vendor-scroll', people.map((person) => this.vendorCard(person)).join(''), 'vendedores')}`;
         }
 
         vendorCard(person) {
+            if (this.vendorKind === 'interno') return this.internalVendorCard(person);
             const selected = promoterIds(person).includes(asInt(this.selectedPromoterId));
             const rowsForPerson = this.vendorScheduleRows(person);
             const storeCount = new Set(rowsForPerson.map((row) => asInt(row.tienda_id))).size;
@@ -1554,7 +1629,33 @@
                 </button>`;
         }
 
+        internalVendorCard(person) {
+            const selected = asInt(person.id) === asInt(this.selectedInternalVendorId);
+            const rowsForPerson = this.internalVendorScheduleRows(person);
+            const storeCount = new Set(rowsForPerson.map((row) => asInt(row.tienda_id))).size;
+            const primaryStore = byId(this.stores, rowsForPerson[0]?.tienda_id || person?.idBodega || person?.idbodega);
+            const tone = internalPersonTone(person, rowsForPerson[0], primaryStore);
+            return `
+                <button class="vendor-card app-card ${selected ? 'active' : ''}" onclick="mobileApp.selectInternalVendor(${asInt(person.id)})">
+                    <span class="vendor-avatar" style="background:${h(tone.avatar)};color:${h(tone.avatarText)}">${h(internalPersonInitials(person))}</span>
+                    <span class="vendor-card-copy">
+                        <strong>${h(asText(person.nombre_completo, 'Personal'))}</strong>
+                        <small>${h(this.internalVendorMeta(person))}</small>
+                    </span>
+                    <span class="vendor-card-stats">
+                        ${miniChip(`${rowsForPerson.length} días`, '#0E9F8F')}
+                        ${miniChip(`${storeCount} tiendas`, '#111827')}
+                    </span>
+                    ${selected ? '<span class="material-icons vendor-card-check">check_circle</span>' : ''}
+                </button>`;
+        }
+
         selectedVendor() {
+            if (this.vendorKind === 'interno') {
+                const selectedId = asInt(this.selectedInternalVendorId);
+                if (!selectedId) return null;
+                return byId(this.internalStaff, selectedId) || null;
+            }
             const selectedId = asInt(this.selectedPromoterId);
             if (!selectedId) return null;
             const direct = byId(this.promoters, selectedId);
@@ -1564,13 +1665,22 @@
         }
 
         vendorScheduleRows(person) {
+            if (this.vendorKind === 'interno') return this.internalVendorScheduleRows(person);
             if (!person) return [];
             return this.monthlyRows
                 .filter((row) => promoterMatchesRow(person, row))
                 .sort((a, b) => asText(a.fecha).localeCompare(asText(b.fecha)) || asText(byId(this.stores, a.tienda_id)?.nombre_display).localeCompare(asText(byId(this.stores, b.tienda_id)?.nombre_display)));
         }
 
+        internalVendorScheduleRows(person) {
+            if (!person) return [];
+            return this.monthlyInternalRows
+                .filter((row) => asInt(row.personal_id) === asInt(person.id))
+                .sort((a, b) => asText(a.fecha).localeCompare(asText(b.fecha)) || asText(byId(this.stores, a.tienda_id)?.nombre_display).localeCompare(asText(byId(this.stores, b.tienda_id)?.nombre_display)));
+        }
+
         vendorSchedule(person) {
+            if (this.vendorKind === 'interno') return this.internalVendorSchedule(person);
             const rowsForPerson = this.vendorScheduleRows(person);
             const storeCount = new Set(rowsForPerson.map((row) => asInt(row.tienda_id))).size;
             return `
@@ -1600,6 +1710,43 @@
                         countLabel: 'días',
                         personId: () => asInt(person.id),
                         peopleLabel: () => `${storeCount} puntos`,
+                        dayHandler: 'mobileApp.openVendorDay',
+                        cellContent: (dayRows) => `<div>${dayRows.slice(0, 3).map((row) => this.vendorCalendarLabel(row)).join('')}${dayRows.length > 3 ? `<div class="text-[8px] font-black text-[#756c65] mt-1">+${dayRows.length - 3} más</div>` : ''}</div>`
+                    })}
+                </section>`;
+        }
+
+        internalVendorSchedule(person) {
+            const rowsForPerson = this.internalVendorScheduleRows(person);
+            const storeCount = new Set(rowsForPerson.map((row) => asInt(row.tienda_id))).size;
+            const primaryStore = byId(this.stores, rowsForPerson[0]?.tienda_id || person?.idBodega || person?.idbodega);
+            const tone = internalPersonTone(person, rowsForPerson[0], primaryStore);
+            return `
+                <section class="vendor-schedule-panel">
+                    <div class="vendor-schedule-head app-card">
+                        <span class="vendor-avatar large" style="background:${h(tone.avatar)};color:${h(tone.avatarText)}">${h(internalPersonInitials(person))}</span>
+                        <span class="flex-1 min-w-0">
+                            <strong>${h(asText(person.nombre_completo, 'Personal'))}</strong>
+                            <small>${h(this.internalVendorMeta(person))}</small>
+                        </span>
+                        ${this.canManagePlanner() ? `
+                            <span class="vendor-schedule-actions">
+                                <button class="planner-icon-btn" title="Asignar día" onclick="mobileApp.showInternalFormForPerson(${asInt(person.id)}, '${dateKey(this.defaultVendorDate())}')"><span class="material-icons">edit_calendar</span></button>
+                            </span>` : ''}
+                    </div>
+                    <div class="vendor-stat-row">
+                        ${this.vendorStat('Dias asignados', rowsForPerson.length, 'event_available', '#0E9F8F')}
+                        ${this.vendorStat('Tiendas', storeCount, 'storefront', '#111827')}
+                        ${this.vendorStat('Mes', monthShort[this.selected.getMonth()], 'calendar_month', '#111827')}
+                        ${this.vendorStat('PIN', asText(person.PIN || person.pin, '-'), 'pin', '#111827')}
+                    </div>
+                    ${calendarBoard({
+                        selected: this.selected,
+                        rows: rowsForPerson,
+                        subtitle: `INTERNO - ${asText(person.nombre_completo, 'Personal')}`,
+                        countLabel: 'días',
+                        personId: () => asInt(person.id),
+                        peopleLabel: () => `${storeCount} tiendas`,
                         dayHandler: 'mobileApp.openVendorDay',
                         cellContent: (dayRows) => `<div>${dayRows.slice(0, 3).map((row) => this.vendorCalendarLabel(row)).join('')}${dayRows.length > 3 ? `<div class="text-[8px] font-black text-[#756c65] mt-1">+${dayRows.length - 3} más</div>` : ''}</div>`
                     })}
@@ -1746,6 +1893,12 @@
                 .update({ Correo: correo })
                 .eq('idProveedor', providerId);
             if (staffError) console.warn('No se pudo sincronizar correo en impulsadoras:', staffError);
+        }
+
+        internalVendorMeta(person) {
+            const code = asText(person?.idVendedor || person?.idvendedor, '-');
+            const pin = asText(person?.PIN || person?.pin, '-');
+            return `Codigo ${code} - PIN ${pin}`;
         }
 
         async showVendorEditForm(personId) {
@@ -2042,6 +2195,7 @@
 
         async openVendorScheduleForPerson(personId, value) {
             const date = parseDate(value) || this.selected;
+            this.vendorKind = 'impulso';
             this.selectedPromoterId = asInt(personId) || null;
             this.vendorMode = true;
             this.sideMode = false;
@@ -2105,19 +2259,41 @@
             this.render();
         }
 
+        setVendorKind(kind) {
+            this.vendorKind = kind === 'interno' ? 'interno' : 'impulso';
+            this.render();
+        }
+
         selectVendor(id) {
+            this.vendorKind = 'impulso';
             this.selectedPromoterId = asInt(id) || null;
+            this.render();
+        }
+
+        selectInternalVendor(id) {
+            this.vendorKind = 'interno';
+            this.selectedInternalVendorId = asInt(id) || null;
             this.render();
         }
 
         clearVendorSelection() {
             this.selectedPromoterId = null;
+            this.selectedInternalVendorId = null;
             this.render();
         }
 
         openVendorDay(key) {
             const person = this.selectedVendor();
             if (!person) return;
+            if (this.vendorKind === 'interno') {
+                const rowsForDay = this.internalVendorScheduleRows(person).filter((row) => asText(row.fecha) === key);
+                if (rowsForDay.length) {
+                    this.showInternalForm(rowsForDay[0], parseDate(rowsForDay[0].fecha), rowsForDay[0].tienda_id, asInt(person.id));
+                    return;
+                }
+                if (this.canManagePlanner()) this.showInternalFormForPerson(asInt(person.id), key);
+                return;
+            }
             const rowsForDay = this.vendorScheduleRows(person).filter((row) => asText(row.fecha) === key);
             if (rowsForDay.length) {
                 this.openEntryActions('impulso', asInt(rowsForDay[0].id));
@@ -2345,15 +2521,15 @@
             this.showInternalForm(existing, existing ? parseDate(existing.fecha) : this.selected, this.assignmentStoreHint());
         }
 
-        async showInternalForm(existing, date, forcedStoreId) {
+        async showInternalForm(existing, date, forcedStoreId, forcedPersonId = null) {
             const activeStaff = this.internalStaff
-                .filter((person) => activeInternal(person) || asInt(person.id) === asInt(existing?.personal_id))
+                .filter((person) => activeInternal(person) || asInt(person.id) === asInt(existing?.personal_id) || asInt(person.id) === asInt(forcedPersonId))
                 .sort((a, b) => asText(a.nombre_completo).localeCompare(asText(b.nombre_completo)));
             const activeStores = this.stores
                 .filter((store) => store.activo !== false || asInt(store.id) === asInt(existing?.tienda_id))
                 .filter((store) => !this.session.isStoreUser || asInt(store.id) === this.session.storeId);
             const currentDate = dateKey(date || this.selected);
-            const currentPerson = asInt(existing?.personal_id, '');
+            const currentPerson = asInt(existing?.personal_id || forcedPersonId, '');
             const currentStore = asInt(existing?.tienda_id || forcedStoreId || this.session.storeId || '', '');
             const currentType = asText(existing?.tipo, 'TRABAJO');
             const { value } = await Swal.fire({
@@ -2417,6 +2593,10 @@
                 title: 'Asignación duplicada',
                 text: `${asText(person?.nombre_completo, 'Ese personal')} ya está asignado en ${asText(store?.nombre_display, 'otra tienda')} el ${asText(value.fecha)}. Modifica esa asignación o márcala como día libre antes de moverlo.`
             });
+        }
+
+        showInternalFormForPerson(personId, key) {
+            this.showInternalForm(null, parseDate(key) || this.defaultVendorDate(), this.assignmentStoreHint(), asInt(personId));
         }
     }
 
@@ -2751,9 +2931,10 @@
 
         internalCalendarLabel(row) {
             const person = byId(this.internalStaff, row.personal_id);
-            const tone = internalPersonTone(person, row);
+            const store = byId(this.stores, row.tienda_id);
+            const tone = internalPersonTone(person, row, store);
             return `
-                <div class="calendar-label internal-calendar-label" title="${h(asText(person?.nombre_completo, 'Personal'))}" style="--internal-bg:${h(tone.bg)};--internal-border:${h(tone.border)};--internal-avatar:${h(tone.avatar)};--internal-text:${h(tone.text)}">
+                <div class="calendar-label internal-calendar-label" title="${h(asText(person?.nombre_completo, 'Personal'))}" style="--internal-bg:${h(tone.bg)};--internal-border:${h(tone.border)};--internal-avatar:${h(tone.avatar)};--internal-text:${h(tone.text)};--internal-avatar-text:${h(tone.avatarText)}">
                     <span class="internal-calendar-avatar">${h(internalPersonInitials(person))}</span>
                     <span class="internal-calendar-copy">
                         <span>${h(asText(person?.nombre_completo, 'Personal'))}</span>
@@ -3028,9 +3209,9 @@
             }
         }
 
-        showInternalForm(existing, date, forcedStoreId) {
+        showInternalForm(existing, date, forcedStoreId, forcedPersonId = null) {
             this.internalRows = this.monthlyInternalRows;
-            return PlannerView.prototype.showInternalForm.call(this, existing, date, forcedStoreId);
+            return PlannerView.prototype.showInternalForm.call(this, existing, date, forcedStoreId, forcedPersonId);
         }
     }
 
@@ -3039,24 +3220,41 @@
             super();
             this.active = 'internal';
             this.staff = [];
+            this.personMode = false;
+            this.selectedInternalPersonId = null;
+            this.showCrossStoreInternal = true;
         }
 
         async load() {
             await this.loadBase();
             this.staff = this.internalStaff;
-            this.monthlyRows = await this.monthlyInternalAssignments(this.selected);
+            this.monthlyRows = await this.monthlyInternalAssignments(this.selected, { scopeToStore: false });
+            this.monthlyInternalRows = this.monthlyRows;
             if (this.session.isStoreUser) this.selectedStoreId = this.session.storeId;
             if (!this.selectedStoreId && this.stores.length) this.selectedStoreId = asInt(this.stores[0].id);
         }
 
         render() {
             const store = byId(this.stores, this.selectedStoreId);
+            const modeSwitch = `
+                <span class="topbar-mode-switch" role="group" aria-label="Modo de vista interna">
+                    ${iconButton('table_chart', 'mobileApp.showInternalCalendarMode()', 'Calendario mensual', !this.personMode, '', true)}
+                    ${iconButton('badge', 'mobileApp.showInternalPersonMode()', 'Por vendedor', this.personMode, '', true)}
+                </span>`;
             const actions = [
                 this.canManageInternal() && this.selectedStoreId ? iconButton('add_circle', 'mobileApp.openAssignmentForDate()', 'Nueva asignación', false, 'primary') : '',
-                this.canManageInternal() && this.selectedStoreId ? iconButton('event_repeat', 'mobileApp.openMonthlyInternalFill()', 'Llenar mes') : '',
+                this.canManageInternal() && this.selectedStoreId && !this.personMode ? iconButton('event_repeat', 'mobileApp.openMonthlyInternalFill()', 'Llenar mes') : '',
+                modeSwitch,
                 iconButton('refresh', 'mobileApp.reload()', 'Actualizar')
             ].join('');
-            shell('internal', 'Interno', this.selectedStoreId ? `${asText(store?.nombre_display, 'Bodega/Tienda')} - ${monthLabel(this.selected)}` : 'Selecciona bodega o tienda', actions, this.content());
+            const selectedPerson = this.selectedInternalPerson();
+            let subtitle = this.selectedStoreId ? `${asText(store?.nombre_display, 'Bodega/Tienda')} - ${monthLabel(this.selected)}` : 'Selecciona bodega o tienda';
+            if (this.personMode) {
+                subtitle = selectedPerson
+                    ? `${this.internalPersonStoreSummary(selectedPerson)} - ${asText(selectedPerson.nombre_completo, 'Personal')}`
+                    : `Todas las tiendas - ${monthLabel(this.selected)}`;
+            }
+            shell('internal', this.personMode ? 'Interno por vendedor' : 'Interno', subtitle, actions, this.personMode ? this.personContent() : this.content());
         }
 
         canManageInternal() {
@@ -3069,26 +3267,65 @@
                 .filter((store) => (store.activo !== false || asInt(store.id) === this.selectedStoreId) && (!this.session.isStoreUser || asInt(store.id) === this.session.storeId))
                 .sort((a, b) => asText(a.nombre_display).localeCompare(asText(b.nombre_display)));
             return `
-                <section class="app-filter-stack">
+                <section class="app-filter-stack internal-filter-stack">
                     <select class="w-full p-3 border rounded-xl font-bold" onchange="mobileApp.selectStore(this.value)" ${this.session.isStoreUser ? 'disabled' : ''}>
                         ${options.map((store) => `<option value="${asInt(store.id)}" ${asInt(store.id) === this.selectedStoreId ? 'selected' : ''}>${h(asText(store.nombre_display))}</option>`).join('')}
                     </select>
-                    <label class="app-search"><span class="material-icons">search</span><input data-search-input="internal-monthly" value="${h(this.search)}" oninput="mobileApp.setSearch(this.value, this)" placeholder="Buscar personal o tipo"></label>
+                    <label class="app-search"><span class="material-icons">search</span><input data-search-input="internal-monthly" value="${h(this.search)}" oninput="mobileApp.setSearch(this.value, this)" placeholder="Buscar personal, tienda o tipo"></label>
+                    <label class="mini-chip justify-center internal-cross-store-toggle" title="Mostrar el horario completo de las personas que están en el local filtrado">
+                        <input type="checkbox" ${this.showCrossStoreInternal ? 'checked' : ''} onchange="mobileApp.toggleInternalCrossStore()">
+                        Todos los puntos
+                    </label>
                     <button class="mini-chip justify-center" onclick="mobileApp.toggleOnlyAssigned()">${this.onlyAssigned ? 'Solo asignadas' : 'Mostrar vacías'}</button>
                 </section>`;
         }
 
         visibleRows() {
-            const needle = this.search.trim().toLowerCase();
-            return this.monthlyRows
-                .filter((row) => asInt(row.tienda_id) === this.selectedStoreId)
+            const needle = normalizeSearch(this.search);
+            const sourceRows = this.internalRowsForCurrentScope(this.showCrossStoreInternal);
+            return sourceRows
                 .filter((row) => {
                     const person = byId(this.staff, row.personal_id);
+                    const store = byId(this.stores, row.tienda_id);
                     if (!person) return false;
                     if (!needle) return true;
-                    return `${asText(person.nombre_completo)} ${asText(person.idVendedor || person.idvendedor)} ${asText(row.tipo)}`.toLowerCase().includes(needle);
+                    return normalizeSearch(`${asText(person.nombre_completo)} ${asText(person.idVendedor || person.idvendedor)} ${asText(row.tipo)} ${asText(store?.nombre_display)} ${asText(store?.alias_tienda)}`).includes(needle);
                 })
-                .sort((a, b) => asText(a.fecha).localeCompare(asText(b.fecha)) || asText(a.tipo).localeCompare(asText(b.tipo)));
+                .sort((a, b) => {
+                    const dateCompare = asText(a.fecha).localeCompare(asText(b.fecha));
+                    if (dateCompare) return dateCompare;
+                    const storeCompare = asText(byId(this.stores, a.tienda_id)?.nombre_display).localeCompare(asText(byId(this.stores, b.tienda_id)?.nombre_display));
+                    if (storeCompare) return storeCompare;
+                    return asText(a.tipo).localeCompare(asText(b.tipo)) || asText(byId(this.staff, a.personal_id)?.nombre_completo).localeCompare(asText(byId(this.staff, b.personal_id)?.nombre_completo));
+                });
+        }
+
+        internalBaseStoreRows() {
+            return this.monthlyRows.filter((row) => asInt(row.tienda_id) === asInt(this.selectedStoreId));
+        }
+
+        internalVisiblePersonIds() {
+            return new Set(this.internalBaseStoreRows().map((row) => asInt(row.personal_id)).filter(Boolean));
+        }
+
+        internalRowsForCurrentScope(includeOtherStores = true) {
+            const storeRows = this.internalBaseStoreRows();
+            if (!includeOtherStores) return storeRows;
+            const visiblePersonIds = this.internalVisiblePersonIds();
+            return this.monthlyRows.filter((row) => visiblePersonIds.has(asInt(row.personal_id)));
+        }
+
+        toggleInternalCrossStore() {
+            this.showCrossStoreInternal = !this.showCrossStoreInternal;
+            this.render();
+        }
+
+        personModeRows() {
+            const rows = this.session.isStoreUser
+                ? this.internalRowsForCurrentScope(true)
+                : this.monthlyRows;
+            return rows.slice()
+                .sort((a, b) => asText(a.fecha).localeCompare(asText(b.fecha)) || asText(byId(this.stores, a.tienda_id)?.nombre_display).localeCompare(asText(byId(this.stores, b.tienda_id)?.nombre_display)));
         }
 
         content() {
@@ -3100,10 +3337,12 @@
                     selected: this.selected,
                     rows: rowsForStore,
                     badge: storeBadge(byId(this.stores, this.selectedStoreId), 48),
-                    subtitle: asText(byId(this.stores, this.selectedStoreId)?.nombre_display, 'Bodega/Tienda'),
+                    subtitle: this.showCrossStoreInternal
+                        ? `${asText(byId(this.stores, this.selectedStoreId)?.nombre_display, 'Bodega/Tienda')} + otros puntos`
+                        : asText(byId(this.stores, this.selectedStoreId)?.nombre_display, 'Bodega/Tienda'),
                     countLabel: 'registros',
                     personId: (row) => asInt(row.personal_id),
-                    peopleLabel: (people) => `${people} personas`,
+                    peopleLabel: (people, stores) => this.showCrossStoreInternal ? `${people} personas / ${stores} puntos` : `${people} personas`,
                     dayHandler: 'mobileApp.openDaySheet',
                     cellContent: (dayRows) => `<div class="internal-calendar-grid">${dayRows.map((row) => this.calendarPersonLabel(row)).join('')}</div>`
                 }) + agendaList({
@@ -3120,22 +3359,223 @@
             `;
         }
 
+        showInternalPersonMode() {
+            this.personMode = true;
+            this.render();
+        }
+
+        showInternalCalendarMode() {
+            this.personMode = false;
+            this.render();
+        }
+
+        personFilters() {
+            return `
+                <section class="app-filter-stack">
+                    <label class="app-search"><span class="material-icons">search</span><input data-search-input="internal-monthly" value="${h(this.search)}" oninput="mobileApp.setSearch(this.value, this)" placeholder="Buscar personal, tienda o tipo"></label>
+                    <button class="mini-chip justify-center" onclick="mobileApp.toggleOnlyAssigned()">${this.onlyAssigned ? 'Solo asignadas' : 'Mostrar vacías'}</button>
+                </section>`;
+        }
+
+        internalPeopleRows() {
+            const allRows = this.personModeRows();
+            const rowPersonIds = new Set(allRows.map((row) => asInt(row.personal_id)));
+            const selectedId = asInt(this.selectedInternalPersonId);
+            const needle = normalizeSearch(this.search);
+            return this.staff
+                .filter((person) => this.session.isStoreUser ? rowPersonIds.has(asInt(person.id)) : (activeInternal(person) || rowPersonIds.has(asInt(person.id))))
+                .filter((person) => {
+                    const personRows = allRows.filter((row) => asInt(row.personal_id) === asInt(person.id));
+                    if (asInt(person.id) === selectedId) return true;
+                    if (this.onlyAssigned && !personRows.length) return false;
+                    if (!needle) return true;
+                    const storeNames = personRows.map((row) => asText(byId(this.stores, row.tienda_id)?.nombre_display)).join(' ');
+                    return `${normalizeSearch(person.nombre_completo)} ${normalizeSearch(person.idVendedor || person.idvendedor)} ${normalizeSearch(person.PIN || person.pin)} ${normalizeSearch(storeNames)} ${normalizeSearch(personRows.map((row) => row.tipo).join(' '))}`.includes(needle);
+                })
+                .sort((a, b) => {
+                    const aSelected = asInt(a.id) === selectedId;
+                    const bSelected = asInt(b.id) === selectedId;
+                    if (aSelected !== bSelected) return aSelected ? -1 : 1;
+                    const countA = allRows.filter((row) => asInt(row.personal_id) === asInt(a.id)).length;
+                    const countB = allRows.filter((row) => asInt(row.personal_id) === asInt(b.id)).length;
+                    if (countA !== countB) return countB - countA;
+                    return asText(a.nombre_completo).localeCompare(asText(b.nombre_completo));
+                });
+        }
+
+        personContent() {
+            const people = this.internalPeopleRows();
+            const person = this.selectedInternalPerson();
+            return `
+                ${monthControls(this.selected, 'mobileApp.changeMonth(-1)', 'mobileApp.changeMonth(1)')}
+                ${this.personFilters()}
+                ${this.internalPersonSelector(people)}
+                ${person ? this.internalPersonSchedule(person) : (people.length ? emptyState('badge', 'Elige personal interno', 'Selecciona una persona para ver su horario mensual.') : '')}
+            `;
+        }
+
+        internalPersonSelector(people) {
+            if (!people.length) {
+                return emptyState('person_search', 'Sin personal visible', 'Ajusta la búsqueda o muestra también personas sin registros.');
+            }
+            return `
+                <div class="section-title-row"><h2>Personal interno</h2>${this.selectedInternalPersonId ? `<button class="mini-chip" onclick="mobileApp.clearInternalPersonSelection()">Limpiar</button>` : ''}</div>
+                ${scrollFrame('vendor-scroll', people.map((person) => this.internalPersonCard(person)).join(''), 'personal interno')}`;
+        }
+
+        internalVendorMeta(person) {
+            const code = asText(person?.idVendedor || person?.idvendedor, '-');
+            const pin = asText(person?.PIN || person?.pin, '-');
+            return `Codigo ${code} - PIN ${pin}`;
+        }
+
+        vendorStat(label, value, icon, color) {
+            return `<article class="vendor-stat"><span class="material-icons" style="color:${h(color)}">${h(icon)}</span><strong>${h(value)}</strong><small>${h(label)}</small></article>`;
+        }
+
+        internalPersonCard(person) {
+            const selected = asInt(person.id) === asInt(this.selectedInternalPersonId);
+            const rowsForPerson = this.internalPersonScheduleRows(person);
+            const storesForPerson = this.internalPersonStores(person);
+            const store = storesForPerson[0] || byId(this.stores, this.selectedStoreId);
+            const tone = internalPersonTone(person, rowsForPerson[0], store);
+            return `
+                <button class="vendor-card app-card ${selected ? 'active' : ''}" onclick="mobileApp.selectInternalPerson(${asInt(person.id)})">
+                    <span class="vendor-avatar" style="background:${h(tone.avatar)};color:${h(tone.avatarText)}">${h(internalPersonInitials(person))}</span>
+                    <span class="vendor-card-copy">
+                        <strong>${h(asText(person.nombre_completo, 'Personal'))}</strong>
+                        <small>${h(this.internalVendorMeta(person))}</small>
+                    </span>
+                    <span class="vendor-card-stats">
+                        ${miniChip(`${rowsForPerson.length} días`, '#0E9F8F')}
+                        ${storesForPerson.length ? miniChip(storesForPerson.length === 1 ? asText(storesForPerson[0]?.alias_tienda, '1 tienda') : `${storesForPerson.length} tiendas`, colorFromStore(storesForPerson[0])) : ''}
+                    </span>
+                    ${selected ? '<span class="material-icons vendor-card-check">check_circle</span>' : ''}
+                </button>`;
+        }
+
+        selectInternalPerson(id) {
+            this.selectedInternalPersonId = asInt(id) || null;
+            this.render();
+        }
+
+        clearInternalPersonSelection() {
+            this.selectedInternalPersonId = null;
+            this.render();
+        }
+
+        selectedInternalPerson() {
+            const selectedId = asInt(this.selectedInternalPersonId);
+            if (!selectedId) return null;
+            return byId(this.staff, selectedId) || null;
+        }
+
+        internalPersonScheduleRows(person) {
+            if (!person) return [];
+            return this.personModeRows().filter((row) => asInt(row.personal_id) === asInt(person.id));
+        }
+
+        internalPersonStores(person) {
+            const seen = new Set();
+            return this.internalPersonScheduleRows(person)
+                .map((row) => byId(this.stores, row.tienda_id))
+                .filter((store) => {
+                    const id = asInt(store?.id);
+                    if (!id || seen.has(id)) return false;
+                    seen.add(id);
+                    return true;
+                });
+        }
+
+        internalPersonStoreSummary(person) {
+            const stores = this.internalPersonStores(person);
+            if (!stores.length) return 'Sin tiendas';
+            if (stores.length === 1) return asText(stores[0]?.nombre_display, 'Tienda');
+            return `${stores.length} tiendas`;
+        }
+
+        internalPersonCalendarBadge(stores) {
+            if (stores.length === 1) return storeBadge(stores[0], 48);
+            return `<span class="store-badge-ui" style="width:48px;height:48px;background:#111827;color:#fff;font-size:18px"><span class="material-icons">storefront</span></span>`;
+        }
+
+        internalPersonSchedule(person) {
+            const rowsForPerson = this.internalPersonScheduleRows(person);
+            const storesForPerson = this.internalPersonStores(person);
+            const store = storesForPerson[0] || byId(this.stores, this.selectedStoreId);
+            const tone = internalPersonTone(person, rowsForPerson[0], store);
+            const storeCount = storesForPerson.length;
+            return `
+                <section class="vendor-schedule-panel">
+                    <div class="vendor-schedule-head app-card">
+                        <span class="vendor-avatar large" style="background:${h(tone.avatar)};color:${h(tone.avatarText)}">${h(internalPersonInitials(person))}</span>
+                        <span class="flex-1 min-w-0">
+                            <strong>${h(asText(person.nombre_completo, 'Personal'))}</strong>
+                            <small>${h(this.internalVendorMeta(person))}</small>
+                        </span>
+                        ${this.canManageInternal() ? `
+                            <span class="vendor-schedule-actions">
+                                <button class="planner-icon-btn" title="Asignar día" onclick="mobileApp.showInternalForm(null, mobileApp.defaultAssignmentDate(), mobileApp.selectedStoreId, ${asInt(person.id)})"><span class="material-icons">edit_calendar</span></button>
+                            </span>` : ''}
+                    </div>
+                    <div class="vendor-stat-row">
+                        ${this.vendorStat('Dias asignados', rowsForPerson.length, 'event_available', '#0E9F8F')}
+                        ${this.vendorStat('Tiendas', storeCount || '-', 'storefront', '#111827')}
+                        ${this.vendorStat('Mes', monthShort[this.selected.getMonth()], 'calendar_month', '#111827')}
+                        ${this.vendorStat('PIN', asText(person.PIN || person.pin, '-'), 'pin', '#111827')}
+                    </div>
+                    ${calendarBoard({
+                        selected: this.selected,
+                        rows: rowsForPerson,
+                        badge: this.internalPersonCalendarBadge(storesForPerson),
+                        subtitle: `${this.internalPersonStoreSummary(person)} - ${asText(person.nombre_completo, 'Personal')}`,
+                        countLabel: 'días',
+                        personId: () => asInt(person.id),
+                        peopleLabel: () => `${storeCount || 0} tienda${storeCount === 1 ? '' : 's'}`,
+                        dayHandler: 'mobileApp.openInternalPersonDay',
+                        cellContent: (dayRows) => `<div>${dayRows.slice(0, 3).map((row) => this.internalPersonCalendarLabel(row)).join('')}${dayRows.length > 3 ? `<div class="text-[8px] font-black text-[#756c65] mt-1">+${dayRows.length - 3} más</div>` : ''}</div>`
+                    })}
+                </section>`;
+        }
+
+        internalPersonCalendarLabel(row) {
+            const store = byId(this.stores, row.tienda_id || this.selectedStoreId);
+            const color = colorFromStore(store);
+            const foreground = isLightColor(color) ? '#111827' : '#ffffff';
+            return `<span class="vendor-calendar-label" title="${h(asText(store?.nombre_display, 'Tienda'))} - ${h(asText(row.tipo, 'TRABAJO'))}" style="background:${h(color)};color:${foreground}">${h(asText(store?.alias_tienda, 'T'))}</span>`;
+        }
+
+        openInternalPersonDay(key) {
+            const person = this.selectedInternalPerson();
+            if (!person) return;
+            const rowsForDay = this.internalPersonScheduleRows(person).filter((row) => asText(row.fecha) === key);
+            if (rowsForDay.length) {
+                this.openActions(asInt(rowsForDay[0].id));
+                return;
+            }
+            if (this.canManageInternal()) {
+                this.showInternalForm(null, parseDate(key) || this.defaultAssignmentDate(), this.selectedStoreId, asInt(person.id));
+            }
+        }
+
         calendarPersonLabel(row) {
             const person = byId(this.staff, row.personal_id);
-            const tone = internalPersonTone(person, row);
+            const store = byId(this.stores, row.tienda_id || this.selectedStoreId);
+            const tone = internalPersonTone(person, row, store);
             return `
-                <div class="calendar-label internal-calendar-label initials-only" title="${h(asText(person?.nombre_completo, 'Personal'))}" style="--internal-bg:${h(tone.bg)};--internal-border:${h(tone.border)};--internal-avatar:${h(tone.avatar)};--internal-text:${h(tone.text)}">
+                <div class="calendar-label internal-calendar-label initials-only" title="${h(asText(person?.nombre_completo, 'Personal'))} - ${h(asText(store?.nombre_display, 'Tienda'))}" style="--internal-bg:${h(tone.bg)};--internal-border:${h(tone.border)};--internal-avatar:${h(tone.avatar)};--internal-text:${h(tone.text)};--internal-avatar-text:${h(tone.avatarText)}">
                     <span class="internal-calendar-avatar">${h(internalPersonInitials(person))}</span>
                 </div>`;
         }
 
         assignmentRow(row) {
             const person = byId(this.staff, row.personal_id);
+            const store = byId(this.stores, row.tienda_id || this.selectedStoreId);
             const color = internalTypeColor(row.tipo);
             return `
                 <button class="agenda-row w-full text-left" onclick="mobileApp.openActions(${asInt(row.id)})">
-                    ${storeBadge(byId(this.stores, this.selectedStoreId), 38)}
-                    <span class="flex-1 min-w-0"><span class="app-list-title block truncate" style="color:${color}">${h(asText(row.tipo, 'TRABAJO'))}</span><span class="app-list-title block truncate">${h(asText(person?.nombre_completo, 'Personal'))}</span></span>
+                    ${storeBadge(store, 38)}
+                    <span class="flex-1 min-w-0"><span class="app-list-title block truncate" style="color:${color}">${h(asText(row.tipo, 'TRABAJO'))}</span><span class="app-list-title block truncate">${h(asText(person?.nombre_completo, 'Personal'))}</span><span class="app-list-subtitle block truncate">${h(asText(store?.nombre_display, 'Bodega/Tienda'))}</span></span>
                     <span class="material-icons text-slate-400">chevron_right</span>
                 </button>`;
         }
@@ -3149,7 +3589,7 @@
             const date = parseDate(key);
             Swal.fire({
                 title: prettyDate(date),
-                html: `<p class="text-slate-500 mb-3">${h(asText(byId(this.stores, this.selectedStoreId)?.nombre_display, 'Bodega/Tienda'))}</p>${rowsForDay.length ? rowsForDay.map((row) => this.assignmentRow(row)).join('') : emptyState('person_off', 'Sin registros', 'No hay personal interno en esta fecha.')}${this.canManageInternal() ? `<button class="bottom-action mt-3" onclick="Swal.close(); mobileApp.openAssignmentForDate('${key}')">Nueva asignación interna</button>` : ''}`,
+                html: `<p class="text-slate-500 mb-3">${h(this.showCrossStoreInternal ? `${asText(byId(this.stores, this.selectedStoreId)?.nombre_display, 'Bodega/Tienda')} + otros puntos` : asText(byId(this.stores, this.selectedStoreId)?.nombre_display, 'Bodega/Tienda'))}</p>${rowsForDay.length ? rowsForDay.map((row) => this.assignmentRow(row)).join('') : emptyState('person_off', 'Sin registros', 'No hay personal interno en esta fecha.')}${this.canManageInternal() ? `<button class="bottom-action mt-3" onclick="Swal.close(); mobileApp.openAssignmentForDate('${key}')">Nueva asignación interna</button>` : ''}`,
                 showConfirmButton: false,
                 showCloseButton: true
             });
@@ -3165,31 +3605,39 @@
 
         openActions(id) {
             const row = this.monthlyRows.find((item) => asInt(item.id) === id);
-            if (!row || !this.canManageInternal() || asInt(row.tienda_id) !== asInt(this.selectedStoreId)) return;
+            if (!row) return;
+            const isVisibleCrossStoreRow = this.showCrossStoreInternal && this.visibleRows().some((item) => asInt(item.id) === asInt(row.id));
+            if (!this.personMode && asInt(row.tienda_id) !== asInt(this.selectedStoreId) && !isVisibleCrossStoreRow) return;
             const person = byId(this.staff, row.personal_id);
             const store = byId(this.stores, row.tienda_id);
+            const canEditRow = this.canManageInternalRow(row);
             Swal.fire({
                 title: asText(person?.nombre_completo, 'Personal interno'),
                 html: `
                     <p class="text-slate-500 mb-4 text-sm">${h(asText(store?.nombre_display, 'Bodega/Tienda'))} - ${h(asText(row.fecha))}</p>
-                    <div class="grid gap-2">
+                    ${canEditRow ? `<div class="grid gap-2">
                         <button class="bottom-action full" onclick="Swal.close(); mobileApp.editInternalAssignment(${asInt(row.id)})">Modificar asignación</button>
                         <button class="bottom-action ink full" onclick="Swal.close(); mobileApp.deleteInternalAssignment(${asInt(row.id)})">Marcar día libre</button>
-                    </div>`,
+                    </div>` : `<p class="font-bold">${h(asText(row.tipo, 'TRABAJO'))}</p>`}`,
                 showConfirmButton: false,
                 showCloseButton: true
             });
         }
 
+        canManageInternalRow(row) {
+            if (this.session.isManager) return true;
+            return this.session.isStoreUser && asInt(row?.tienda_id) === asInt(this.session.storeId);
+        }
+
         editInternalAssignment(id) {
             const row = this.monthlyRows.find((item) => asInt(item.id) === asInt(id));
-            if (!row || !this.canManageInternal() || asInt(row.tienda_id) !== asInt(this.selectedStoreId)) return;
-            this.showInternalForm(row, parseDate(row.fecha), this.selectedStoreId);
+            if (!row || !this.canManageInternalRow(row)) return;
+            this.showInternalForm(row, parseDate(row.fecha), row.tienda_id || this.selectedStoreId);
         }
 
         async deleteInternalAssignment(id) {
             const row = this.monthlyRows.find((item) => asInt(item.id) === asInt(id));
-            if (!row || !this.canManageInternal() || asInt(row.tienda_id) !== asInt(this.selectedStoreId)) return;
+            if (!row || !this.canManageInternalRow(row)) return;
             const ok = await Swal.fire({
                 title: 'Marcar día libre',
                 text: 'Se quitará este registro del horario interno.',
@@ -3274,10 +3722,10 @@
             }
         }
 
-        showInternalForm(existing, date, forcedStoreId) {
+        showInternalForm(existing, date, forcedStoreId, forcedPersonId = null) {
             this.internalRows = this.monthlyRows;
             this.internalStaff = this.staff;
-            return PlannerView.prototype.showInternalForm.call(this, existing, date, forcedStoreId);
+            return PlannerView.prototype.showInternalForm.call(this, existing, date, forcedStoreId, forcedPersonId);
         }
     }
 

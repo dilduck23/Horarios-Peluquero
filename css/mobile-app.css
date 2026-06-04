@@ -298,6 +298,22 @@ nav.fixed {
     gap: 2px;
 }
 
+.topbar-mode-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid var(--app-border);
+    border-radius: 999px;
+    background: #fff;
+    box-shadow: 0 8px 20px rgba(17, 24, 39, 0.05);
+}
+
+.topbar-mode-switch .planner-icon-btn {
+    width: 36px;
+    height: 36px;
+}
+
 .official-clock {
     display: inline-flex;
     min-height: 42px;
@@ -567,6 +583,18 @@ nav.fixed {
     color: var(--app-ink);
     font-size: 11px;
     font-weight: 900;
+}
+
+.mini-chip input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    accent-color: var(--app-rose);
+}
+
+.internal-cross-store-toggle {
+    gap: 6px;
+    cursor: pointer;
 }
 
 .mini-chip-dot {
@@ -1008,7 +1036,7 @@ nav.fixed {
     justify-content: center;
     border-radius: 999px;
     background: var(--internal-avatar);
-    color: #fff !important;
+    color: var(--internal-avatar-text, #fff) !important;
     font-size: 7px !important;
     font-weight: 950 !important;
     letter-spacing: 0;
@@ -1049,6 +1077,7 @@ nav.fixed {
     display: inline-flex;
     width: auto;
     min-height: 0;
+    align-items: center;
     margin-top: 0;
     margin-right: 3px;
     padding: 2px;
@@ -2065,8 +2094,33 @@ nav.fixed {
     font-weight: 900;
 }
 
+.desktop-topbar .planner-icon-btn.icon-only {
+    width: 44px;
+    min-width: 44px;
+    padding: 0;
+}
+
+.desktop-topbar .topbar-mode-switch {
+    min-height: 44px;
+    border-radius: 14px;
+    box-shadow: none;
+}
+
+.desktop-topbar .topbar-mode-switch .planner-icon-btn {
+    width: 38px;
+    min-width: 38px;
+    height: 38px;
+    border: 0;
+    padding: 0;
+    box-shadow: none;
+}
+
 .desktop-topbar .planner-icon-btn:hover {
     border-color: #d8d0c8;
+    background: #fdfaf7;
+}
+
+.desktop-topbar .topbar-mode-switch .planner-icon-btn:hover {
     background: #fdfaf7;
 }
 
@@ -2141,6 +2195,10 @@ nav.fixed {
 .desktop-content .app-filter-stack {
     grid-template-columns: minmax(260px, 420px) minmax(320px, 1fr) auto;
     align-items: center;
+}
+
+.desktop-content .internal-filter-stack {
+    grid-template-columns: minmax(220px, 360px) minmax(320px, 1fr) auto auto;
 }
 
 .desktop-content .store-filter-stack {
