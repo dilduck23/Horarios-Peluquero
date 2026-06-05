@@ -72,5 +72,5 @@ GRANT SELECT ON public."Tiendas_Asistencia" TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public."Tiendas_Asistencia" TO service_role;
 GRANT USAGE, SELECT ON SEQUENCE public."Tiendas_Asistencia_id_seq" TO service_role;
 
--- Asegura que service_role pueda generar la falta automatica desde la funcion.
-GRANT SELECT, INSERT, UPDATE ON public."Tiendas_Faltas" TO service_role;
+-- Asegura que service_role pueda generar y remover faltas desde funciones.
+GRANT SELECT, INSERT, UPDATE, DELETE ON public."Tiendas_Faltas" TO service_role;

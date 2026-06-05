@@ -16,6 +16,9 @@ Thumbs.db
 # Cloudflare
 .wrangler/
 
+# Supabase local link/cache
+supabase/.temp/
+
 # Zip files
 *.zip
 

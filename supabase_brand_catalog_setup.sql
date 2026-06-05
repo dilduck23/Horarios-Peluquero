@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS public."Tiendas_Marcas_Proveedores" (
     "idProveedor" INTEGER NOT NULL,
     proveedor TEXT NOT NULL,
     correo_proveedor TEXT,
+    correos_proveedor JSONB NOT NULL DEFAULT '[]'::jsonb,
     activo BOOLEAN NOT NULL DEFAULT true,
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -19,7 +20,13 @@ COMMENT ON TABLE public."Tiendas_Marcas_Proveedores"
 IS 'Catalogo de marcas registradas con su proveedor principal y correo compartido para impulsadoras.';
 
 COMMENT ON COLUMN public."Tiendas_Marcas_Proveedores".correo_proveedor
-IS 'Correo compartido del proveedor para todas sus marcas.';
+IS 'Correo principal legado del proveedor para todas sus marcas.';
+
+ALTER TABLE public."Tiendas_Marcas_Proveedores"
+ADD COLUMN IF NOT EXISTS correos_proveedor JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+COMMENT ON COLUMN public."Tiendas_Marcas_Proveedores".correos_proveedor
+IS 'Lista normalizada de correos del proveedor para notificaciones a varios destinatarios.';
 
 CREATE INDEX IF NOT EXISTS idx_marcas_proveedores_marca
 ON public."Tiendas_Marcas_Proveedores" (marca);
@@ -185,10 +192,29 @@ WITH provider_emails("idProveedor", correo_proveedor) AS (
 )
 UPDATE public."Tiendas_Marcas_Proveedores" catalog
 SET correo_proveedor = provider_emails.correo_proveedor,
+    correos_proveedor = CASE
+        WHEN catalog.correos_proveedor IS NULL OR catalog.correos_proveedor = '[]'::jsonb
+        THEN to_jsonb(ARRAY[lower(btrim(provider_emails.correo_proveedor))])
+        ELSE catalog.correos_proveedor
+    END,
     actualizado_en = NOW()
 FROM provider_emails
 WHERE catalog."idProveedor" = provider_emails."idProveedor"
   AND (catalog.correo_proveedor IS NULL OR btrim(catalog.correo_proveedor) = '');
+
+UPDATE public."Tiendas_Marcas_Proveedores"
+SET correos_proveedor = to_jsonb(ARRAY[lower(btrim(correo_proveedor))]),
+    actualizado_en = NOW()
+WHERE (correos_proveedor IS NULL OR correos_proveedor = '[]'::jsonb)
+  AND correo_proveedor IS NOT NULL
+  AND btrim(correo_proveedor) <> ''
+  AND btrim(correo_proveedor) <> '0';
+
+UPDATE public."Tiendas_Marcas_Proveedores" catalog
+SET correos_proveedor = to_jsonb(ARRAY['isidrodapelo@biotanicals.net', 'mercaderista@biotanicals.net']),
+    correo_proveedor = COALESCE(NULLIF(btrim(correo_proveedor), ''), 'isidrodapelo@biotanicals.net'),
+    actualizado_en = NOW()
+WHERE catalog."idProveedor" = 1601;
 
 -- Adaptacion de impulsadoras existentes con coincidencias seguras.
 WITH brand_links(legacy_marca, "idMarca") AS (

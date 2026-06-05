@@ -3,6 +3,12 @@ project_id = "cectqtufttubsepyiolr"
 [functions.close-store-attendance]
 verify_jwt = false
 
+[functions.send-incidence-email]
+verify_jwt = true
+
+[functions.remove-absence]
+verify_jwt = true
+
 [functions.self-attendance-status]
 verify_jwt = false
 

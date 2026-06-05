@@ -100,13 +100,23 @@
         return `<span class="store-badge-ui" style="width:${size}px;height:${size}px;background:${h(color)};color:${textColor};font-size:${Math.max(11, Math.round(size / 3.2))}px">${h(asText(store?.alias_tienda, 'T'))}</span>`;
     }
 
+    function normalizedInternalType(type) {
+        return asText(type)
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .trim()
+            .toUpperCase();
+    }
+
+    function isInternalFreeType(type) {
+        const value = normalizedInternalType(type);
+        return ['VACACIONES', 'PERMISO', 'LICENCIA', 'LIBRE', 'DIA LIBRE', 'DESCANSO', 'DESCANSO SEMANAL', 'OFF'].includes(value)
+            || value.includes('LIBRE')
+            || value.includes('DESCANSO');
+    }
+
     function internalTypeColor(type) {
-        switch (asText(type).toUpperCase()) {
-            case 'VACACIONES': return '#F59E0B';
-            case 'PERMISO': return '#7C3AED';
-            case 'LICENCIA': return '#2563EB';
-            default: return '#0E9F8F';
-        }
+        return isInternalFreeType(type) ? '#111827' : '#0E9F8F';
     }
 
     async function rows(query) {
@@ -260,7 +270,6 @@
                         <div class="self-calendar">${this.calendarGrid()}</div>
                         <p class="text-center text-[11px] font-bold text-[#756c65] mt-3">Novepsa Planner</p>
                     </section>
-                    ${this.attendanceSection()}
                     ${this.storeLegend()}
                 </div>`;
         },
@@ -319,9 +328,14 @@
         assignmentBadge(assignment) {
             if (!assignment) return '<span class="block h-[18px] rounded-md bg-[#f1ece7] text-center text-[10px] font-black text-[#b5aaa1]">-</span>';
             if (this.kind === 'personal') {
-                const color = internalTypeColor(assignment.tipo);
+                const store = byId(this.stores, assignment.tienda_id);
+                const freeType = isInternalFreeType(assignment.tipo);
+                const color = freeType ? internalTypeColor(assignment.tipo) : asText(store?.color_hex, '#0E9F8F');
                 const textColor = isLightColor(color) ? '#111827' : '#ffffff';
-                return `<span class="block rounded-md px-1 py-1 text-center text-[9px] font-black" style="background:${h(color)};color:${textColor}">${h(asText(assignment.tipo, 'TRABAJO'))}</span>`;
+                const label = freeType
+                    ? asText(assignment.tipo, 'LIBRE')
+                    : asText(store?.nombre_display || store?.alias_tienda, 'Tienda');
+                return `<span class="block rounded-md px-1 py-1 text-center text-[9px] font-black" style="background:${h(color)};color:${textColor};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(label)}</span>`;
             }
             const store = byId(this.stores, assignment.tienda_id);
             const color = asText(store?.color_hex, '#0E9F8F');

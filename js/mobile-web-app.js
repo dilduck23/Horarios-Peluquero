@@ -846,7 +846,31 @@
             : mixHexColor(source, '#ffffff', shift);
     }
 
+    function normalizedInternalType(type) {
+        return asText(type)
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .trim()
+            .toUpperCase();
+    }
+
+    function isInternalFreeType(type) {
+        const value = normalizedInternalType(type);
+        return ['VACACIONES', 'PERMISO', 'LICENCIA', 'LIBRE', 'DIA LIBRE', 'DESCANSO', 'DESCANSO SEMANAL', 'OFF'].includes(value)
+            || value.includes('LIBRE')
+            || value.includes('DESCANSO');
+    }
+
     function internalPersonTone(person, row, store) {
+        if (isInternalFreeType(row?.tipo)) {
+            return {
+                bg: '#111827',
+                border: '#000000',
+                avatar: '#111827',
+                text: '#FFFFFF',
+                avatarText: '#FFFFFF'
+            };
+        }
         const key = asText(person?.id || row?.personal_id || person?.nombre_completo || row?.id);
         const base = colorFromStore(store, '#0E9F8F');
         const bg = shiftHexColor(base, internalStoreToneShifts[stableToneIndex(key || 'interno')]);
@@ -866,12 +890,7 @@
     }
 
     function internalTypeColor(type) {
-        switch (asText(type).toUpperCase()) {
-            case 'VACACIONES': return '#F59E0B';
-            case 'PERMISO': return '#7C3AED';
-            case 'LICENCIA': return '#2563EB';
-            default: return '#0E9F8F';
-        }
+        return isInternalFreeType(type) ? '#111827' : '#0E9F8F';
     }
 
     class BaseView {
@@ -1764,6 +1783,24 @@
             return text && text !== '0' ? text : '';
         }
 
+        emailList(value) {
+            const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            const values = Array.isArray(value) ? value : asText(value).split(/[,;\n]+/);
+            const seen = new Set();
+            const emails = [];
+            values.forEach((item) => {
+                const email = asText(item).trim().toLowerCase();
+                if (!email || !emailPattern.test(email) || seen.has(email)) return;
+                seen.add(email);
+                emails.push(email);
+            });
+            return emails;
+        }
+
+        emailListText(value) {
+            return this.emailList(value).join(', ');
+        }
+
         brandLabel(brand) {
             return `${asText(brand?.marca, 'Sin marca')} - ${asText(brand?.proveedor, 'Sin proveedor')} (#${asText(brand?.idMarca, '-')})`;
         }
@@ -1799,26 +1836,31 @@
                 || this.getUniqueBrandByName(rawValue);
         }
 
-        getProviderEmail(idProveedor) {
+        getProviderEmails(idProveedor) {
             const providerId = asInt(idProveedor);
-            if (!providerId) return '';
-            const catalogEmail = this.brandCatalog
+            if (!providerId) return [];
+            const catalogEmails = this.brandCatalog
                 .filter((brand) => asInt(brand.idProveedor) === providerId)
-                .map((brand) => this.usefulValue(brand.correo_proveedor))
-                .find(Boolean);
-            if (catalogEmail) return catalogEmail;
-            const staffEmails = [...new Set(this.promoters
+                .flatMap((brand) => [
+                    ...this.emailList(brand.correos_proveedor),
+                    ...this.emailList(brand.correo_proveedor),
+                ]);
+            const normalizedCatalogEmails = this.emailList(catalogEmails);
+            if (normalizedCatalogEmails.length) return normalizedCatalogEmails;
+            return this.emailList(this.promoters
                 .filter((person) => asInt(person.idProveedor) === providerId)
-                .map((person) => this.usefulValue(person.Correo))
-                .filter(Boolean))];
-            return staffEmails.length === 1 ? staffEmails[0] : '';
+                .flatMap((person) => this.emailList(person.Correo)));
+        }
+
+        getProviderEmail(idProveedor) {
+            return this.getProviderEmails(idProveedor).join(', ');
         }
 
         vendorBrandFormHtml(person) {
             const brand = this.getPersonBrand(person);
             const initialBrand = brand ? this.brandLabel(brand) : '';
             const providerText = brand?.proveedor || this.usefulValue(person.Proveedor) || 'Selecciona una marca registrada';
-            const emailValue = brand ? this.getProviderEmail(brand.idProveedor) : this.usefulValue(person.Correo);
+            const emailValue = brand ? this.getProviderEmail(brand.idProveedor) : this.emailListText(person.Correo);
             return `
                 <div>
                     <label class="block text-xs font-bold text-slate-500 mb-1">Marca registrada *</label>
@@ -1827,8 +1869,8 @@
                     <div id="swal-brand-provider" class="mt-2 rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 text-xs text-slate-500">${h(providerText)}</div>
                 </div>
                 <div>
-                    <label class="block text-xs font-bold text-slate-500 mb-1">Correo del proveedor</label>
-                    <input type="email" id="swal-correo" class="w-full p-3 border rounded-xl" value="${h(emailValue)}" placeholder="correo@proveedor.com">
+                    <label class="block text-xs font-bold text-slate-500 mb-1">Correos del proveedor</label>
+                    <textarea id="swal-correo" class="w-full min-h-[86px] p-3 border rounded-xl resize-none" placeholder="correo@proveedor.com, otro@proveedor.com">${h(emailValue)}</textarea>
                 </div>`;
         }
 
@@ -1859,38 +1901,49 @@
 
         readVendorBrandSelection() {
             const brand = this.resolveBrandInput(document.getElementById('swal-brand-search')?.value);
-            const correo = asText(document.getElementById('swal-correo')?.value).trim();
+            const correoRaw = asText(document.getElementById('swal-correo')?.value).trim();
+            const correos = this.emailList(correoRaw);
             if (!brand) {
                 Swal.showValidationMessage('Selecciona una marca registrada de la lista.');
                 return null;
             }
-            if (correo && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) {
-                Swal.showValidationMessage('El correo del proveedor no es válido.');
+            if (correoRaw && !correos.length) {
+                Swal.showValidationMessage('Escribe al menos un correo válido para el proveedor.');
                 return null;
             }
-            return { brand, correo };
+            const invalidEmails = correoRaw.split(/[,;\n]+/)
+                .map((email) => email.trim())
+                .filter((email) => email && !this.emailList(email).length);
+            if (invalidEmails.length) {
+                Swal.showValidationMessage(`Correo no válido: ${invalidEmails[0]}`);
+                return null;
+            }
+            return { brand, correo: correos.join(', '), correos };
         }
 
-        promoterBrandPayload(brand, correo) {
+        promoterBrandPayload(brand, correos) {
+            const emailText = this.emailListText(correos?.length ? correos : this.getProviderEmails(brand.idProveedor));
             return {
                 Marca: brand.marca || null,
                 idMarca: asInt(brand.idMarca) || null,
                 Proveedor: brand.proveedor || null,
                 idProveedor: asInt(brand.idProveedor) || null,
-                Correo: correo || this.getProviderEmail(brand.idProveedor) || brand.correo_proveedor || null
+                Correo: emailText || this.emailListText(brand.correo_proveedor) || null
             };
         }
 
-        async syncProviderEmail(idProveedor, correo) {
+        async syncProviderEmail(idProveedor, correos) {
             const providerId = asInt(idProveedor);
-            if (!providerId || !correo) return;
+            const emailList = this.emailList(correos);
+            if (!providerId || !emailList.length) return;
+            const emailText = emailList.join(', ');
             const timestamp = new Date().toISOString();
             const { error: catalogError } = await db.from(tables.brandCatalog)
-                .update({ correo_proveedor: correo, actualizado_en: timestamp })
+                .update({ correo_proveedor: emailList[0], correos_proveedor: emailList, actualizado_en: timestamp })
                 .eq('idProveedor', providerId);
             if (catalogError) console.warn('No se pudo sincronizar correo del proveedor:', catalogError);
             const { error: staffError } = await db.from(tables.impulsadoras)
-                .update({ Correo: correo })
+                .update({ Correo: emailText })
                 .eq('idProveedor', providerId);
             if (staffError) console.warn('No se pudo sincronizar correo en impulsadoras:', staffError);
         }
@@ -1957,12 +2010,12 @@
                             data: {
                                 nombre_completo: name,
                                 idVendedor: asInt(code),
-                                ...this.promoterBrandPayload(brandSelection.brand, brandSelection.correo),
+                                ...this.promoterBrandPayload(brandSelection.brand, brandSelection.correos),
                                 idCategoria: asInt(document.getElementById('swal-categoria')?.value) || null,
                                 Habilitado: document.getElementById('swal-habilitado')?.checked === true
                             },
                             providerId: brandSelection.brand.idProveedor,
-                            providerEmail: brandSelection.correo
+                            providerEmail: brandSelection.correos
                         };
                     }
                 });
@@ -2532,7 +2585,10 @@
             const currentPerson = asInt(existing?.personal_id || forcedPersonId, '');
             const currentStore = asInt(existing?.tienda_id || forcedStoreId || this.session.storeId || '', '');
             const currentType = asText(existing?.tipo, 'TRABAJO');
-            const { value } = await Swal.fire({
+            const canDeleteExisting = Boolean(existing?.id)
+                && typeof this.deleteInternalAssignment === 'function'
+                && (this.session.isManager || (this.session.isStoreUser && asInt(existing.tienda_id) === asInt(this.session.storeId)));
+            const result = await Swal.fire({
                 title: existing ? 'Modificar asignación' : 'Nueva asignación',
                 html: `
                     <div class="grid gap-3 text-left">
@@ -2542,7 +2598,10 @@
                         <label class="text-xs font-bold text-slate-500">Tipo<select id="mw-type" class="w-full p-3 border rounded-xl mt-1">${['TRABAJO', 'VACACIONES', 'PERMISO', 'LICENCIA'].map((type) => `<option value="${type}" ${type === currentType ? 'selected' : ''}>${type}</option>`).join('')}</select></label>
                     </div>`,
                 showCancelButton: true,
+                showDenyButton: canDeleteExisting,
                 confirmButtonText: 'Guardar',
+                denyButtonText: 'Eliminar asignación',
+                denyButtonColor: '#111827',
                 didOpen: () => this.paintStorePicker(document.getElementById('mw-store')),
                 preConfirm: () => ({
                     fecha: document.getElementById('mw-date').value,
@@ -2551,6 +2610,11 @@
                     tipo: document.getElementById('mw-type').value
                 })
             });
+            if (result.isDenied) {
+                await this.deleteInternalAssignment(asInt(existing.id));
+                return;
+            }
+            const value = result.value;
             if (!value) return;
             if (!value.fecha || !value.personal_id || !value.tienda_id) {
                 Swal.fire('Faltan datos', 'Selecciona fecha, personal y tienda.', 'warning');
@@ -2591,7 +2655,7 @@
             Swal.fire({
                 icon: 'warning',
                 title: 'Asignación duplicada',
-                text: `${asText(person?.nombre_completo, 'Ese personal')} ya está asignado en ${asText(store?.nombre_display, 'otra tienda')} el ${asText(value.fecha)}. Modifica esa asignación o márcala como día libre antes de moverlo.`
+                text: `${asText(person?.nombre_completo, 'Ese personal')} ya está asignado en ${asText(store?.nombre_display, 'otra tienda')} el ${asText(value.fecha)}. Modifica o elimina esa asignación antes de moverlo.`
             });
         }
 
@@ -3175,7 +3239,7 @@
                 html: `
                     <p class="text-slate-500 mb-4 text-sm">${h(asText(store?.nombre_display, 'Bodega/Tienda'))} - ${h(asText(row.fecha))}</p>
                     <div class="grid gap-2">
-                        ${this.canManageInternal() ? `<button class="bottom-action full" onclick="Swal.close(); mobileApp.editInternalAssignment(${asInt(row.id)})">Modificar asignación</button><button class="bottom-action ink full" onclick="Swal.close(); mobileApp.deleteInternalAssignment(${asInt(row.id)})">Marcar día libre</button>` : `<p class="font-bold">${h(asText(row.tipo, 'TRABAJO'))}</p>`}
+                        ${this.canManageInternal() ? `<button class="bottom-action full" onclick="Swal.close(); mobileApp.editInternalAssignment(${asInt(row.id)})">Modificar asignación</button><button class="bottom-action ink full" onclick="Swal.close(); mobileApp.deleteInternalAssignment(${asInt(row.id)})">Eliminar asignación</button>` : `<p class="font-bold">${h(asText(row.tipo, 'TRABAJO'))}</p>`}
                     </div>`,
                 showConfirmButton: false,
                 showCloseButton: true
@@ -3192,20 +3256,20 @@
             const row = this.monthlyInternalRows.find((item) => asInt(item.id) === asInt(id));
             if (!row || !this.canManageInternal() || asInt(row.tienda_id) !== asInt(this.selectedStoreId)) return;
             const ok = await Swal.fire({
-                title: 'Marcar día libre',
-                text: 'Se quitará este registro del horario interno.',
+                title: 'Eliminar asignación',
+                text: 'Se eliminará este registro del horario interno.',
                 icon: 'warning',
                 showCancelButton: true,
-                confirmButtonText: 'Marcar libre',
+                confirmButtonText: 'Eliminar',
                 cancelButtonText: 'Cancelar'
             });
             if (!ok.isConfirmed) return;
             try {
                 await rows(db.from(tables.internalSchedule).delete().eq('id', asInt(id)).select());
                 await this.reload();
-                Swal.fire({ icon: 'success', title: 'Día libre marcado', timer: 1300, showConfirmButton: false });
+                Swal.fire({ icon: 'success', title: 'Asignación eliminada', timer: 1300, showConfirmButton: false });
             } catch (error) {
-                Swal.fire('Error', error.message || 'No se pudo marcar el día libre', 'error');
+                Swal.fire('Error', error.message || 'No se pudo eliminar la asignación', 'error');
             }
         }
 
@@ -3540,7 +3604,7 @@
 
         internalPersonCalendarLabel(row) {
             const store = byId(this.stores, row.tienda_id || this.selectedStoreId);
-            const color = colorFromStore(store);
+            const color = isInternalFreeType(row.tipo) ? '#111827' : colorFromStore(store);
             const foreground = isLightColor(color) ? '#111827' : '#ffffff';
             return `<span class="vendor-calendar-label" title="${h(asText(store?.nombre_display, 'Tienda'))} - ${h(asText(row.tipo, 'TRABAJO'))}" style="background:${h(color)};color:${foreground}">${h(asText(store?.alias_tienda, 'T'))}</span>`;
         }
@@ -3617,7 +3681,7 @@
                     <p class="text-slate-500 mb-4 text-sm">${h(asText(store?.nombre_display, 'Bodega/Tienda'))} - ${h(asText(row.fecha))}</p>
                     ${canEditRow ? `<div class="grid gap-2">
                         <button class="bottom-action full" onclick="Swal.close(); mobileApp.editInternalAssignment(${asInt(row.id)})">Modificar asignación</button>
-                        <button class="bottom-action ink full" onclick="Swal.close(); mobileApp.deleteInternalAssignment(${asInt(row.id)})">Marcar día libre</button>
+                        <button class="bottom-action ink full" onclick="Swal.close(); mobileApp.deleteInternalAssignment(${asInt(row.id)})">Eliminar asignación</button>
                     </div>` : `<p class="font-bold">${h(asText(row.tipo, 'TRABAJO'))}</p>`}`,
                 showConfirmButton: false,
                 showCloseButton: true
@@ -3639,20 +3703,20 @@
             const row = this.monthlyRows.find((item) => asInt(item.id) === asInt(id));
             if (!row || !this.canManageInternalRow(row)) return;
             const ok = await Swal.fire({
-                title: 'Marcar día libre',
-                text: 'Se quitará este registro del horario interno.',
+                title: 'Eliminar asignación',
+                text: 'Se eliminará este registro del horario interno.',
                 icon: 'warning',
                 showCancelButton: true,
-                confirmButtonText: 'Marcar libre',
+                confirmButtonText: 'Eliminar',
                 cancelButtonText: 'Cancelar'
             });
             if (!ok.isConfirmed) return;
             try {
                 await rows(db.from(tables.internalSchedule).delete().eq('id', asInt(id)).select());
                 await this.reload();
-                Swal.fire({ icon: 'success', title: 'Día libre marcado', timer: 1300, showConfirmButton: false });
+                Swal.fire({ icon: 'success', title: 'Asignación eliminada', timer: 1300, showConfirmButton: false });
             } catch (error) {
-                Swal.fire('Error', error.message || 'No se pudo marcar el día libre', 'error');
+                Swal.fire('Error', error.message || 'No se pudo eliminar la asignación', 'error');
             }
         }
 
@@ -3783,10 +3847,7 @@
         render() {
             const filtered = this.enriched();
             const total = filtered.length;
-            const absences = filtered.filter((item) => {
-                const subject = asText(item.raw.asunto).toUpperCase();
-                return subject.includes('FALTA') || subject.includes('INJUSTIFICADA');
-            }).length;
+            const absences = filtered.filter((item) => this.isAbsenceSubject(item.raw.asunto)).length;
             const late = filtered.filter((item) => asText(item.raw.asunto).toUpperCase().includes('IMPUNTUALIDAD')).length;
             const actions = iconButton('file_download', 'mobileApp.copyCsv()', 'Copiar CSV') + iconButton('refresh', 'mobileApp.reload()', 'Actualizar');
             shell('reports', 'Reportes', `${total} incidencias filtradas`, actions, `
@@ -3833,6 +3894,15 @@
                 </button>`;
         }
 
+        isAbsenceSubject(subject) {
+            const upper = asText(subject).toUpperCase();
+            return upper.includes('FALTA') || upper.includes('INJUSTIFICADA');
+        }
+
+        canRemoveAbsence(item) {
+            return this.session.isAdmin && this.isAbsenceSubject(item?.raw?.asunto);
+        }
+
         incidentColor(subject) {
             const upper = asText(subject).toUpperCase();
             if (upper.includes('NO APROBADA')) return '#B91C1C';
@@ -3876,6 +3946,9 @@
         showReport(index) {
             const item = this.enriched()[index];
             if (!item) return;
+            const removeAction = this.canRemoveAbsence(item)
+                ? `<button class="bottom-action ink full mt-3" onclick="Swal.close(); mobileApp.removeAbsence(${asInt(item.raw.id)})"><span class="material-icons text-base">delete_forever</span> Remover falta</button>`
+                : '';
             Swal.fire({
                 title: item.personName,
                 html: `
@@ -3884,10 +3957,68 @@
                         <div><strong>Turno</strong><p>${h(item.shiftDate)}</p></div>
                         <div><strong>Asunto</strong><p>${h(asText(item.raw.asunto))}</p></div>
                         <div><strong>Observación</strong><p>${h(asText(item.raw.observacion, '-'))}</p></div>
-                    </div>`,
+                    </div>
+                    ${removeAction}`,
                 showCloseButton: true,
                 showConfirmButton: false
             });
+        }
+
+        async removeAbsence(incidentId) {
+            const item = this.enriched().find((entry) => asInt(entry.raw.id) === asInt(incidentId));
+            if (!item || !this.canRemoveAbsence(item)) {
+                Swal.fire('Sin permiso', 'Solo el Administrador puede remover faltas.', 'warning');
+                return;
+            }
+
+            const { value: reason } = await Swal.fire({
+                title: 'Remover falta',
+                html: `
+                    <div class="text-left text-sm text-slate-600">
+                        <p><strong>${h(item.personName)}</strong></p>
+                        <p>${h(item.storeName)} - Turno ${h(item.shiftDate)}</p>
+                        <p class="mt-2">Escribe el motivo por el cual esta falta se remueve del reporte.</p>
+                    </div>`,
+                input: 'textarea',
+                inputPlaceholder: 'Ej. La impulsadora sí asistió al punto y se verificó con el administrador.',
+                inputAttributes: {
+                    'aria-label': 'Motivo de remoción'
+                },
+                showCancelButton: true,
+                confirmButtonText: 'Remover falta',
+                cancelButtonText: 'Cancelar',
+                confirmButtonColor: '#DC2626',
+                preConfirm: (value) => {
+                    const text = asText(value).trim();
+                    if (text.length < 5) {
+                        Swal.showValidationMessage('El motivo es obligatorio.');
+                        return false;
+                    }
+                    return text;
+                }
+            });
+
+            if (!reason) return;
+
+            try {
+                Swal.fire({
+                    title: 'Removiendo falta',
+                    allowOutsideClick: false,
+                    didOpen: () => Swal.showLoading()
+                });
+                const { data, error } = await db.functions.invoke('remove-absence', {
+                    body: {
+                        incidentId: asInt(incidentId),
+                        reason
+                    }
+                });
+                if (data?.error) throw new Error(data.error);
+                if (error) throw error;
+                await this.reload();
+                Swal.fire({ icon: 'success', title: 'Falta removida', timer: 1500, showConfirmButton: false });
+            } catch (error) {
+                Swal.fire('Error', error.message || 'No se pudo remover la falta', 'error');
+            }
         }
     }
 

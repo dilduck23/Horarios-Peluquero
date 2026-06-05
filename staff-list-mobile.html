@@ -308,6 +308,22 @@
                 return text && text !== '0' ? text : '';
             },
 
+            emailList: (value) => {
+                const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                const values = Array.isArray(value) ? value : String(value || '').split(/[,;\n]+/);
+                const seen = new Set();
+                const emails = [];
+                values.forEach(item => {
+                    const email = String(item || '').trim().toLowerCase();
+                    if (!email || !emailPattern.test(email) || seen.has(email)) return;
+                    seen.add(email);
+                    emails.push(email);
+                });
+                return emails;
+            },
+
+            emailListText: (value) => app.emailList(value).join(', '),
+
             getBrandByIdMarca: (idMarca) => {
                 const id = parseInt(idMarca, 10);
                 if (!id) return null;
@@ -352,7 +368,7 @@
                 const initialBrand = brand ? app.brandLabel(brand) : '';
                 const fallbackProvider = app.usefulValue(person.Proveedor);
                 const providerText = brand?.proveedor || fallbackProvider || 'Selecciona una marca registrada';
-                const emailValue = brand ? app.getProviderEmail(brand.idProveedor) : app.usefulValue(person.Correo);
+                const emailValue = brand ? app.getProviderEmail(brand.idProveedor) : app.emailListText(person.Correo);
 
                 return `
                     <div>
@@ -362,8 +378,8 @@
                         <div id="swal-brand-provider" class="mt-2 rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 text-xs text-slate-500">${app.escapeHtml(providerText)}</div>
                     </div>
                     <div>
-                        <label class="block text-xs font-bold text-slate-500 mb-1">Correo del proveedor</label>
-                        <input type="email" id="swal-correo" class="w-full p-3 border rounded-xl" value="${app.escapeHtml(emailValue)}" placeholder="correo@proveedor.com">
+                        <label class="block text-xs font-bold text-slate-500 mb-1">Correos del proveedor</label>
+                        <textarea id="swal-correo" class="w-full min-h-[86px] p-3 border rounded-xl resize-none" placeholder="correo@proveedor.com, otro@proveedor.com">${app.escapeHtml(emailValue)}</textarea>
                     </div>
                 `;
             },
@@ -402,47 +418,62 @@
                 const brandInput = document.getElementById('swal-brand-search');
                 const emailInput = document.getElementById('swal-correo');
                 const brand = app.resolveBrandInput(brandInput?.value);
-                const correo = (emailInput?.value || '').trim();
+                const correoRaw = (emailInput?.value || '').trim();
+                const correos = app.emailList(correoRaw);
 
                 if (!brand) {
                     Swal.showValidationMessage('Selecciona una marca registrada de la lista.');
                     return null;
                 }
 
-                if (correo && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) {
-                    Swal.showValidationMessage('El correo del proveedor no es válido.');
+                if (correoRaw && !correos.length) {
+                    Swal.showValidationMessage('Escribe al menos un correo válido para el proveedor.');
                     return null;
                 }
 
-                return { brand, correo };
+                const invalidEmails = correoRaw.split(/[,;\n]+/)
+                    .map(email => email.trim())
+                    .filter(email => email && !app.emailList(email).length);
+                if (invalidEmails.length) {
+                    Swal.showValidationMessage(`Correo no válido: ${invalidEmails[0]}`);
+                    return null;
+                }
+
+                return { brand, correo: correos.join(', '), correos };
             },
 
-            promoterBrandPayload: (brand, correo) => ({
-                Marca: brand.marca || null,
-                idMarca: parseInt(brand.idMarca, 10) || null,
-                Proveedor: brand.proveedor || null,
-                idProveedor: parseInt(brand.idProveedor, 10) || null,
-                Correo: correo || app.getProviderEmail(brand.idProveedor) || brand.correo_proveedor || null
-            }),
+            promoterBrandPayload: (brand, correos) => {
+                const emailText = app.emailListText(correos?.length ? correos : app.getProviderEmails(brand.idProveedor));
+                return {
+                    Marca: brand.marca || null,
+                    idMarca: parseInt(brand.idMarca, 10) || null,
+                    Proveedor: brand.proveedor || null,
+                    idProveedor: parseInt(brand.idProveedor, 10) || null,
+                    Correo: emailText || app.emailListText(brand.correo_proveedor) || null
+                };
+            },
+
+            getProviderEmails: (idProveedor) => {
+                const providerId = parseInt(idProveedor, 10);
+                if (!providerId) return [];
+
+                const catalogEmails = app.state.brandCatalog
+                    .filter(brand => parseInt(brand.idProveedor, 10) === providerId)
+                    .flatMap(brand => [
+                        ...app.emailList(brand.correos_proveedor),
+                        ...app.emailList(brand.correo_proveedor)
+                    ]);
+
+                const normalizedCatalogEmails = app.emailList(catalogEmails);
+                if (normalizedCatalogEmails.length) return normalizedCatalogEmails;
+
+                return app.emailList(app.state.staff
+                    .filter(person => parseInt(person.idProveedor, 10) === providerId)
+                    .flatMap(person => app.emailList(person.Correo)));
+            },
 
             getProviderEmail: (idProveedor) => {
-                const providerId = parseInt(idProveedor, 10);
-                if (!providerId) return '';
-
-                const catalogEmail = app.state.brandCatalog
-                    .filter(brand => parseInt(brand.idProveedor, 10) === providerId)
-                    .map(brand => app.usefulValue(brand.correo_proveedor))
-                    .find(Boolean);
-
-                if (catalogEmail) return catalogEmail;
-
-                const staffEmails = [...new Set(app.state.staff
-                    .filter(person => parseInt(person.idProveedor, 10) === providerId)
-                    .map(person => app.usefulValue(person.Correo))
-                    .filter(Boolean)
-                )];
-
-                return staffEmails.length === 1 ? staffEmails[0] : '';
+                return app.getProviderEmails(idProveedor).join(', ');
             },
 
             providerGroups: () => {
@@ -456,6 +487,7 @@
                         groups.set(providerId, {
                             idProveedor: providerId,
                             proveedor: brand.proveedor || 'Sin proveedor',
+                            correos: app.getProviderEmails(providerId),
                             correo: app.getProviderEmail(providerId),
                             marcas: [],
                             staffEmails: new Set()
@@ -470,9 +502,9 @@
 
                 app.state.staff.forEach(person => {
                     const providerId = parseInt(person.idProveedor, 10);
-                    const email = app.usefulValue(person.Correo);
-                    if (providerId && email && groups.has(providerId)) {
-                        groups.get(providerId).staffEmails.add(email);
+                    const emails = app.emailList(person.Correo);
+                    if (providerId && emails.length && groups.has(providerId)) {
+                        emails.forEach(email => groups.get(providerId).staffEmails.add(email));
                     }
                 });
 
@@ -485,11 +517,13 @@
                     .sort((a, b) => a.proveedor.localeCompare(b.proveedor, 'es'));
             },
 
-            syncProviderEmail: async (idProveedor, correo) => {
-                if (!idProveedor || !correo) return;
+            syncProviderEmail: async (idProveedor, correos) => {
+                const emailList = app.emailList(correos);
+                if (!idProveedor || !emailList.length) return;
+                const emailText = emailList.join(', ');
                 const timestamp = new Date().toISOString();
                 const { error } = await db.from(StaffPlanner.tables.brandCatalog)
-                    .update({ correo_proveedor: correo, actualizado_en: timestamp })
+                    .update({ correo_proveedor: emailList[0], correos_proveedor: emailList, actualizado_en: timestamp })
                     .eq('idProveedor', idProveedor);
 
                 if (error) {
@@ -498,7 +532,7 @@
                 }
 
                 const { error: staffError } = await db.from('Tiendas_Impulsadoras')
-                    .update({ Correo: correo })
+                    .update({ Correo: emailText })
                     .eq('idProveedor', idProveedor);
 
                 if (staffError) {
@@ -507,13 +541,13 @@
 
                 app.state.brandCatalog = app.state.brandCatalog.map(brand => (
                     parseInt(brand.idProveedor, 10) === parseInt(idProveedor, 10)
-                        ? { ...brand, correo_proveedor: correo, actualizado_en: timestamp }
+                        ? { ...brand, correo_proveedor: emailList[0], correos_proveedor: emailList, actualizado_en: timestamp }
                         : brand
                 ));
 
                 app.state.staff = app.state.staff.map(person => (
                     parseInt(person.idProveedor, 10) === parseInt(idProveedor, 10)
-                        ? { ...person, Correo: correo }
+                        ? { ...person, Correo: emailText }
                         : person
                 ));
             },
@@ -558,7 +592,7 @@
                             const extraBrands = provider.marcas.length > 8
                                 ? `<span class="text-[11px] font-bold text-slate-400">+${provider.marcas.length - 8} marcas</span>`
                                 : '';
-                            const existingEmails = provider.staffEmails.filter(email => email !== provider.correo);
+                            const existingEmails = provider.staffEmails.filter(email => !provider.correos.includes(email));
 
                             return `
                                 <article class="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
@@ -576,10 +610,10 @@
                                         ${extraBrands}
                                     </div>
                                     <div class="mt-3">
-                                        <label class="block text-xs font-bold text-slate-500 mb-1">Correo del proveedor</label>
-                                        <div class="flex gap-2">
-                                            <input id="provider-email-${provider.idProveedor}" type="email" class="min-w-0 flex-1 p-3 border rounded-xl text-sm" value="${app.escapeHtml(provider.correo)}" placeholder="correo@proveedor.com">
-                                            <button type="button" onclick="app.saveProviderEmail(${provider.idProveedor})" class="px-3 rounded-xl bg-[#E85D75] text-white font-bold text-xs">
+                                        <label class="block text-xs font-bold text-slate-500 mb-1">Correos del proveedor</label>
+                                        <div class="flex flex-col gap-2 sm:flex-row">
+                                            <textarea id="provider-email-${provider.idProveedor}" class="min-w-0 flex-1 min-h-[78px] p-3 border rounded-xl text-sm resize-none" placeholder="correo@proveedor.com, otro@proveedor.com">${app.escapeHtml(provider.correo)}</textarea>
+                                            <button type="button" onclick="app.saveProviderEmail(${provider.idProveedor})" class="px-3 py-3 rounded-xl bg-[#E85D75] text-white font-bold text-xs">
                                                 Guardar
                                             </button>
                                         </div>
@@ -594,10 +628,14 @@
 
             saveProviderEmail: async (idProveedor) => {
                 const input = document.getElementById(`provider-email-${idProveedor}`);
-                const correo = (input?.value || '').trim();
+                const correoRaw = (input?.value || '').trim();
+                const correos = app.emailList(correoRaw);
+                const invalidEmails = correoRaw.split(/[,;\n]+/)
+                    .map(email => email.trim())
+                    .filter(email => email && !app.emailList(email).length);
 
-                if (!correo || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) {
-                    Swal.fire('Correo inválido', 'Escribe un correo válido para el proveedor.', 'warning');
+                if (!correos.length || invalidEmails.length) {
+                    Swal.fire('Correo inválido', invalidEmails[0] ? `Revisa este correo: ${invalidEmails[0]}` : 'Escribe al menos un correo válido para el proveedor.', 'warning');
                     return;
                 }
 
@@ -607,8 +645,8 @@
                     didOpen: () => Swal.showLoading()
                 });
 
-                await app.syncProviderEmail(idProveedor, correo);
-                Swal.fire({ icon: 'success', title: 'Correo actualizado', timer: 1400, showConfirmButton: false });
+                await app.syncProviderEmail(idProveedor, correos);
+                Swal.fire({ icon: 'success', title: 'Correos actualizados', timer: 1400, showConfirmButton: false });
                 app.renderCurrentTab();
             },
 
@@ -820,11 +858,11 @@
                         return {
                             data: {
                                 nombre_completo: document.getElementById('swal-nombre').value,
-                                ...app.promoterBrandPayload(brandSelection.brand, brandSelection.correo),
+                                ...app.promoterBrandPayload(brandSelection.brand, brandSelection.correos),
                                 idCategoria: parseInt(document.getElementById('swal-categoria').value) || null
                             },
                             providerId: brandSelection.brand.idProveedor,
-                            providerEmail: brandSelection.correo
+                            providerEmail: brandSelection.correos
                         };
                     }
                 });
@@ -933,12 +971,12 @@
                                 nombre_completo: nombre,
                                 idVendedor: parseInt(codigo, 10),
                                 pin,
-                                ...app.promoterBrandPayload(brandSelection.brand, brandSelection.correo),
+                                ...app.promoterBrandPayload(brandSelection.brand, brandSelection.correos),
                                 idCategoria: parseInt(document.getElementById('swal-categoria').value) || null,
                                 Habilitado: true
                             },
                             providerId: brandSelection.brand.idProveedor,
-                            providerEmail: brandSelection.correo
+                            providerEmail: brandSelection.correos
                         };
                     }
                 });

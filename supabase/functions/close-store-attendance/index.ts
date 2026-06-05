@@ -11,6 +11,7 @@ const tablePromoters = "Tiendas_Impulsadoras";
 const tableStores = "Tiendas_Razonamiento";
 const tableSchedule = "Tiendas_Horario";
 const tableUsers = "Tiendas_Usuarios";
+const tableBrandCatalog = "Tiendas_Marcas_Proveedores";
 const autoSubject = "FALTA NO APROBADA";
 const autoObservation = "Falta automatica: el punto de venta no aprobo la asistencia antes de las 20:00 America/Guayaquil.";
 const closeCutoffHour = 20;
@@ -54,14 +55,46 @@ function uniqueEmails(values: unknown[]) {
   const emails: string[] = [];
   const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-  values.flat().forEach((value) => {
-    const email = asText(value).trim().toLowerCase();
-    if (!email || !emailPattern.test(email) || blockedRecipientEmails.has(email) || seen.has(email)) return;
-    seen.add(email);
-    emails.push(email);
-  });
+  const visit = (value: unknown) => {
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    asText(value).split(/[,;\n]+/).forEach((item) => {
+      const email = item.trim().toLowerCase();
+      if (!email || !emailPattern.test(email) || blockedRecipientEmails.has(email) || seen.has(email)) return;
+      seen.add(email);
+      emails.push(email);
+    });
+  };
+
+  values.forEach(visit);
 
   return emails;
+}
+
+function emailsFromRecord(record: Record<string, unknown> | null | undefined, key: string) {
+  return uniqueEmails([recordValue(record, key)]);
+}
+
+async function providerEmailsForPromoter(
+  supabase: ReturnType<typeof createClient>,
+  promoter: Record<string, unknown> | null,
+) {
+  const providerId = asInt(recordValue(promoter, "idProveedor"));
+  if (!providerId) return [];
+
+  const { data, error } = await supabase
+    .from(tableBrandCatalog)
+    .select("correo_proveedor,correos_proveedor")
+    .eq("idProveedor", providerId)
+    .eq("activo", true);
+  if (error) throw error;
+
+  return uniqueEmails((data || []).flatMap((row) => [
+    recordValue(row, "correos_proveedor"),
+    recordValue(row, "correo_proveedor"),
+  ]));
 }
 
 function formatDate(value: unknown) {
@@ -177,6 +210,19 @@ function happenedBeforeCloseCutoff(fecha: string, value: unknown) {
     && happenedAt < cutoff;
 }
 
+function incidentSubject(row: Record<string, unknown> | null | undefined) {
+  return asText(recordValue(row, "asunto")).trim().toUpperCase();
+}
+
+function isAutomaticAbsenceIncident(row: Record<string, unknown> | null | undefined) {
+  return incidentSubject(row) === autoSubject;
+}
+
+function isAbsenceIncident(row: Record<string, unknown> | null | undefined) {
+  const subject = incidentSubject(row);
+  return subject.includes("FALTA") || subject.includes("INJUSTIFICADA");
+}
+
 async function parseBody(req: Request) {
   try {
     return await req.json();
@@ -201,7 +247,7 @@ async function sendAutomaticAbsenceEmail(
   const [promoterResult, storeResult, userResult] = await Promise.all([
     supabase
       .from(tablePromoters)
-      .select("id,nombre_completo,Marca,Correo")
+      .select("id,nombre_completo,Marca,Correo,idProveedor")
       .eq("id", recordValue(schedule, "impulsadora_id"))
       .maybeSingle(),
     supabase
@@ -223,7 +269,8 @@ async function sendAutomaticAbsenceEmail(
   const promoter = promoterResult.data;
   const store = storeResult.data;
   const adminEmails = (userResult.data || []).map((user) => asText(recordValue(user, "email")));
-  const recipients = uniqueEmails([adminEmails, recordValue(promoter, "Correo")]);
+  const providerEmails = await providerEmailsForPromoter(supabase, promoter);
+  const recipients = uniqueEmails([adminEmails, providerEmails, emailsFromRecord(promoter, "Correo")]);
 
   if (!recipients.length) {
     console.warn(`No recipient emails found for automatic absence ${incidentId}`);
@@ -392,7 +439,7 @@ Deno.serve(async (req) => {
 
     const [attendanceResult, incidentResult] = await Promise.all([
       supabase.from(tableAttendance).select("*").in("horario_id", scheduleIds),
-      supabase.from(tableIncidents).select("id,id_horario,asunto,creado_en").in("id_horario", scheduleIds).eq("asunto", autoSubject),
+      supabase.from(tableIncidents).select("id,id_horario,asunto,creado_en").in("id_horario", scheduleIds).order("creado_en", { ascending: true }),
     ]);
     if (attendanceResult.error) throw attendanceResult.error;
     if (incidentResult.error) throw incidentResult.error;
@@ -406,6 +453,7 @@ Deno.serve(async (req) => {
     let emailErrors = 0;
     let skipped = 0;
     let cleanedPremature = 0;
+    let reportedAbsences = 0;
 
     const scheduleDateById = new Map<number, string>();
     scheduleRows.forEach((row) => scheduleDateById.set(asInt(recordValue(row, "id")), asText(recordValue(row, "fecha"))));
@@ -415,7 +463,7 @@ Deno.serve(async (req) => {
     (incidentResult.data || []).forEach((row) => {
       const horarioId = asInt(recordValue(row, "id_horario"));
       const shiftDate = scheduleDateById.get(horarioId) || fecha;
-      if (happenedBeforeCloseCutoff(shiftDate, recordValue(row, "creado_en"))) {
+      if (isAutomaticAbsenceIncident(row) && happenedBeforeCloseCutoff(shiftDate, recordValue(row, "creado_en"))) {
         const incidentId = asInt(recordValue(row, "id"));
         if (incidentId) prematureIncidentIds.push(incidentId);
         return;
@@ -432,8 +480,19 @@ Deno.serve(async (req) => {
       cleanedPremature += prematureIncidentIds.length;
     }
 
-    const incidentBySchedule = new Map<number, Record<string, unknown>>();
-    validIncidentRows.forEach((row) => incidentBySchedule.set(asInt(recordValue(row, "id_horario")), row));
+    const incidentById = new Map<number, Record<string, unknown>>();
+    const autoIncidentBySchedule = new Map<number, Record<string, unknown>>();
+    const reportedAbsenceBySchedule = new Map<number, Record<string, unknown>>();
+    validIncidentRows.forEach((row) => {
+      const incidentId = asInt(recordValue(row, "id"));
+      const horarioId = asInt(recordValue(row, "id_horario"));
+      if (incidentId) incidentById.set(incidentId, row);
+      if (isAutomaticAbsenceIncident(row)) {
+        autoIncidentBySchedule.set(horarioId, row);
+      } else if (isAbsenceIncident(row)) {
+        reportedAbsenceBySchedule.set(horarioId, row);
+      }
+    });
 
     for (const schedule of scheduleRows) {
       const horarioId = asInt(recordValue(schedule, "id"));
@@ -443,7 +502,8 @@ Deno.serve(async (req) => {
         && happenedBeforeCloseCutoff(asText(recordValue(schedule, "fecha")), recordValue(existingAttendance, "cerrado_en"))
       ) {
         const incidentId = asInt(recordValue(existingAttendance, "falta_id"));
-        if (incidentId) {
+        const linkedIncident = incidentById.get(incidentId);
+        if (incidentId && isAutomaticAbsenceIncident(linkedIncident)) {
           await supabase.from(tableIncidents).delete().eq("id", incidentId);
         }
         await supabase.from(tableAttendance).delete().eq("horario_id", horarioId).eq("estado", "falta_generada");
@@ -467,8 +527,9 @@ Deno.serve(async (req) => {
         && recordValue(existingAttendance, "falta_id");
       if (alreadyClosed) {
         skipped += 1;
-        if (!recordValue(existingAttendance, "correo_falta_auto_enviado_en")) {
-          const incidentId = asInt(recordValue(existingAttendance, "falta_id"));
+        const incidentId = asInt(recordValue(existingAttendance, "falta_id"));
+        const linkedIncident = incidentById.get(incidentId);
+        if (isAutomaticAbsenceIncident(linkedIncident) && !recordValue(existingAttendance, "correo_falta_auto_enviado_en")) {
           if (incidentId) {
             const mailSent = await trySendAutomaticAbsenceEmail(supabase, schedule, incidentId, now);
             if (mailSent) {
@@ -477,11 +538,19 @@ Deno.serve(async (req) => {
               emailErrors += 1;
             }
           }
+        } else if (isAbsenceIncident(linkedIncident)) {
+          reportedAbsences += 1;
         }
         continue;
       }
 
-      let incident = incidentBySchedule.get(horarioId);
+      let incident = reportedAbsenceBySchedule.get(horarioId);
+      const closesReportedAbsence = Boolean(incident);
+
+      if (!incident) {
+        incident = autoIncidentBySchedule.get(horarioId);
+      }
+
       if (!incident) {
         const { data: insertedIncident, error: incidentError } = await supabase
           .from(tableIncidents)
@@ -521,6 +590,7 @@ Deno.serve(async (req) => {
         estado: "falta_generada",
         cerrado_en: now,
         falta_id: incidentId,
+        correo_falta_auto_enviado_en: closesReportedAbsence ? null : recordValue(existingAttendance, "correo_falta_auto_enviado_en") || null,
         actualizado_en: now,
       };
 
@@ -536,6 +606,11 @@ Deno.serve(async (req) => {
           .from(tableAttendance)
           .insert({ ...attendancePayload, creado_en: now });
         if (insertAttendanceError && insertAttendanceError.code !== "23505") throw insertAttendanceError;
+      }
+
+      if (closesReportedAbsence) {
+        reportedAbsences += 1;
+        continue;
       }
 
       if (await trySendAutomaticAbsenceEmail(supabase, schedule, incidentId, now)) {
@@ -556,6 +631,7 @@ Deno.serve(async (req) => {
       emailErrors,
       skipped,
       cleanedPremature,
+      reportedAbsences,
     };
 
     if (emailErrors > 0) {

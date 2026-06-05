@@ -2121,7 +2121,8 @@ nav.fixed {
 }
 
 .desktop-topbar .topbar-mode-switch .planner-icon-btn:hover {
-    background: #fdfaf7;
+    background: #f7f2ef;
+    color: var(--app-ink);
 }
 
 .desktop-topbar .planner-icon-btn.primary {
@@ -2142,6 +2143,13 @@ nav.fixed {
     background: var(--app-rose);
     color: #fff;
     box-shadow: 0 10px 22px rgba(232, 93, 117, 0.22);
+}
+
+.desktop-topbar .topbar-mode-switch .planner-icon-btn.active,
+.desktop-topbar .topbar-mode-switch .planner-icon-btn.active:hover,
+.desktop-topbar .topbar-mode-switch .planner-icon-btn.active:focus-visible {
+    background: var(--app-rose);
+    color: #fff;
 }
 
 .desktop-topbar .planner-btn-label {
