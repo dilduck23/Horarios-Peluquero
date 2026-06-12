@@ -312,7 +312,8 @@
                     const occurrenceKey = monthKeyFor(cursor.getFullYear(), cursor.getMonth());
                     const publishKey = messagePublishKey.startsWith(occurrenceKey) && rawPublishKey < messagePublishKey ? messagePublishKey : rawPublishKey;
                     if (publishKey <= todayKey) {
-                        const dueKey = dateKey(new Date(cursor.getFullYear(), cursor.getMonth(), clampMonthDay(cursor.getFullYear(), cursor.getMonth(), dueDay)));
+                        const dueMonthBase = new Date(cursor.getFullYear(), cursor.getMonth() + (dueDay < publishDay ? 1 : 0), 1);
+                        const dueKey = dateKey(new Date(dueMonthBase.getFullYear(), dueMonthBase.getMonth(), clampMonthDay(dueMonthBase.getFullYear(), dueMonthBase.getMonth(), dueDay)));
                         const state = stateMap.get(messageStateKey(message.id, occurrenceKey)) || null;
                         if (isMessageArchived(message, state) === archived) {
                             entries.push({ message, state, occurrenceKey, publishKey, dueKey });
@@ -377,11 +378,20 @@
             || (haystack.includes('reporte de ingresos') && haystack.includes('egresos'));
     }
 
+    function messageUsesNextMonth(message) {
+        const haystack = normalizeSearch(`${asText(message?.titulo)} ${asText(message?.resumen)} ${asText(message?.detalle)}`);
+        return haystack.includes('{mes siguiente}')
+            || haystack.includes('{mes_siguiente}');
+    }
+
     function messageReferenceMonth(entry) {
         const occurrenceMonth = messageOccurrenceMonth(entry);
         if (!occurrenceMonth) return null;
         if (messageUsesPreviousMonth(entry?.message)) {
             return new Date(occurrenceMonth.getFullYear(), occurrenceMonth.getMonth() - 1, 1);
+        }
+        if (messageUsesNextMonth(entry?.message)) {
+            return new Date(occurrenceMonth.getFullYear(), occurrenceMonth.getMonth() + 1, 1);
         }
         return occurrenceMonth;
     }
@@ -393,7 +403,8 @@
         const referenceMonth = messageReferenceMonth(entry);
         return raw
             .replace(/\{mes_reporte\}/gi, referenceMonth ? monthLabel(referenceMonth) : '')
-            .replace(/\{mes_actual\}/gi, occurrenceMonth ? monthLabel(occurrenceMonth) : '');
+            .replace(/\{mes_actual\}/gi, occurrenceMonth ? monthLabel(occurrenceMonth) : '')
+            .replace(/\{mes_siguiente\}/gi, referenceMonth ? monthLabel(referenceMonth) : '');
     }
 
     function messageEntryTitle(entry) {
