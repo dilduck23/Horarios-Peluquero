@@ -365,15 +365,50 @@
         return `<span class="message-due-badge">Vence ${h(shortDateLabel(entry.dueKey))}</span>`;
     }
 
+    function messageOccurrenceMonth(entry) {
+        return parseDate(`${asText(entry?.occurrenceKey)}-01`);
+    }
+
+    function messageUsesPreviousMonth(message) {
+        const haystack = normalizeSearch(`${asText(message?.titulo)} ${asText(message?.resumen)} ${asText(message?.detalle)}`);
+        return haystack.includes('mes anterior')
+            || haystack.includes('{mes reporte}')
+            || haystack.includes('{mes_reporte}')
+            || (haystack.includes('reporte de ingresos') && haystack.includes('egresos'));
+    }
+
+    function messageReferenceMonth(entry) {
+        const occurrenceMonth = messageOccurrenceMonth(entry);
+        if (!occurrenceMonth) return null;
+        if (messageUsesPreviousMonth(entry?.message)) {
+            return new Date(occurrenceMonth.getFullYear(), occurrenceMonth.getMonth() - 1, 1);
+        }
+        return occurrenceMonth;
+    }
+
+    function messageTextForEntry(entry, value) {
+        const raw = asText(value);
+        if (!raw) return '';
+        const occurrenceMonth = messageOccurrenceMonth(entry);
+        const referenceMonth = messageReferenceMonth(entry);
+        return raw
+            .replace(/\{mes_reporte\}/gi, referenceMonth ? monthLabel(referenceMonth) : '')
+            .replace(/\{mes_actual\}/gi, occurrenceMonth ? monthLabel(occurrenceMonth) : '');
+    }
+
     function messageEntryTitle(entry) {
         const title = asText(entry?.message?.titulo, 'Mensaje');
         if (asText(entry?.message?.recurrencia) !== 'mensual') return title;
-        const monthDate = parseDate(`${asText(entry.occurrenceKey)}-01`);
+        const monthDate = messageReferenceMonth(entry);
         return monthDate ? `${title} - ${monthLabel(monthDate)}` : title;
     }
 
     function messagePreview(message) {
         return asText(message?.resumen || message?.detalle, 'Sin detalle.');
+    }
+
+    function messageEntryPreview(entry) {
+        return messageTextForEntry(entry, entry?.message?.resumen || entry?.message?.detalle) || 'Sin detalle.';
     }
 
     function messageKindIcon(message) {
@@ -390,7 +425,7 @@
 
     function messageDetailHtml(entry) {
         const message = entry.message;
-        const detail = asText(message.detalle || message.resumen, 'Sin detalle.');
+        const detail = messageTextForEntry(entry, message.detalle || message.resumen) || 'Sin detalle.';
         const meta = [
             asText(message.tipo) === 'tarea' ? 'Tarea' : 'Aviso',
             asText(message.recurrencia) === 'mensual' ? 'Mensual' : 'Unico',
@@ -3027,7 +3062,7 @@
                     <span class="message-item-icon"><span class="material-icons">${messageKindIcon(entry.message)}</span></span>
                     <span class="min-w-0">
                         <strong>${h(messageEntryTitle(entry))}</strong>
-                        <small>${h(messagePreview(entry.message))}</small>
+                        <small>${h(messageEntryPreview(entry))}</small>
                         ${messageDueBadge(entry)}
                     </span>
                     <button type="button" class="message-check-btn" title="${h(action)}" aria-label="${h(action)}" onclick="event.stopPropagation(); mobileApp.markStoreMessage(${asInt(entry.message.id)}, '${h(entry.occurrenceKey)}')">
@@ -4529,7 +4564,7 @@
             return messageOccurrenceEntries(this.messages, this.messageStates, archived)
                 .filter((entry) => {
                     if (!needle) return true;
-                    return normalizeSearch(`${messageEntryTitle(entry)} ${messagePreview(entry.message)} ${asText(entry.message.detalle)}`).includes(needle);
+                    return normalizeSearch(`${messageEntryTitle(entry)} ${messageEntryPreview(entry)} ${messageTextForEntry(entry, entry.message.detalle)}`).includes(needle);
                 });
         }
 
@@ -4549,7 +4584,7 @@
                     <span class="message-mail-icon"><span class="material-icons">${messageKindIcon(entry.message)}</span></span>
                     <span class="min-w-0">
                         <strong>${h(title)}</strong>
-                        <small>${h(messagePreview(entry.message))}</small>
+                        <small>${h(messageEntryPreview(entry))}</small>
                         <span class="message-card-meta">
                             ${messageDueBadge(entry)}
                             ${archivedLabel}
