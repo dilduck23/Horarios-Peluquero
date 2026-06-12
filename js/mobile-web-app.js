@@ -640,6 +640,16 @@
         return { time, date };
     }
 
+    function updateLunchTimers() {
+        document.querySelectorAll('[data-lunch-start]').forEach((node) => {
+            const startedAt = Date.parse(node.dataset.lunchStart || '');
+            const label = node.querySelector('[data-lunch-elapsed]');
+            if (!label || !Number.isFinite(startedAt)) return;
+            const minutes = Math.max(0, Math.floor((officialNow().getTime() - startedAt) / 60000));
+            label.textContent = `${minutes} min`;
+        });
+    }
+
     function globalClockMarkup() {
         return `
             <div class="official-clock ${h(officialClock.status)}" title="Reloj oficial America/Guayaquil">
@@ -662,6 +672,7 @@
             node.classList.toggle('synced', officialClock.status === 'synced');
             node.classList.toggle('fallback', officialClock.status !== 'synced');
         });
+        updateLunchTimers();
     }
 
     async function syncOfficialClock() {
@@ -3094,11 +3105,14 @@
             const back = timeInGuayaquil(attendance?.almuerzo_ingreso_en);
             if (!out) return '';
             if (!back) {
-                return `<span class="attendance-lunch-pill active"><span class="material-icons">lunch_dining</span>Almuerzo desde ${h(out)}</span>`;
+                const startedAt = h(attendance?.almuerzo_salida_en);
+                const startedMs = Date.parse(attendance?.almuerzo_salida_en || '');
+                const elapsed = Number.isFinite(startedMs) ? Math.max(0, Math.floor((officialNow().getTime() - startedMs) / 60000)) : 0;
+                return `<span class="attendance-lunch-pill active" data-lunch-start="${startedAt}" title="Almuerzo en curso"><span class="material-icons">timer</span><span data-lunch-elapsed>${h(`${elapsed} min`)}</span></span>`;
             }
             const minutes = this.lunchDuration(attendance);
-            const duration = minutes === null ? '' : ` - ${minutes} min`;
-            return `<span class="attendance-lunch-pill complete"><span class="material-icons">timer</span>${h(`${out} a ${back}${duration}`)}</span>`;
+            const label = minutes === null ? '-' : `${minutes} min`;
+            return `<span class="attendance-lunch-pill complete" title="Tiempo de almuerzo"><span class="material-icons">timer</span>${h(label)}</span>`;
         }
 
         exitBadge(attendance) {
@@ -3164,8 +3178,8 @@
             const category = byId(this.categories, person?.idCategoria) || byId(this.categories, row.categoria_asignada_id);
             const attendance = this.attendanceForSchedule(row.id);
             const state = this.attendanceState(attendance);
-            const approvedAt = timeInGuayaquil(attendance?.aprobado_en);
-            const approvedLabel = approvedAt ? ` - ${approvedAt}` : '';
+            const statusTitle = state.label;
+            const statusCopy = state.className === 'approved' ? '' : h(state.label);
             const primaryAction = this.attendancePrimaryButton(row, attendance, state);
             const actions = [
                 primaryAction,
@@ -3181,7 +3195,7 @@
                         <span class="app-list-subtitle block truncate">${category ? h(asText(category.descripcion)) : 'Sin categoria'}</span>
                     </span>
                     <span class="attendance-meta">
-                        <span class="attendance-status ${state.className}"><span class="material-icons">${state.icon}</span>${h(state.label + approvedLabel)}</span>
+                        <span class="attendance-status ${state.className}" title="${h(statusTitle)}" aria-label="${h(statusTitle)}"><span class="material-icons">${state.icon}</span>${statusCopy}</span>
                         ${this.lunchBadge(attendance)}
                         ${this.exitBadge(attendance)}
                     </span>

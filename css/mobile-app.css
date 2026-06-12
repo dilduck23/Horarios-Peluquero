@@ -1294,6 +1294,10 @@ nav.fixed {
 }
 
 .attendance-status.approved {
+    width: 28px;
+    min-width: 28px;
+    justify-content: center;
+    padding: 0;
     background: #ecfdf5;
     color: #047857;
 }
