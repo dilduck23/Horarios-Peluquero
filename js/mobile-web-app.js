@@ -3119,8 +3119,15 @@
         }
 
         exitButton(row, attendance, state) {
-            if (!this.exitFeatureAvailable || state.className !== 'approved' || !attendance?.almuerzo_ingreso_en || attendance?.salida_en) return '';
+            if (state.className !== 'approved' || !attendance?.almuerzo_ingreso_en || attendance?.salida_en) return '';
             return `<button class="attendance-exit-btn" onclick="mobileApp.markExit(${asInt(row.id)})">Marcar salida</button>`;
+        }
+
+        attendancePrimaryButton(row, attendance, state) {
+            if (state.className === 'pending') {
+                return `<button class="attendance-approve-btn" onclick="mobileApp.approveAttendance(${asInt(row.id)})">Registrar ingreso</button>`;
+            }
+            return this.lunchButton(row, attendance, state) || this.exitButton(row, attendance, state);
         }
 
         incidentButton(row) {
@@ -3159,13 +3166,11 @@
             const state = this.attendanceState(attendance);
             const approvedAt = timeInGuayaquil(attendance?.aprobado_en);
             const approvedLabel = approvedAt ? ` - ${approvedAt}` : '';
-            const canApprove = state.className === 'pending';
+            const primaryAction = this.attendancePrimaryButton(row, attendance, state);
             const actions = [
+                primaryAction,
                 this.attendanceDetailButton(row, attendance, state),
-                canApprove ? `<button class="attendance-approve-btn" onclick="mobileApp.approveAttendance(${asInt(row.id)})">Aprobar</button>` : '',
-                this.incidentButton(row),
-                this.lunchButton(row, attendance, state),
-                this.exitButton(row, attendance, state)
+                this.incidentButton(row)
             ].filter(Boolean).join('');
             return `
                 <article class="attendance-row">
