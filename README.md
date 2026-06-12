@@ -29,6 +29,7 @@ Scripts de configuración para la base de datos Supabase:
 - `supabase_keepalive_setup.sql` - Tabla `keepalive` para evitar pausa por inactividad
 - `supabase_security_policies.sql` - Políticas RLS por rol y protección contra turnos duplicados
 - `supabase_attendance_setup.sql` - Beta de asistencia aprobada por Punto de Venta
+- `supabase_messages_setup.sql` - Buzón de mensajes, tareas, recurrencias y archivo por usuario
 
 ## Keepalive de Supabase
 

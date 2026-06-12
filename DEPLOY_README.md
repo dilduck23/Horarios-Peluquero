@@ -106,6 +106,7 @@ La Beta de asistencia permite que el usuario **Punto de Venta** confirme la pres
 | `personal.html` | Gestión de personal interno responsiva. Calendario mensual por bodega | Rol 1-3 |
 | `reportes.html` | Historial de incidencias responsivo. Filtros y exportación CSV | Rol 1-3 |
 | `calendario-tienda.html` | Vista por tienda responsiva. Solo lectura + reporte incidencias | Rol 1-3 |
+| `mensajes.html` | Buzón de mensajes para PdV y planificación de avisos/tareas | Rol 1-3 |
 | `navegacion.html` | Navegación y accesos administrativos | Rol 1-3 |
 
 ### Páginas móviles heredadas

@@ -55,6 +55,7 @@
         if (window.StaffPlanner?.getRoleId?.() === 3) {
             return [
                 ['store', 'calendario-tienda.html', 'storefront', 'Tienda'],
+                ['messages', 'mensajes.html', 'inbox', 'Buzón'],
                 ['planner', 'index.html', 'space_dashboard', 'Planificar'],
                 ['internal', 'personal.html', 'work_outline', 'Interno'],
                 ['nav', 'navegacion.html', 'apps', 'Navegación']
@@ -62,6 +63,7 @@
         }
         return [
             ['planner', 'index.html', 'space_dashboard', 'Planificar'],
+            ['messages', 'mensajes.html', 'inbox', 'Mensajes'],
             ['store', 'calendario-tienda.html', 'storefront', 'Tienda'],
             ['internal', 'personal.html', 'work_outline', 'Interno'],
             ['reports', 'reportes.html', 'report_problem', 'Reportes'],
@@ -243,6 +245,190 @@
         return `${monthNames[date.getMonth()]} ${date.getFullYear()}`;
     }
 
+    function shortDateLabel(key) {
+        const date = parseDate(key);
+        if (!date) return '';
+        return `${date.getDate()} ${monthShort[date.getMonth()]} ${date.getFullYear()}`;
+    }
+
+    function daysBetweenKeys(fromKey, toKey) {
+        const from = parseDate(fromKey);
+        const to = parseDate(toKey);
+        if (!from || !to) return 0;
+        return Math.round((to.getTime() - from.getTime()) / 86400000);
+    }
+
+    function clampMonthDay(year, monthIndex, day) {
+        const last = new Date(year, monthIndex + 1, 0).getDate();
+        return Math.max(1, Math.min(last, asInt(day, 1)));
+    }
+
+    function monthKeyFor(year, monthIndex) {
+        return `${year}-${String(monthIndex + 1).padStart(2, '0')}`;
+    }
+
+    function messageStateKey(messageId, occurrenceKey) {
+        return `${asInt(messageId)}:${asText(occurrenceKey, 'single')}`;
+    }
+
+    function messageStateMap(states) {
+        const map = new Map();
+        states.forEach((state) => map.set(messageStateKey(state.mensaje_id, state.occurrence_key), state));
+        return map;
+    }
+
+    function messageAction(message) {
+        if (asText(message?.accion_requerida, '').trim()) return asText(message.accion_requerida);
+        return asText(message?.tipo) === 'tarea' ? 'completado' : 'visto';
+    }
+
+    function isMessageArchived(message, state) {
+        if (!state) return false;
+        if (state.archivado_en) return true;
+        return messageAction(message) === 'completado' ? Boolean(state.completado_en) : Boolean(state.visto_en);
+    }
+
+    function monthlyStartForMessage(message, today) {
+        const published = parseDate(message?.publicar_en) || today;
+        const floor = new Date(today.getFullYear(), today.getMonth() - 18, 1);
+        const start = published > floor ? published : floor;
+        return new Date(start.getFullYear(), start.getMonth(), 1);
+    }
+
+    function messageOccurrenceEntries(messages, states, archived = false) {
+        const todayKey = todayKeyInGuayaquil();
+        const today = parseDate(todayKey) || new Date();
+        const stateMap = messageStateMap(states);
+        const entries = [];
+
+        messages.filter((message) => message?.activo !== false).forEach((message) => {
+            if (asText(message.recurrencia, 'ninguna') === 'mensual') {
+                const publishDay = asInt(message.dia_publicacion_mensual, 1);
+                const dueDay = asInt(message.dia_vencimiento_mensual, publishDay);
+                const messagePublishKey = asText(message.publicar_en).slice(0, 10);
+                let cursor = monthlyStartForMessage(message, today);
+                while (cursor.getFullYear() < today.getFullYear() || (cursor.getFullYear() === today.getFullYear() && cursor.getMonth() <= today.getMonth())) {
+                    const rawPublishKey = dateKey(new Date(cursor.getFullYear(), cursor.getMonth(), clampMonthDay(cursor.getFullYear(), cursor.getMonth(), publishDay)));
+                    const occurrenceKey = monthKeyFor(cursor.getFullYear(), cursor.getMonth());
+                    const publishKey = messagePublishKey.startsWith(occurrenceKey) && rawPublishKey < messagePublishKey ? messagePublishKey : rawPublishKey;
+                    if (publishKey <= todayKey) {
+                        const dueKey = dateKey(new Date(cursor.getFullYear(), cursor.getMonth(), clampMonthDay(cursor.getFullYear(), cursor.getMonth(), dueDay)));
+                        const state = stateMap.get(messageStateKey(message.id, occurrenceKey)) || null;
+                        if (isMessageArchived(message, state) === archived) {
+                            entries.push({ message, state, occurrenceKey, publishKey, dueKey });
+                        }
+                    }
+                    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+                }
+                return;
+            }
+
+            const publishKey = asText(message.publicar_en).slice(0, 10) || todayKey;
+            if (publishKey > todayKey) return;
+            const occurrenceKey = 'single';
+            const state = stateMap.get(messageStateKey(message.id, occurrenceKey)) || null;
+            if (isMessageArchived(message, state) === archived) {
+                entries.push({
+                    message,
+                    state,
+                    occurrenceKey,
+                    publishKey,
+                    dueKey: asText(message.vence_en).slice(0, 10)
+                });
+            }
+        });
+
+        return entries.sort((a, b) => {
+            if (!archived) {
+                const today = todayKeyInGuayaquil();
+                const aOverdue = a.dueKey && a.dueKey < today ? 0 : 1;
+                const bOverdue = b.dueKey && b.dueKey < today ? 0 : 1;
+                if (aOverdue !== bOverdue) return aOverdue - bOverdue;
+                const aDue = a.dueKey || '9999-12-31';
+                const bDue = b.dueKey || '9999-12-31';
+                if (aDue !== bDue) return aDue.localeCompare(bDue);
+                return asText(b.publishKey).localeCompare(asText(a.publishKey));
+            }
+            const aArchived = asText(a.state?.archivado_en || a.state?.completado_en || a.state?.visto_en);
+            const bArchived = asText(b.state?.archivado_en || b.state?.completado_en || b.state?.visto_en);
+            return bArchived.localeCompare(aArchived);
+        });
+    }
+
+    function messageDueBadge(entry) {
+        if (!entry.dueKey) return '';
+        const today = todayKeyInGuayaquil();
+        const diff = daysBetweenKeys(today, entry.dueKey);
+        if (diff < 0) return `<span class="message-due-badge overdue">Vencida hace ${Math.abs(diff)} d</span>`;
+        if (diff === 0) return '<span class="message-due-badge today">Vence hoy</span>';
+        if (diff <= 3) return `<span class="message-due-badge soon">Vence en ${diff} d</span>`;
+        return `<span class="message-due-badge">Vence ${h(shortDateLabel(entry.dueKey))}</span>`;
+    }
+
+    function messageEntryTitle(entry) {
+        const title = asText(entry?.message?.titulo, 'Mensaje');
+        if (asText(entry?.message?.recurrencia) !== 'mensual') return title;
+        const monthDate = parseDate(`${asText(entry.occurrenceKey)}-01`);
+        return monthDate ? `${title} - ${monthLabel(monthDate)}` : title;
+    }
+
+    function messagePreview(message) {
+        return asText(message?.resumen || message?.detalle, 'Sin detalle.');
+    }
+
+    function messageKindIcon(message) {
+        return messageAction(message) === 'completado' ? 'task_alt' : 'mark_email_unread';
+    }
+
+    function messageActionIcon(message) {
+        return messageAction(message) === 'completado' ? 'check_circle' : 'done';
+    }
+
+    function messageActionLabel(message) {
+        return messageAction(message) === 'completado' ? 'Marcar completada' : 'Marcar visto';
+    }
+
+    function messageDetailHtml(entry) {
+        const message = entry.message;
+        const detail = asText(message.detalle || message.resumen, 'Sin detalle.');
+        const meta = [
+            asText(message.tipo) === 'tarea' ? 'Tarea' : 'Aviso',
+            asText(message.recurrencia) === 'mensual' ? 'Mensual' : 'Unico',
+            entry.dueKey ? `Vence ${shortDateLabel(entry.dueKey)}` : ''
+        ].filter(Boolean);
+        return `
+            <div class="message-detail text-left">
+                <div class="message-detail-meta">${meta.map((item) => `<span>${h(item)}</span>`).join('')}</div>
+                <p>${h(detail)}</p>
+                ${messageDueBadge(entry)}
+            </div>`;
+    }
+
+    async function archiveMessageEntry(entry) {
+        const userId = asInt(sessionStorage.getItem('staffPlannerUserId'));
+        if (!userId) throw new Error('No se encontró el usuario de la sesión.');
+        const now = new Date().toISOString();
+        const payload = {
+            mensaje_id: asInt(entry.message.id),
+            usuario_id: userId,
+            occurrence_key: asText(entry.occurrenceKey, 'single'),
+            archivado_en: now,
+            actualizado_en: now
+        };
+        if (messageAction(entry.message) === 'completado') {
+            payload.visto_en = entry.state?.visto_en || now;
+            payload.completado_en = now;
+        } else {
+            payload.visto_en = now;
+        }
+        const { data, error } = await db
+            .from(tables.messageStates)
+            .upsert(payload, { onConflict: 'mensaje_id,usuario_id,occurrence_key' })
+            .select();
+        if (error) throw error;
+        return data?.[0] || null;
+    }
+
     function isLightColor(hexColor) {
         const hex = asText(hexColor, '#ffffff').replace('#', '');
         if (hex.length < 6) return true;
@@ -397,6 +583,22 @@
     async function rows(query) {
         const { data, error } = await query;
         if (error) throw error;
+        return data || [];
+    }
+
+    function isMissingMessageTable(error) {
+        const message = asText(error?.message || error?.details || error);
+        return error?.code === '42P01'
+            || error?.code === 'PGRST205'
+            || message.includes('Tiendas_Mensajes');
+    }
+
+    async function messageRows(query) {
+        const { data, error } = await query;
+        if (error) {
+            if (isMissingMessageTable(error)) return [];
+            throw error;
+        }
         return data || [];
     }
 
@@ -2681,6 +2883,8 @@
             this.internalRows = [];
             this.todayRows = [];
             this.attendanceRows = [];
+            this.messageRows = [];
+            this.messageStates = [];
             this.assignmentFilter = 'all';
             this.exitFeatureAvailable = false;
         }
@@ -2688,12 +2892,13 @@
         async load() {
             await this.loadBase();
             const todayKey = todayKeyInGuayaquil();
-            const [monthlyRows, monthlyInternalRows, todayRows, attendanceRows, exitFeatureAvailable] = await Promise.all([
+            const [monthlyRows, monthlyInternalRows, todayRows, attendanceRows, exitFeatureAvailable, inboxRows] = await Promise.all([
                 this.monthlyPromoterAssignments(this.selected),
                 this.monthlyInternalAssignments(this.selected),
                 this.promoterAssignmentsForKey(todayKey),
                 this.attendanceForKey(todayKey),
-                this.checkExitFeature()
+                this.checkExitFeature(),
+                this.session.isStoreUser ? this.loadInboxRows() : Promise.resolve([[], []])
             ]);
             this.monthlyRows = monthlyRows;
             this.monthlyInternalRows = monthlyInternalRows;
@@ -2701,9 +2906,19 @@
             this.todayRows = todayRows;
             this.attendanceRows = attendanceRows;
             this.exitFeatureAvailable = exitFeatureAvailable;
+            this.messageRows = inboxRows[0] || [];
+            this.messageStates = inboxRows[1] || [];
             if (this.selectedStoreId && !byId(this.stores, this.selectedStoreId)) this.selectedStoreId = null;
             if (this.session.isStoreUser) this.selectedStoreId = this.session.storeId;
             if (!this.selectedStoreId && this.stores.length) this.selectedStoreId = asInt(this.stores[0].id);
+        }
+
+        async loadInboxRows() {
+            const userId = asInt(sessionStorage.getItem('staffPlannerUserId'));
+            return Promise.all([
+                messageRows(db.from(tables.messages).select('*').eq('activo', true).order('creado_en', { ascending: false })),
+                userId ? messageRows(db.from(tables.messageStates).select('*').eq('usuario_id', userId)) : Promise.resolve([])
+            ]);
         }
 
         async checkExitFeature() {
@@ -2727,7 +2942,7 @@
 
         content() {
             const rowsForStore = this.visibleRows();
-            const attendanceSection = this.selectedStoreId && this.assignmentFilter !== 'interno' ? this.attendanceTodaySection() : '';
+            const attendanceSection = this.selectedStoreId && this.assignmentFilter !== 'interno' ? this.todayDashboardSection() : '';
             return `
                 ${attendanceSection}
                 ${monthControls(this.selected, 'mobileApp.changeMonth(-1)', 'mobileApp.changeMonth(1)')}
@@ -2755,6 +2970,88 @@
                     row: (row) => this.assignmentRow(row)
                 }) : emptyState('storefront', 'Elige una tienda', 'Verás el calendario mensual de personal asignado.')}
             `;
+        }
+
+        todayDashboardSection() {
+            const attendance = this.attendanceTodaySection();
+            if (!this.session.isStoreUser) return attendance;
+            return `
+                <section class="store-today-layout">
+                    ${this.messageInboxPanel()}
+                    ${attendance}
+                </section>`;
+        }
+
+        pendingMessageEntries() {
+            return messageOccurrenceEntries(this.messageRows, this.messageStates, false);
+        }
+
+        messageEntryByKey(messageId, occurrenceKey, archived = false) {
+            return messageOccurrenceEntries(this.messageRows, this.messageStates, archived)
+                .find((entry) => asInt(entry.message.id) === asInt(messageId) && asText(entry.occurrenceKey) === asText(occurrenceKey));
+        }
+
+        messageInboxPanel() {
+            const entries = this.pendingMessageEntries();
+            const visible = entries.slice(0, 4);
+            return `
+                <section class="message-panel app-card">
+                    <div class="message-panel-head">
+                        <span class="material-icons">inbox</span>
+                        <span class="min-w-0">
+                            <strong>Buzón de Mensajes</strong>
+                            <small>${entries.length ? `${entries.length} pendiente${entries.length === 1 ? '' : 's'}` : 'Sin pendientes'}</small>
+                        </span>
+                        <a class="message-panel-link" href="mensajes.html" title="Abrir buzón"><span class="material-icons">open_in_new</span></a>
+                    </div>
+                    ${visible.length ? visible.map((entry) => this.messageInboxItem(entry)).join('') : emptyState('mark_email_read', 'Buzón al día', 'No tienes mensajes pendientes.')}
+                    ${entries.length > visible.length ? `<a class="message-more-link" href="mensajes.html">+${entries.length - visible.length} pendientes más</a>` : ''}
+                </section>`;
+        }
+
+        messageInboxItem(entry) {
+            const action = messageActionLabel(entry.message);
+            return `
+                <article class="message-inbox-item" onclick="mobileApp.openStoreMessage(${asInt(entry.message.id)}, '${h(entry.occurrenceKey)}')">
+                    <span class="message-item-icon"><span class="material-icons">${messageKindIcon(entry.message)}</span></span>
+                    <span class="min-w-0">
+                        <strong>${h(messageEntryTitle(entry))}</strong>
+                        <small>${h(messagePreview(entry.message))}</small>
+                        ${messageDueBadge(entry)}
+                    </span>
+                    <button type="button" class="message-check-btn" title="${h(action)}" aria-label="${h(action)}" onclick="event.stopPropagation(); mobileApp.markStoreMessage(${asInt(entry.message.id)}, '${h(entry.occurrenceKey)}')">
+                        <span class="material-icons">${messageActionIcon(entry.message)}</span>
+                    </button>
+                </article>`;
+        }
+
+        async openStoreMessage(messageId, occurrenceKey) {
+            const entry = this.messageEntryByKey(messageId, occurrenceKey, false)
+                || this.messageEntryByKey(messageId, occurrenceKey, true);
+            if (!entry) return;
+            const archived = isMessageArchived(entry.message, entry.state);
+            const result = await Swal.fire({
+                title: messageEntryTitle(entry),
+                html: messageDetailHtml(entry),
+                showCloseButton: true,
+                showCancelButton: !archived,
+                showConfirmButton: !archived,
+                confirmButtonText: messageActionLabel(entry.message),
+                cancelButtonText: 'Cerrar'
+            });
+            if (result.isConfirmed) await this.markStoreMessage(messageId, occurrenceKey);
+        }
+
+        async markStoreMessage(messageId, occurrenceKey) {
+            const entry = this.messageEntryByKey(messageId, occurrenceKey, false);
+            if (!entry) return;
+            try {
+                await archiveMessageEntry(entry);
+                await this.reload();
+                Swal.fire({ icon: 'success', title: messageAction(entry.message) === 'completado' ? 'Tarea completada' : 'Mensaje archivado', timer: 1300, showConfirmButton: false });
+            } catch (error) {
+                Swal.fire('Error', error.message || 'No se pudo actualizar el mensaje', 'error');
+            }
         }
 
         attendanceTodaySection() {
@@ -2833,6 +3130,28 @@
                 </button>`;
         }
 
+        attendanceDetailIcon(attendance, state) {
+            if (attendance?.almuerzo_salida_en && !attendance?.almuerzo_ingreso_en) return 'lunch_dining';
+            if (attendance?.salida_en) return 'logout';
+            if (state.className === 'closed') return 'warning_amber';
+            return 'visibility';
+        }
+
+        attendanceDetailClass(attendance, state) {
+            if (attendance?.almuerzo_salida_en && !attendance?.almuerzo_ingreso_en) return 'lunch';
+            if (attendance?.salida_en) return 'exited';
+            return state.className;
+        }
+
+        attendanceDetailButton(row, attendance, state) {
+            const icon = this.attendanceDetailIcon(attendance, state);
+            const className = this.attendanceDetailClass(attendance, state);
+            return `
+                <button type="button" class="attendance-detail-btn ${className}" title="Ver desglose de asistencia" aria-label="Ver desglose de asistencia" onclick="mobileApp.showAttendanceDetail(${asInt(row.id)})">
+                    <span class="material-icons">${icon}</span>
+                </button>`;
+        }
+
         attendanceRow(row) {
             const person = byId(this.promoters, row.impulsadora_id);
             const category = byId(this.categories, person?.idCategoria) || byId(this.categories, row.categoria_asignada_id);
@@ -2842,6 +3161,7 @@
             const approvedLabel = approvedAt ? ` - ${approvedAt}` : '';
             const canApprove = state.className === 'pending';
             const actions = [
+                this.attendanceDetailButton(row, attendance, state),
                 canApprove ? `<button class="attendance-approve-btn" onclick="mobileApp.approveAttendance(${asInt(row.id)})">Aprobar</button>` : '',
                 this.incidentButton(row),
                 this.lunchButton(row, attendance, state),
@@ -2869,6 +3189,104 @@
                 title: 'Reportar incidencia/observación',
                 incidentOptions: storeIncidentOptions,
                 notePlaceholder: 'Observación del punto de venta'
+            });
+        }
+
+        async incidentsForSchedule(id) {
+            if (!tables.incidences) return [];
+            try {
+                return await rows(db.from(tables.incidences).select('*').eq('id_horario', asInt(id)).order('creado_en', { ascending: false }));
+            } catch (error) {
+                console.error('No se pudieron cargar incidencias del turno:', error);
+                return [];
+            }
+        }
+
+        attendanceCurrentLabel(attendance, state) {
+            const lunchOut = timeInGuayaquil(attendance?.almuerzo_salida_en);
+            const lunchBack = timeInGuayaquil(attendance?.almuerzo_ingreso_en);
+            const exit = timeInGuayaquil(attendance?.salida_en);
+            if (state.className === 'approved' && lunchOut && !lunchBack) return `En almuerzo desde ${lunchOut}`;
+            if (state.className === 'approved' && exit) return `Salida marcada - ${exit}`;
+            if (state.className === 'approved' && lunchBack) return `Regresó del almuerzo - ${lunchBack}`;
+            return state.label;
+        }
+
+        attendanceDetailHtml(row, attendance, incidents) {
+            const person = byId(this.promoters, row.impulsadora_id);
+            const store = byId(this.stores, row.tienda_id || this.selectedStoreId);
+            const category = byId(this.categories, person?.idCategoria) || byId(this.categories, row.categoria_asignada_id);
+            const state = this.attendanceState(attendance);
+            const lunchMinutes = attendanceLunchMinutes(attendance);
+            const field = (label, value) => `
+                <div class="attendance-detail-field">
+                    <span>${h(label)}</span>
+                    <strong>${h(value || '-')}</strong>
+                </div>`;
+            const timeline = [
+                ['Ingreso', timeInGuayaquil(attendance?.aprobado_en), 'how_to_reg'],
+                ['Salida al almuerzo', timeInGuayaquil(attendance?.almuerzo_salida_en), 'lunch_dining'],
+                ['Ingreso del almuerzo', timeInGuayaquil(attendance?.almuerzo_ingreso_en), 'restaurant'],
+                ['Salida', timeInGuayaquil(attendance?.salida_en), 'logout']
+            ].map(([label, value, icon]) => `
+                <div class="attendance-timeline-item ${value ? 'done' : ''}">
+                    <span class="material-icons">${icon}</span>
+                    <span>
+                        <strong>${h(label)}</strong>
+                        <small>${h(value || 'Pendiente')}</small>
+                    </span>
+                </div>`).join('');
+            const incidentHtml = incidents.length
+                ? incidents.map((incident) => `
+                    <article class="attendance-incident-detail">
+                        <strong>${h(asText(incident.asunto, 'Incidencia'))}</strong>
+                        <small>${h(dateTimeInGuayaquil(incident.creado_en))}</small>
+                        <p>${h(asText(incident.observacion, 'Sin observación'))}</p>
+                    </article>`).join('')
+                : `<div class="attendance-detail-empty"><span class="material-icons">task_alt</span><strong>Sin incidencias reportadas</strong></div>`;
+            return `
+                <div class="attendance-detail-modal text-left">
+                    <p class="app-list-subtitle mb-3">${h(asText(store?.nombre_display, 'Tienda'))} - ${h(asText(row.fecha))}</p>
+                    <div class="attendance-detail-person">
+                        ${storeBadge(store, 42)}
+                        <span class="min-w-0">
+                            <strong>${h(person ? promoterDisplayName(person) : 'Personal')}</strong>
+                            <small>${h(asText(person?.Marca, 'Sin marca'))} - ${h(category ? asText(category.descripcion) : 'Sin categoria')}</small>
+                        </span>
+                    </div>
+                    <div class="attendance-timeline">${timeline}</div>
+                    ${field('Estado actual', this.attendanceCurrentLabel(attendance, state))}
+                    ${field('Tiempo de almuerzo', lunchMinutes === null ? '' : `${lunchMinutes} min`)}
+                    ${field('Aprobado por', attendance?.aprobado_por ? `Usuario #${attendance.aprobado_por}` : '')}
+                    ${field('Cierre', dateTimeInGuayaquil(attendance?.cerrado_en))}
+                    ${field('Ultima actualización', dateTimeInGuayaquil(attendance?.actualizado_en))}
+                    <div class="attendance-detail-section">
+                        <h4>Incidencias y observaciones</h4>
+                        <div class="grid gap-2">${incidentHtml}</div>
+                    </div>
+                </div>`;
+        }
+
+        async showAttendanceDetail(id) {
+            const row = this.todayRows.find((item) => asInt(item.id) === asInt(id));
+            if (!row) {
+                Swal.fire('Sin turno', 'No se encontró el turno seleccionado.', 'info');
+                return;
+            }
+            const attendance = this.attendanceForSchedule(id);
+            Swal.fire({
+                title: 'Cargando desglose',
+                allowOutsideClick: false,
+                didOpen: () => Swal.showLoading()
+            });
+            const incidents = await this.incidentsForSchedule(id);
+            const person = byId(this.promoters, row.impulsadora_id);
+            Swal.fire({
+                title: person ? promoterDisplayName(person) : 'Desglose de asistencia',
+                html: this.attendanceDetailHtml(row, attendance, incidents),
+                width: 620,
+                confirmButtonText: 'Cerrar',
+                showCloseButton: true
             });
         }
 
@@ -4022,6 +4440,342 @@
         }
     }
 
+    class MessagesView extends BaseView {
+        constructor() {
+            super('messages');
+            this.messages = [];
+            this.destinations = [];
+            this.messageStates = [];
+            this.stores = [];
+            this.mailboxFilter = 'pending';
+            this.search = '';
+        }
+
+        async load() {
+            const userId = asInt(sessionStorage.getItem('staffPlannerUserId'));
+            if (this.session.isManager) {
+                const [stores, messages, destinations, states] = await Promise.all([
+                    rows(db.from(tables.stores).select('*').order('nombre_display')),
+                    messageRows(db.from(tables.messages).select('*').order('creado_en', { ascending: false })),
+                    messageRows(db.from(tables.messageDestinations).select('*')),
+                    messageRows(db.from(tables.messageStates).select('*'))
+                ]);
+                this.stores = stores;
+                this.messages = messages;
+                this.destinations = destinations;
+                this.messageStates = states;
+                return;
+            }
+
+            const [messages, states] = await Promise.all([
+                messageRows(db.from(tables.messages).select('*').eq('activo', true).order('creado_en', { ascending: false })),
+                userId ? messageRows(db.from(tables.messageStates).select('*').eq('usuario_id', userId)) : Promise.resolve([])
+            ]);
+            this.messages = messages;
+            this.messageStates = states;
+        }
+
+        render() {
+            if (this.session.isManager) {
+                this.renderManager();
+                return;
+            }
+            this.renderMailbox();
+        }
+
+        renderMailbox() {
+            const pending = this.filteredMailboxEntries(false);
+            const archived = this.filteredMailboxEntries(true);
+            const visible = this.mailboxFilter === 'archived' ? archived : pending;
+            const actions = iconButton('refresh', 'mobileApp.reload()', 'Actualizar');
+            shell('messages', 'Buzón de Mensajes', `${pending.length} pendientes - ${archived.length} archivados`, actions, `
+                ${this.mailboxToolbar(pending.length, archived.length)}
+                ${visible.length ? visible.map((entry) => this.mailboxCard(entry, this.mailboxFilter === 'archived')).join('') : emptyState(this.mailboxFilter === 'archived' ? 'inventory_2' : 'mark_email_read', this.mailboxFilter === 'archived' ? 'Sin archivados' : 'Buzón al día', this.mailboxFilter === 'archived' ? 'Los mensajes vistos o completados aparecerán aquí.' : 'No tienes mensajes pendientes.')}
+            `);
+        }
+
+        mailboxToolbar(pendingCount, archivedCount) {
+            return `
+                <section class="message-toolbar app-card">
+                    <div class="app-segment">
+                        <button class="${this.mailboxFilter === 'pending' ? 'active' : ''}" onclick="mobileApp.setMailboxFilter('pending')">Pendientes (${pendingCount})</button>
+                        <button class="${this.mailboxFilter === 'archived' ? 'active' : ''}" onclick="mobileApp.setMailboxFilter('archived')">Archivados (${archivedCount})</button>
+                    </div>
+                    <label class="app-search"><span class="material-icons">search</span><input value="${h(this.search)}" oninput="mobileApp.setMessageSearch(this.value)" placeholder="Buscar mensajes o tareas"></label>
+                </section>`;
+        }
+
+        filteredMailboxEntries(archived) {
+            const needle = normalizeSearch(this.search);
+            return messageOccurrenceEntries(this.messages, this.messageStates, archived)
+                .filter((entry) => {
+                    if (!needle) return true;
+                    return normalizeSearch(`${messageEntryTitle(entry)} ${messagePreview(entry.message)} ${asText(entry.message.detalle)}`).includes(needle);
+                });
+        }
+
+        mailboxEntryByKey(messageId, occurrenceKey, archived = false) {
+            return messageOccurrenceEntries(this.messages, this.messageStates, archived)
+                .find((entry) => asInt(entry.message.id) === asInt(messageId) && asText(entry.occurrenceKey) === asText(occurrenceKey));
+        }
+
+        mailboxCard(entry, archived) {
+            const title = messageEntryTitle(entry);
+            const action = messageActionLabel(entry.message);
+            const archivedLabel = archived && entry.state
+                ? `<span class="message-archive-label">Archivado ${h(dateTimeInGuayaquil(entry.state.archivado_en || entry.state.completado_en || entry.state.visto_en))}</span>`
+                : '';
+            return `
+                <article class="message-mail-card app-card" onclick="mobileApp.openMailboxMessage(${asInt(entry.message.id)}, '${h(entry.occurrenceKey)}', ${archived ? 'true' : 'false'})">
+                    <span class="message-mail-icon"><span class="material-icons">${messageKindIcon(entry.message)}</span></span>
+                    <span class="min-w-0">
+                        <strong>${h(title)}</strong>
+                        <small>${h(messagePreview(entry.message))}</small>
+                        <span class="message-card-meta">
+                            ${messageDueBadge(entry)}
+                            ${archivedLabel}
+                        </span>
+                    </span>
+                    ${archived ? '<span class="material-icons text-slate-400">chevron_right</span>' : `<button type="button" class="message-check-btn large" title="${h(action)}" aria-label="${h(action)}" onclick="event.stopPropagation(); mobileApp.markMailboxMessage(${asInt(entry.message.id)}, '${h(entry.occurrenceKey)}')"><span class="material-icons">${messageActionIcon(entry.message)}</span></button>`}
+                </article>`;
+        }
+
+        setMailboxFilter(filter) {
+            this.mailboxFilter = filter === 'archived' ? 'archived' : 'pending';
+            this.render();
+        }
+
+        setMessageSearch(value) {
+            this.search = value;
+            this.render();
+        }
+
+        async openMailboxMessage(messageId, occurrenceKey, archived = false) {
+            const entry = this.mailboxEntryByKey(messageId, occurrenceKey, archived)
+                || this.mailboxEntryByKey(messageId, occurrenceKey, !archived);
+            if (!entry) return;
+            const isArchived = isMessageArchived(entry.message, entry.state);
+            const result = await Swal.fire({
+                title: messageEntryTitle(entry),
+                html: messageDetailHtml(entry),
+                showCloseButton: true,
+                showCancelButton: !isArchived,
+                showConfirmButton: !isArchived,
+                confirmButtonText: messageActionLabel(entry.message),
+                cancelButtonText: 'Cerrar'
+            });
+            if (result.isConfirmed) await this.markMailboxMessage(messageId, occurrenceKey);
+        }
+
+        async markMailboxMessage(messageId, occurrenceKey) {
+            const entry = this.mailboxEntryByKey(messageId, occurrenceKey, false);
+            if (!entry) return;
+            try {
+                await archiveMessageEntry(entry);
+                await this.reload();
+                Swal.fire({ icon: 'success', title: messageAction(entry.message) === 'completado' ? 'Tarea completada' : 'Mensaje archivado', timer: 1300, showConfirmButton: false });
+            } catch (error) {
+                Swal.fire('Error', error.message || 'No se pudo actualizar el mensaje', 'error');
+            }
+        }
+
+        renderManager() {
+            const total = this.messages.length;
+            const active = this.messages.filter((message) => message.activo !== false).length;
+            const monthly = this.messages.filter((message) => asText(message.recurrencia) === 'mensual').length;
+            const actions = iconButton('add_circle', 'mobileApp.openMessageForm()', 'Nuevo mensaje', false, 'primary')
+                + iconButton('refresh', 'mobileApp.reload()', 'Actualizar');
+            shell('messages', 'Planificar mensajes', `${active}/${total} activos`, actions, `
+                <section class="stat-row three">
+                    ${statCard('Mensajes', total, 'inbox')}
+                    ${statCard('Activos', active, 'notifications_active', '#0E9F8F')}
+                    ${statCard('Mensuales', monthly, 'event_repeat', '#2563EB')}
+                </section>
+                ${this.messages.length ? this.messages.map((message) => this.adminMessageCard(message)).join('') : emptyState('inbox', 'Sin mensajes', 'Crea el primer aviso o tarea para los locales.')}
+            `);
+        }
+
+        adminMessageCard(message) {
+            const targets = this.targetLabel(message);
+            const status = message.activo === false ? miniChip('Inactivo', '#94a3b8') : miniChip('Activo', '#0E9F8F');
+            const recurrence = asText(message.recurrencia) === 'mensual'
+                ? `Mensual: día ${asInt(message.dia_publicacion_mensual, 1)}${message.dia_vencimiento_mensual ? `, vence día ${asInt(message.dia_vencimiento_mensual)}` : ''}`
+                : `Desde ${shortDateLabel(asText(message.publicar_en).slice(0, 10))}${message.vence_en ? `, vence ${shortDateLabel(asText(message.vence_en).slice(0, 10))}` : ''}`;
+            return `
+                <article class="message-admin-card app-card">
+                    <span class="message-mail-icon"><span class="material-icons">${messageKindIcon(message)}</span></span>
+                    <span class="min-w-0">
+                        <strong>${h(asText(message.titulo, 'Mensaje'))}</strong>
+                        <small>${h(messagePreview(message))}</small>
+                        <span class="message-card-meta">${status}${miniChip(asText(message.tipo) === 'tarea' ? 'Tarea' : 'Aviso', asText(message.tipo) === 'tarea' ? '#2563EB' : '#E85D75')}<span class="message-archive-label">${h(recurrence)}</span><span class="message-archive-label">${h(targets)}</span></span>
+                    </span>
+                    <span class="message-admin-actions">
+                        <button type="button" class="planner-icon-btn" title="Editar" onclick="mobileApp.openMessageForm(${asInt(message.id)})"><span class="material-icons">edit</span></button>
+                        <button type="button" class="planner-icon-btn" title="${message.activo === false ? 'Activar' : 'Desactivar'}" onclick="mobileApp.toggleMessageActive(${asInt(message.id)})"><span class="material-icons">${message.activo === false ? 'toggle_off' : 'toggle_on'}</span></button>
+                    </span>
+                </article>`;
+        }
+
+        destinationsFor(messageId) {
+            return this.destinations.filter((destination) => asInt(destination.mensaje_id) === asInt(messageId));
+        }
+
+        targetLabel(message) {
+            const destinations = this.destinationsFor(message.id);
+            if (!destinations.length || destinations.some((destination) => asText(destination.alcance) === 'todos')) return 'Todos los locales';
+            return destinations
+                .map((destination) => asText(byId(this.stores, destination.tienda_id)?.nombre_display, `Tienda ${asInt(destination.tienda_id)}`))
+                .join(', ');
+        }
+
+        messageById(messageId) {
+            return this.messages.find((message) => asInt(message.id) === asInt(messageId)) || null;
+        }
+
+        async openMessageForm(messageId = null) {
+            if (!this.session.isManager) return;
+            const message = this.messageById(messageId) || null;
+            const destinations = message ? this.destinationsFor(message.id) : [];
+            const result = await Swal.fire({
+                title: message ? 'Editar mensaje' : 'Nuevo mensaje',
+                html: this.messageFormHtml(message, destinations),
+                width: 760,
+                showCancelButton: true,
+                confirmButtonText: 'Guardar',
+                cancelButtonText: 'Cancelar',
+                didOpen: () => this.syncMessageFormMode(),
+                preConfirm: () => this.collectMessageForm()
+            });
+            if (!result.value) return;
+            await this.saveMessageForm(message, result.value);
+        }
+
+        messageFormHtml(message, destinations) {
+            const hasStoreTargets = destinations.some((destination) => asText(destination.alcance) === 'tienda');
+            const selectedStores = new Set(destinations.map((destination) => asInt(destination.tienda_id)).filter(Boolean));
+            const target = hasStoreTargets ? 'tienda' : 'todos';
+            const type = asText(message?.tipo, 'aviso');
+            const recurrence = asText(message?.recurrencia, 'ninguna');
+            const publish = asText(message?.publicar_en).slice(0, 10) || todayKeyInGuayaquil();
+            const due = asText(message?.vence_en).slice(0, 10);
+            return `
+                <div class="message-form-grid text-left">
+                    <label>Título<input id="msg-title" class="w-full p-3 border rounded-xl mt-1" value="${h(asText(message?.titulo))}" placeholder="Ej. Enviar Lista de Ingresos/Egresos"></label>
+                    <label>Resumen<input id="msg-summary" class="w-full p-3 border rounded-xl mt-1" value="${h(asText(message?.resumen))}" placeholder="Texto corto para el buzón"></label>
+                    <label class="message-form-wide">Detalle<textarea id="msg-detail" class="w-full p-3 border rounded-xl mt-1" rows="4" placeholder="Información completa, promociones o instrucciones">${h(asText(message?.detalle))}</textarea></label>
+                    <label>Tipo<select id="msg-type" class="w-full p-3 border rounded-xl mt-1" onchange="mobileApp.syncMessageFormMode()"><option value="aviso" ${type === 'aviso' ? 'selected' : ''}>Aviso</option><option value="tarea" ${type === 'tarea' ? 'selected' : ''}>Tarea</option></select></label>
+                    <label>Acción<select id="msg-action" class="w-full p-3 border rounded-xl mt-1"><option value="visto" ${messageAction(message || { tipo: type }) === 'visto' ? 'selected' : ''}>Visto</option><option value="completado" ${messageAction(message || { tipo: type }) === 'completado' ? 'selected' : ''}>Completado</option></select></label>
+                    <label>Destino<select id="msg-target" class="w-full p-3 border rounded-xl mt-1" onchange="mobileApp.syncMessageFormMode()"><option value="todos" ${target === 'todos' ? 'selected' : ''}>Todos los locales</option><option value="tienda" ${target === 'tienda' ? 'selected' : ''}>Locales específicos</option></select></label>
+                    <label>Recurrencia<select id="msg-recurrence" class="w-full p-3 border rounded-xl mt-1" onchange="mobileApp.syncMessageFormMode()"><option value="ninguna" ${recurrence === 'ninguna' ? 'selected' : ''}>Sin recurrencia</option><option value="mensual" ${recurrence === 'mensual' ? 'selected' : ''}>Mensual</option></select></label>
+                    <label>Publicar desde<input id="msg-publish" type="date" class="w-full p-3 border rounded-xl mt-1" value="${h(publish)}"></label>
+                    <label id="msg-due-wrap">Fecha límite<input id="msg-due" type="date" class="w-full p-3 border rounded-xl mt-1" value="${h(due)}"></label>
+                    <div id="msg-monthly-wrap" class="message-form-wide message-monthly-row">
+                        <label>Día de publicación mensual<input id="msg-monthly-publish" type="number" min="1" max="28" class="w-full p-3 border rounded-xl mt-1" value="${asInt(message?.dia_publicacion_mensual, 1)}"></label>
+                        <label>Día límite mensual<input id="msg-monthly-due" type="number" min="1" max="31" class="w-full p-3 border rounded-xl mt-1" value="${asInt(message?.dia_vencimiento_mensual, 5)}"></label>
+                    </div>
+                    <div id="msg-store-wrap" class="message-form-wide message-store-picker">
+                        ${this.stores.map((store) => `
+                            <label><input type="checkbox" value="${asInt(store.id)}" ${selectedStores.has(asInt(store.id)) ? 'checked' : ''}>${h(asText(store.nombre_display, 'Tienda'))}</label>
+                        `).join('')}
+                    </div>
+                    <label class="message-form-wide message-active-row"><input id="msg-active" type="checkbox" ${message?.activo === false ? '' : 'checked'}> Activo</label>
+                </div>`;
+        }
+
+        syncMessageFormMode() {
+            const type = document.getElementById('msg-type')?.value || 'aviso';
+            const action = document.getElementById('msg-action');
+            if (action) action.value = type === 'tarea' ? 'completado' : 'visto';
+            const target = document.getElementById('msg-target')?.value || 'todos';
+            const storeWrap = document.getElementById('msg-store-wrap');
+            if (storeWrap) storeWrap.hidden = target !== 'tienda';
+            const recurrence = document.getElementById('msg-recurrence')?.value || 'ninguna';
+            const monthlyWrap = document.getElementById('msg-monthly-wrap');
+            const dueWrap = document.getElementById('msg-due-wrap');
+            if (monthlyWrap) monthlyWrap.hidden = recurrence !== 'mensual';
+            if (dueWrap) dueWrap.hidden = recurrence === 'mensual';
+        }
+
+        collectMessageForm() {
+            const title = asText(document.getElementById('msg-title')?.value).trim();
+            if (!title) {
+                Swal.showValidationMessage('El título es obligatorio.');
+                return false;
+            }
+            const target = document.getElementById('msg-target')?.value || 'todos';
+            const storeIds = [...document.querySelectorAll('#msg-store-wrap input[type="checkbox"]:checked')]
+                .map((input) => asInt(input.value))
+                .filter(Boolean);
+            if (target === 'tienda' && !storeIds.length) {
+                Swal.showValidationMessage('Selecciona al menos un local.');
+                return false;
+            }
+            const recurrence = document.getElementById('msg-recurrence')?.value || 'ninguna';
+            const publish = document.getElementById('msg-publish')?.value || todayKeyInGuayaquil();
+            const monthlyPublish = asInt(document.getElementById('msg-monthly-publish')?.value, 1);
+            const monthlyDue = asInt(document.getElementById('msg-monthly-due')?.value, monthlyPublish);
+            if (recurrence === 'mensual' && (monthlyPublish < 1 || monthlyPublish > 28 || monthlyDue < 1 || monthlyDue > 31)) {
+                Swal.showValidationMessage('Los días mensuales deben estar en rangos válidos.');
+                return false;
+            }
+            return {
+                message: {
+                    titulo: title,
+                    resumen: asText(document.getElementById('msg-summary')?.value).trim() || null,
+                    detalle: asText(document.getElementById('msg-detail')?.value).trim() || null,
+                    tipo: document.getElementById('msg-type')?.value || 'aviso',
+                    accion_requerida: document.getElementById('msg-action')?.value || 'visto',
+                    publicar_en: publish,
+                    vence_en: recurrence === 'mensual' ? null : (document.getElementById('msg-due')?.value || null),
+                    recurrencia: recurrence,
+                    dia_publicacion_mensual: recurrence === 'mensual' ? monthlyPublish : null,
+                    dia_vencimiento_mensual: recurrence === 'mensual' ? monthlyDue : null,
+                    activo: document.getElementById('msg-active')?.checked !== false,
+                    actualizado_en: new Date().toISOString()
+                },
+                target,
+                storeIds
+            };
+        }
+
+        async saveMessageForm(existing, value) {
+            try {
+                const userId = asInt(sessionStorage.getItem('staffPlannerUserId')) || null;
+                let messageId = asInt(existing?.id);
+                if (existing) {
+                    await rows(db.from(tables.messages).update(value.message).eq('id', messageId).select());
+                } else {
+                    const inserted = await rows(db.from(tables.messages).insert({ ...value.message, creado_por: userId }).select());
+                    messageId = asInt(inserted[0]?.id);
+                }
+                if (!messageId) throw new Error('No se pudo identificar el mensaje guardado.');
+
+                if (existing) {
+                    await rows(db.from(tables.messageDestinations).delete().eq('mensaje_id', messageId).select());
+                }
+                const destinations = value.target === 'todos'
+                    ? [{ mensaje_id: messageId, alcance: 'todos', tienda_id: null }]
+                    : value.storeIds.map((storeId) => ({ mensaje_id: messageId, alcance: 'tienda', tienda_id: storeId }));
+                await rows(db.from(tables.messageDestinations).insert(destinations).select());
+                await this.reload();
+                Swal.fire({ icon: 'success', title: 'Mensaje guardado', timer: 1300, showConfirmButton: false });
+            } catch (error) {
+                Swal.fire('Error', error.message || 'No se pudo guardar el mensaje', 'error');
+            }
+        }
+
+        async toggleMessageActive(messageId) {
+            const message = this.messageById(messageId);
+            if (!message) return;
+            try {
+                await rows(db.from(tables.messages).update({ activo: message.activo === false, actualizado_en: new Date().toISOString() }).eq('id', asInt(messageId)).select());
+                await this.reload();
+            } catch (error) {
+                Swal.fire('Error', error.message || 'No se pudo actualizar el mensaje', 'error');
+            }
+        }
+    }
+
     class NavigationView extends BaseView {
         constructor() {
             super('nav');
@@ -4080,7 +4834,7 @@
 
     function start(view, options = {}) {
         setLayoutPreference(options.layout);
-        if (window.StaffPlanner.getRoleId() === 3 && !['store', 'planner', 'internal', 'nav'].includes(view)) {
+        if (window.StaffPlanner.getRoleId() === 3 && !['store', 'messages', 'planner', 'internal', 'nav'].includes(view)) {
             window.location.href = 'calendario-tienda.html';
             return Promise.resolve(null);
         }
@@ -4088,6 +4842,7 @@
             planner: PlannerView,
             store: StoreMonthView,
             internal: InternalMonthView,
+            messages: MessagesView,
             reports: ReportsView,
             nav: NavigationView
         };

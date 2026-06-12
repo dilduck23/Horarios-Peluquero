@@ -14,7 +14,10 @@
         brandCatalog: 'Tiendas_Marcas_Proveedores',
         internalStaff: 'Tiendas_Personal',
         internalSchedule: 'Tiendas_Personal_Horario',
-        audit: 'Tiendas_Registros'
+        audit: 'Tiendas_Registros',
+        messages: 'Tiendas_Mensajes',
+        messageDestinations: 'Tiendas_Mensajes_Destinos',
+        messageStates: 'Tiendas_Mensajes_Estados'
     };
 
     if (!window.supabase) {
