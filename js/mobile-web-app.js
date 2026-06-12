@@ -2942,7 +2942,7 @@
 
         content() {
             const rowsForStore = this.visibleRows();
-            const attendanceSection = this.selectedStoreId && this.assignmentFilter !== 'interno' ? this.todayDashboardSection() : '';
+            const attendanceSection = this.selectedStoreId ? this.todayDashboardSection() : '';
             return `
                 ${attendanceSection}
                 ${monthControls(this.selected, 'mobileApp.changeMonth(-1)', 'mobileApp.changeMonth(1)')}
