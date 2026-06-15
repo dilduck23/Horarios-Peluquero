@@ -208,7 +208,7 @@
             loadData: async () => {
                 try {
                     const [staffRes, categoriasRes, brandCatalogRes] = await Promise.all([
-                        db.from('Tiendas_Impulsadoras').select('*').order('nombre_completo'),
+                        db.from('Tiendas_Impulsadoras').select('*').or('Habilitado.is.null,Habilitado.eq.true').order('nombre_completo'),
                         db.from('Tiendas_Categorias').select('*'),
                         db.from(StaffPlanner.tables.brandCatalog).select('*').eq('activo', true).order('marca')
                     ]);
@@ -379,7 +379,7 @@
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-slate-500 mb-1">Correos del proveedor</label>
-                        <textarea id="swal-correo" class="w-full min-h-[86px] p-3 border rounded-xl resize-none" placeholder="correo@proveedor.com, otro@proveedor.com">${app.escapeHtml(emailValue)}</textarea>
+                        <textarea id="swal-correo" class="w-full min-h-[86px] p-3 border rounded-xl resize-none bg-slate-50 text-slate-500 cursor-not-allowed" placeholder="Se completa con el proveedor seleccionado" readonly aria-readonly="true">${app.escapeHtml(emailValue)}</textarea>
                     </div>
                 `;
             },
@@ -395,6 +395,7 @@
                     if (!brand) {
                         providerEl.textContent = 'Elige una marca de la lista para asociar proveedor e IDs internos.';
                         providerEl.className = 'mt-2 rounded-xl bg-amber-50 border border-amber-100 px-3 py-2 text-xs text-amber-700';
+                        emailInput.value = '';
                         return;
                     }
 
@@ -404,10 +405,7 @@
                     `;
                     providerEl.className = 'mt-2 rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2 text-xs text-emerald-700';
 
-                    const providerEmail = app.getProviderEmail(brand.idProveedor);
-                    if (providerEmail) {
-                        emailInput.value = providerEmail;
-                    }
+                    emailInput.value = app.getProviderEmail(brand.idProveedor);
                 };
 
                 input.addEventListener('input', renderBrand);
@@ -416,28 +414,14 @@
 
             readBrandSelection: () => {
                 const brandInput = document.getElementById('swal-brand-search');
-                const emailInput = document.getElementById('swal-correo');
                 const brand = app.resolveBrandInput(brandInput?.value);
-                const correoRaw = (emailInput?.value || '').trim();
-                const correos = app.emailList(correoRaw);
 
                 if (!brand) {
                     Swal.showValidationMessage('Selecciona una marca registrada de la lista.');
                     return null;
                 }
 
-                if (correoRaw && !correos.length) {
-                    Swal.showValidationMessage('Escribe al menos un correo válido para el proveedor.');
-                    return null;
-                }
-
-                const invalidEmails = correoRaw.split(/[,;\n]+/)
-                    .map(email => email.trim())
-                    .filter(email => email && !app.emailList(email).length);
-                if (invalidEmails.length) {
-                    Swal.showValidationMessage(`Correo no válido: ${invalidEmails[0]}`);
-                    return null;
-                }
+                const correos = app.getProviderEmails(brand.idProveedor);
 
                 return { brand, correo: correos.join(', '), correos };
             },

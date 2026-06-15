@@ -2129,7 +2129,7 @@
                 </div>
                 <div>
                     <label class="block text-xs font-bold text-slate-500 mb-1">Correos del proveedor</label>
-                    <textarea id="swal-correo" class="w-full min-h-[86px] p-3 border rounded-xl resize-none" placeholder="correo@proveedor.com, otro@proveedor.com">${h(emailValue)}</textarea>
+                    <textarea id="swal-correo" class="w-full min-h-[86px] p-3 border rounded-xl resize-none bg-slate-50 text-slate-500 cursor-not-allowed" placeholder="Se completa con el proveedor seleccionado" readonly aria-readonly="true">${h(emailValue)}</textarea>
                 </div>`;
         }
 
@@ -2144,14 +2144,14 @@
                 if (!brand) {
                     providerEl.textContent = 'Elige una marca de la lista para asociar proveedor e IDs internos.';
                     providerEl.className = 'mt-2 rounded-xl bg-amber-50 border border-amber-100 px-3 py-2 text-xs text-amber-700';
+                    emailInput.value = '';
                     return;
                 }
                 providerEl.innerHTML = `
                     <div class="font-bold text-slate-700">${h(asText(brand.proveedor, 'Sin proveedor'))}</div>
                     <div>ID marca ${h(asText(brand.idMarca))} · ID proveedor ${h(asText(brand.idProveedor))}</div>`;
                 providerEl.className = 'mt-2 rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2 text-xs text-emerald-700';
-                const providerEmail = this.getProviderEmail(brand.idProveedor);
-                if (providerEmail) emailInput.value = providerEmail;
+                emailInput.value = this.getProviderEmail(brand.idProveedor);
             };
 
             input.addEventListener('input', renderBrand);
@@ -2160,23 +2160,11 @@
 
         readVendorBrandSelection() {
             const brand = this.resolveBrandInput(document.getElementById('swal-brand-search')?.value);
-            const correoRaw = asText(document.getElementById('swal-correo')?.value).trim();
-            const correos = this.emailList(correoRaw);
             if (!brand) {
                 Swal.showValidationMessage('Selecciona una marca registrada de la lista.');
                 return null;
             }
-            if (correoRaw && !correos.length) {
-                Swal.showValidationMessage('Escribe al menos un correo válido para el proveedor.');
-                return null;
-            }
-            const invalidEmails = correoRaw.split(/[,;\n]+/)
-                .map((email) => email.trim())
-                .filter((email) => email && !this.emailList(email).length);
-            if (invalidEmails.length) {
-                Swal.showValidationMessage(`Correo no válido: ${invalidEmails[0]}`);
-                return null;
-            }
+            const correos = this.getProviderEmails(brand.idProveedor);
             return { brand, correo: correos.join(', '), correos };
         }
 
