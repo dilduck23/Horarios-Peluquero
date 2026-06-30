@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS "Tiendas_Personal_Horario" (
     tienda_id INT REFERENCES "Tiendas_Razonamiento"(id),
     
     -- Tipo de registro
-    tipo TEXT DEFAULT 'TRABAJO' CHECK (tipo IN ('TRABAJO', 'VACACIONES', 'PERMISO', 'LICENCIA')),
+    tipo TEXT DEFAULT 'TRABAJO' CHECK (tipo IN ('TRABAJO', 'VACACIONES', 'PERMISO', 'LICENCIA', 'DIA LIBRE')),
     
     -- Notas opcionales
     nota TEXT,

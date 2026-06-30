@@ -47,6 +47,9 @@
     ];
     const automaticAbsenceSubject = 'FALTA NO APROBADA';
     const attendanceCloseCutoffHour = 20;
+    const internalDayOffType = 'DIA LIBRE';
+    const internalAssignmentTypes = ['TRABAJO', 'VACACIONES', 'PERMISO', 'LICENCIA', internalDayOffType];
+    const internalFreeTypes = ['VACACIONES', 'PERMISO', 'LICENCIA', 'LIBRE', internalDayOffType, 'DESCANSO', 'DESCANSO SEMANAL', 'OFF'];
     const desktopMediaQuery = '(min-width: 981px)';
     let layoutMode = 'mobile';
     let layoutPreference = 'auto';
@@ -1115,7 +1118,7 @@
 
     function isInternalFreeType(type) {
         const value = normalizedInternalType(type);
-        return ['VACACIONES', 'PERMISO', 'LICENCIA', 'LIBRE', 'DIA LIBRE', 'DESCANSO', 'DESCANSO SEMANAL', 'OFF'].includes(value)
+        return internalFreeTypes.includes(value)
             || value.includes('LIBRE')
             || value.includes('DESCANSO');
     }
@@ -1173,6 +1176,17 @@
         async reload() {
             await this.load();
             this.render();
+        }
+
+        async saveInternalDayOff(row) {
+            if (!row?.id) return;
+            try {
+                await rows(db.from(tables.internalSchedule).update({ tipo: internalDayOffType }).eq('id', asInt(row.id)).select());
+                await this.reload();
+                Swal.fire({ icon: 'success', title: 'Día libre marcado', timer: 1300, showConfirmButton: false });
+            } catch (error) {
+                Swal.fire('Error', window.StaffPlanner.duplicateMessage(error), 'error');
+            }
         }
 
         async loadBase() {
@@ -2842,7 +2856,7 @@
                         <label class="text-xs font-bold text-slate-500">Fecha<input id="mw-date" type="date" class="w-full p-3 border rounded-xl mt-1" value="${currentDate}"></label>
                         <label class="text-xs font-bold text-slate-500">Personal<select id="mw-person" class="w-full p-3 border rounded-xl mt-1"><option value="">Seleccionar</option>${activeStaff.map((person) => `<option value="${asInt(person.id)}" ${asInt(person.id) === currentPerson ? 'selected' : ''}>${h(asText(person.nombre_completo))}</option>`).join('')}</select></label>
                         <label class="text-xs font-bold text-slate-500">Bodega/Tienda<select id="mw-store" class="mw-store-color-select w-full p-3 border rounded-xl mt-1" style="${storePickerStyle(byId(activeStores, currentStore))}" onchange="mobileApp.paintStorePicker(this)" ${this.session.isStoreUser ? 'disabled' : ''}><option value="">Seleccionar</option>${activeStores.map((store) => `<option value="${asInt(store.id)}" ${asInt(store.id) === currentStore ? 'selected' : ''}>${h(asText(store.nombre_display))}</option>`).join('')}</select></label>
-                        <label class="text-xs font-bold text-slate-500">Tipo<select id="mw-type" class="w-full p-3 border rounded-xl mt-1">${['TRABAJO', 'VACACIONES', 'PERMISO', 'LICENCIA'].map((type) => `<option value="${type}" ${type === currentType ? 'selected' : ''}>${type}</option>`).join('')}</select></label>
+                        <label class="text-xs font-bold text-slate-500">Tipo<select id="mw-type" class="w-full p-3 border rounded-xl mt-1">${internalAssignmentTypes.map((type) => `<option value="${type}" ${type === currentType ? 'selected' : ''}>${type}</option>`).join('')}</select></label>
                     </div>`,
                 showCancelButton: true,
                 showDenyButton: canDeleteExisting,
@@ -3710,7 +3724,7 @@
                 html: `
                     <p class="text-slate-500 mb-4 text-sm">${h(asText(store?.nombre_display, 'Bodega/Tienda'))} - ${h(asText(row.fecha))}</p>
                     <div class="grid gap-2">
-                        ${this.canManageInternal() ? `<button class="bottom-action full" onclick="Swal.close(); mobileApp.editInternalAssignment(${asInt(row.id)})">Modificar asignación</button><button class="bottom-action ink full" onclick="Swal.close(); mobileApp.deleteInternalAssignment(${asInt(row.id)})">Eliminar asignación</button>` : `<p class="font-bold">${h(asText(row.tipo, 'TRABAJO'))}</p>`}
+                        ${this.canManageInternal() ? `<button class="bottom-action full" onclick="Swal.close(); mobileApp.editInternalAssignment(${asInt(row.id)})">Modificar asignación</button><button class="bottom-action teal full" onclick="Swal.close(); mobileApp.markInternalDayOff(${asInt(row.id)})">Marcar día libre</button><button class="bottom-action ink full" onclick="Swal.close(); mobileApp.deleteInternalAssignment(${asInt(row.id)})">Eliminar asignación</button>` : `<p class="font-bold">${h(asText(row.tipo, 'TRABAJO'))}</p>`}
                     </div>`,
                 showConfirmButton: false,
                 showCloseButton: true
@@ -3721,6 +3735,12 @@
             const row = this.monthlyInternalRows.find((item) => asInt(item.id) === asInt(id));
             if (!row || !this.canManageInternal() || asInt(row.tienda_id) !== asInt(this.selectedStoreId)) return;
             this.showInternalForm(row, parseDate(row.fecha), this.selectedStoreId);
+        }
+
+        async markInternalDayOff(id) {
+            const row = this.monthlyInternalRows.find((item) => asInt(item.id) === asInt(id));
+            if (!row || !this.canManageInternal() || asInt(row.tienda_id) !== asInt(this.selectedStoreId)) return;
+            await this.saveInternalDayOff(row);
         }
 
         async deleteInternalAssignment(id) {
@@ -4152,6 +4172,7 @@
                     <p class="text-slate-500 mb-4 text-sm">${h(asText(store?.nombre_display, 'Bodega/Tienda'))} - ${h(asText(row.fecha))}</p>
                     ${canEditRow ? `<div class="grid gap-2">
                         <button class="bottom-action full" onclick="Swal.close(); mobileApp.editInternalAssignment(${asInt(row.id)})">Modificar asignación</button>
+                        <button class="bottom-action teal full" onclick="Swal.close(); mobileApp.markInternalDayOff(${asInt(row.id)})">Marcar día libre</button>
                         <button class="bottom-action ink full" onclick="Swal.close(); mobileApp.deleteInternalAssignment(${asInt(row.id)})">Eliminar asignación</button>
                     </div>` : `<p class="font-bold">${h(asText(row.tipo, 'TRABAJO'))}</p>`}`,
                 showConfirmButton: false,
@@ -4168,6 +4189,12 @@
             const row = this.monthlyRows.find((item) => asInt(item.id) === asInt(id));
             if (!row || !this.canManageInternalRow(row)) return;
             this.showInternalForm(row, parseDate(row.fecha), row.tienda_id || this.selectedStoreId);
+        }
+
+        async markInternalDayOff(id) {
+            const row = this.monthlyRows.find((item) => asInt(item.id) === asInt(id));
+            if (!row || !this.canManageInternalRow(row)) return;
+            await this.saveInternalDayOff(row);
         }
 
         async deleteInternalAssignment(id) {
@@ -4203,7 +4230,7 @@
                     <div class="grid gap-3 text-left">
                         <p class="text-sm font-bold text-slate-500">Se crearán registros de ${h(monthLabel(this.selected))} para ${h(asText(currentStore?.nombre_display, 'esta tienda'))}. Los días ya asignados se omiten.</p>
                         <label class="text-xs font-bold text-slate-500">Personal<select id="mw-fill-person" class="w-full p-3 border rounded-xl mt-1"><option value="">Seleccionar</option>${activeStaff.map((person) => `<option value="${asInt(person.id)}">${h(asText(person.nombre_completo))}</option>`).join('')}</select></label>
-                        <label class="text-xs font-bold text-slate-500">Tipo<select id="mw-fill-type" class="w-full p-3 border rounded-xl mt-1">${['TRABAJO', 'VACACIONES', 'PERMISO', 'LICENCIA'].map((type) => `<option value="${type}" ${type === 'TRABAJO' ? 'selected' : ''}>${type}</option>`).join('')}</select></label>
+                        <label class="text-xs font-bold text-slate-500">Tipo<select id="mw-fill-type" class="w-full p-3 border rounded-xl mt-1">${internalAssignmentTypes.map((type) => `<option value="${type}" ${type === 'TRABAJO' ? 'selected' : ''}>${type}</option>`).join('')}</select></label>
                     </div>`,
                 showCancelButton: true,
                 confirmButtonText: 'Llenar mes',
