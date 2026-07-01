@@ -1189,6 +1189,27 @@
             }
         }
 
+        async findInternalAssignmentConflict(value, existing) {
+            let query = db.from(tables.internalSchedule)
+                .select('id,fecha,personal_id,tienda_id,tipo')
+                .eq('personal_id', value.personal_id)
+                .eq('fecha', value.fecha)
+                .limit(1);
+            if (existing?.id) query = query.neq('id', asInt(existing.id));
+            const conflicts = await rows(query);
+            return conflicts[0] || null;
+        }
+
+        showInternalAssignmentConflict(value, conflict) {
+            const person = byId(this.internalStaff, value.personal_id);
+            const store = byId(this.stores, conflict.tienda_id);
+            Swal.fire({
+                icon: 'warning',
+                title: 'Asignación duplicada',
+                text: `${asText(person?.nombre_completo, 'Ese personal')} ya está asignado en ${asText(store?.nombre_display, 'otra tienda')} el ${asText(value.fecha)}. Modifica o elimina esa asignación antes de moverlo.`
+            });
+        }
+
         async loadBase() {
             const [stores, promoters, categories, internalStaff] = await Promise.all([
                 rows(db.from(tables.stores).select('*').order('nombre_display')),
@@ -2897,27 +2918,6 @@
             } catch (error) {
                 Swal.fire('Error', window.StaffPlanner.duplicateMessage(error), 'error');
             }
-        }
-
-        async findInternalAssignmentConflict(value, existing) {
-            let query = db.from(tables.internalSchedule)
-                .select('id,fecha,personal_id,tienda_id,tipo')
-                .eq('personal_id', value.personal_id)
-                .eq('fecha', value.fecha)
-                .limit(1);
-            if (existing?.id) query = query.neq('id', asInt(existing.id));
-            const conflicts = await rows(query);
-            return conflicts[0] || null;
-        }
-
-        showInternalAssignmentConflict(value, conflict) {
-            const person = byId(this.internalStaff, value.personal_id);
-            const store = byId(this.stores, conflict.tienda_id);
-            Swal.fire({
-                icon: 'warning',
-                title: 'Asignación duplicada',
-                text: `${asText(person?.nombre_completo, 'Ese personal')} ya está asignado en ${asText(store?.nombre_display, 'otra tienda')} el ${asText(value.fecha)}. Modifica o elimina esa asignación antes de moverlo.`
-            });
         }
 
         showInternalFormForPerson(personId, key) {
