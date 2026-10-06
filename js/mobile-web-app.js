@@ -60,11 +60,11 @@
                 ['store', 'calendario-tienda.html', 'storefront', 'Tienda'],
                 ['messages', 'mensajes.html', 'inbox', 'Buzón'],
                 ['planner', 'index.html', 'space_dashboard', 'Planificar'],
-                ['internal', 'personal.html', 'work_outline', 'Interno'],
+                ['pickups', 'retiros.html', 'qr_code_scanner', 'Retiros'],
                 ['nav', 'navegacion.html', 'apps', 'Navegación']
             ];
         }
-        return [
+        const items = [
             ['planner', 'index.html', 'space_dashboard', 'Planificar'],
             ['messages', 'mensajes.html', 'inbox', 'Mensajes'],
             ['store', 'calendario-tienda.html', 'storefront', 'Tienda'],
@@ -72,6 +72,8 @@
             ['reports', 'reportes.html', 'report_problem', 'Reportes'],
             ['nav', 'navegacion.html', 'apps', 'Navegación']
         ];
+        if (layoutMode === 'desktop') items.splice(-1, 0, ['pickups', 'retiros.html', 'qr_code_scanner', 'Retiros']);
+        return items;
     }
 
     function detectedLayoutMode() {
@@ -4856,6 +4858,117 @@
         }
     }
 
+    class PickupsView extends BaseView {
+        constructor() {
+            super('pickups');
+            this.code = '';
+            this.order = null;
+            this.error = '';
+            this.success = '';
+            this.busy = false;
+        }
+
+        async load() {}
+
+        render() {
+            const order = this.order;
+            const ready = order?.readyToDeliver;
+            shell('pickups', 'Retiros', 'Verifica el código antes de entregar el pedido', '', `
+                <section class="app-card pickup-panel" aria-labelledby="pickup-heading">
+                    <div class="pickup-heading"><span class="material-icons" aria-hidden="true">qr_code_scanner</span><div><h2 id="pickup-heading">Buscar pedido</h2><p>Ingresa el código de 4 caracteres que trae el cliente.</p></div></div>
+                    <form onsubmit="event.preventDefault(); mobileApp.lookupPickup()">
+                        <label class="pickup-label" for="pickup-code">Código de retiro</label>
+                        <div class="pickup-search-row">
+                            <input id="pickup-code" type="text" maxlength="4" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text" placeholder="Ej. QGC7" value="${h(this.code)}" oninput="mobileApp.code = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4); this.value = mobileApp.code; mobileApp.order = null; document.getElementById('pickup-result')?.remove()" ${this.busy ? 'disabled' : ''}>
+                            <button type="submit" class="pickup-primary" ${this.busy ? 'disabled' : ''}>${this.busy ? 'Buscando…' : 'Buscar'}</button>
+                        </div>
+                    </form>
+                    ${this.error ? `<p class="pickup-alert error" role="alert">${h(this.error)}</p>` : ''}
+                    ${this.success ? `<div class="pickup-alert success" role="status"><strong>Entrega confirmada.</strong> ${h(this.success)}</div>` : ''}
+                </section>
+                ${order ? `<section id="pickup-result" class="app-card pickup-result" aria-labelledby="pickup-order-heading">
+                    <div class="pickup-result-head"><div><p class="pickup-eyebrow">Pedido para retiro</p><h2 id="pickup-order-heading">Orden #${h(order.orderNumber)}</h2></div><span class="pickup-state ${ready ? 'ready' : 'waiting'}">${ready ? 'Listo para entregar' : 'Aún no entregable'}</span></div>
+                    <dl class="pickup-details">
+                        <div><dt>Cliente</dt><dd>${h(order.customerName)}</dd></div>
+                        <div><dt>Documento</dt><dd>${h(order.idNumber || 'No registrado')}</dd></div>
+                        <div><dt>Teléfono</dt><dd>${h(order.phone || 'No registrado')}</dd></div>
+                        <div><dt>Correo</dt><dd>${h(order.email || 'No registrado')}</dd></div>
+                        ${order.authorizedPerson ? `<div><dt>Persona autorizada</dt><dd>${h(order.authorizedPerson)}</dd></div>` : ''}
+                        <div><dt>Tienda de retiro</dt><dd>${h(order.pickupLocation?.name || 'No asignada')}</dd></div>
+                        <div><dt>Pago</dt><dd>${h(order.financialStatus === 'PAID' ? 'Pagado' : order.paymentMethod === 'cash_on_delivery' ? 'Cobrar al entregar' : 'Pendiente')}</dd></div>
+                    </dl>
+                    <h3 class="pickup-items-title">Productos a entregar</h3>
+                    <ul class="pickup-items">${order.items.map((item) => `<li><span><strong>${h(item.title)}</strong>${item.variantTitle ? `<small>${h(item.variantTitle)}</small>` : ''}<small>SKU ${h(item.sku || '—')}</small></span><b>× ${h(item.quantity)}</b></li>`).join('')}</ul>
+                    ${ready ? `<label class="pickup-check"><input id="pickup-verified" type="checkbox"><span>Verifiqué la identidad de quien retira, los productos y el pago si corresponde.</span></label><button type="button" class="pickup-primary pickup-confirm" onclick="mobileApp.confirmPickup()" ${this.busy ? 'disabled' : ''}>${this.busy ? 'Confirmando…' : 'Confirmar entrega'}</button>` : `<p class="pickup-alert waiting" role="status">${h(order.blockReason || 'Este pedido aún no está listo para retiro.')}</p>`}
+                </section>` : ''}
+            `);
+        }
+
+        async requestPickup(action) {
+            const { data, error } = await db.auth.getSession();
+            if (error || !data?.session?.access_token) throw new Error('Tu sesión expiró. Vuelve a iniciar sesión.');
+            const response = await fetch('https://elpeluquero.ec/api/horarios/pickups', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session.access_token}` },
+                body: JSON.stringify({ action, code: this.code }),
+                cache: 'no-store'
+            });
+            const result = await response.json().catch(() => null);
+            if (!response.ok || !result?.success) throw new Error(result?.error || 'No se pudo consultar el pedido. Intenta de nuevo.');
+            return result.data;
+        }
+
+        async lookupPickup() {
+            if (this.busy) return;
+            this.code = (document.getElementById('pickup-code')?.value || '').trim().toUpperCase();
+            this.order = null;
+            this.success = '';
+            if (!/^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{4}$/.test(this.code) || new Set(this.code).size !== 4) {
+                this.error = 'Ingresa los 4 caracteres válidos del código.';
+                this.render();
+                return;
+            }
+            this.error = '';
+            this.busy = true;
+            this.render();
+            try {
+                this.order = await this.requestPickup('lookup');
+            } catch (error) {
+                this.error = error.message || 'No se pudo buscar el pedido.';
+            } finally {
+                this.busy = false;
+                this.render();
+                if (this.order) document.getElementById('pickup-result')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+
+        async confirmPickup() {
+            if (this.busy || !this.order?.readyToDeliver) return;
+            if (!document.getElementById('pickup-verified')?.checked) {
+                this.error = 'Verifica la identidad, los productos y el pago antes de confirmar.';
+                this.render();
+                return;
+            }
+            const answer = await Swal.fire({ title: `¿Entregar orden #${this.order.orderNumber}?`, text: 'Esta acción marca el pedido como entregado y consume el código.', icon: 'question', showCancelButton: true, confirmButtonText: 'Sí, entregar', cancelButtonText: 'Volver' });
+            if (!answer.isConfirmed) return;
+            this.busy = true;
+            this.error = '';
+            this.render();
+            try {
+                const orderNumber = this.order.orderNumber;
+                await this.requestPickup('confirm');
+                this.order = null;
+                this.code = '';
+                this.success = `La orden #${orderNumber} quedó marcada como entregada.`;
+            } catch (error) {
+                this.error = error.message || 'No se pudo confirmar la entrega.';
+            } finally {
+                this.busy = false;
+                this.render();
+            }
+        }
+    }
+
     class NavigationView extends BaseView {
         constructor() {
             super('nav');
@@ -4866,6 +4979,8 @@
         render() {
             const email = asText(this.session.user?.email, 'Usuario');
             shell('nav', 'Navegación', 'Datos, usuario e integraciones', iconButton('logout', 'mobileApp.logout()', 'Salir'), `
+                ${this.session.isManager ? `<a class="navigation-tile app-card" href="retiros.html"><span class="navigation-icon" style="background:rgba(232,93,117,.16);color:#bc3452"><span class="material-icons">qr_code_scanner</span></span><span class="flex-1 min-w-0"><strong class="app-list-title block">Retiros</strong><span class="app-list-subtitle block">Verificar códigos y confirmar entregas</span></span><span class="material-icons text-slate-400">chevron_right</span></a>` : ''}
+                ${this.session.isStoreUser ? `<a class="navigation-tile app-card" href="personal.html"><span class="navigation-icon" style="background:rgba(14,159,143,.16);color:#0E9F8F"><span class="material-icons">work_outline</span></span><span class="flex-1 min-w-0"><strong class="app-list-title block">Interno</strong><span class="app-list-subtitle block">Horario del personal interno</span></span><span class="material-icons text-slate-400">chevron_right</span></a>` : ''}
                 <button class="navigation-tile app-card" onclick="mobileApp.openData()">
                     <span class="navigation-icon" style="background:rgba(232,93,117,.16);color:#E85D75"><span class="material-icons">dataset</span></span>
                     <span class="flex-1 min-w-0"><strong class="app-list-title block">Datos</strong><span class="app-list-subtitle block">Personal, tiendas, categorías e interno</span></span>
@@ -4914,7 +5029,7 @@
 
     function start(view, options = {}) {
         setLayoutPreference(options.layout);
-        if (window.StaffPlanner.getRoleId() === 3 && !['store', 'messages', 'planner', 'internal', 'nav'].includes(view)) {
+        if (window.StaffPlanner.getRoleId() === 3 && !['store', 'messages', 'planner', 'internal', 'pickups', 'nav'].includes(view)) {
             window.location.href = 'calendario-tienda.html';
             return Promise.resolve(null);
         }
@@ -4924,6 +5039,7 @@
             internal: InternalMonthView,
             messages: MessagesView,
             reports: ReportsView,
+            pickups: PickupsView,
             nav: NavigationView
         };
         const Klass = map[view] || PlannerView;

@@ -2898,3 +2898,32 @@ nav.fixed {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
+/* Retiro de pedidos: same card and rose tokens as the staff app. */
+.pickup-panel,.pickup-result{width:calc(100% - 36px);max-width:760px;margin:12px auto 16px;padding:24px}
+.pickup-heading{display:flex;gap:16px;align-items:flex-start;margin-bottom:24px}
+.pickup-heading>.material-icons{display:grid;place-items:center;flex:none;width:48px;height:48px;border-radius:14px;background:rgba(232,93,117,.13);color:#bc3452}
+.pickup-heading h2,.pickup-result h2{font-size:22px;font-weight:800;line-height:1.25;color:#111827}
+.pickup-heading p{margin-top:4px;color:#475569;line-height:1.5}
+.pickup-label{display:block;margin-bottom:8px;font-size:14px;font-weight:700;color:#334155}
+.pickup-search-row{display:flex;gap:12px}
+.pickup-search-row input{min-width:0;flex:1;min-height:52px;padding:10px 16px;border:1px solid #cbd5e1;border-radius:12px;background:#fff;color:#111827;font-size:22px;font-weight:800;letter-spacing:.22em;text-transform:uppercase}
+.pickup-primary{min-height:52px;padding:12px 24px;border:none;border-radius:12px;background:#d60032;color:#fff;font-weight:800;cursor:pointer;touch-action:manipulation}
+.pickup-primary:hover{background:#b6002b}.pickup-primary:active{background:#950024}.pickup-primary:disabled{opacity:.5;cursor:not-allowed}
+.pickup-search-row input:focus-visible,.pickup-primary:focus-visible,.pickup-check input:focus-visible{outline:3px solid #e85d75;outline-offset:2px}
+.pickup-alert{margin-top:16px;padding:14px 16px;border-radius:12px;font-weight:600;line-height:1.5}
+.pickup-alert.error{background:#fff1f2;color:#9f1239;border:1px solid #fecdd3}
+.pickup-alert.success{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0}
+.pickup-alert.waiting{background:#fffbeb;color:#92400e;border:1px solid #fde68a}
+.pickup-result-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding-bottom:20px;border-bottom:1px solid #e2e8f0}
+.pickup-eyebrow{text-transform:uppercase;letter-spacing:.08em;color:#64748b;font-size:12px;font-weight:800;margin-bottom:4px}
+.pickup-state{flex:none;border-radius:999px;padding:6px 10px;font-size:12px;font-weight:800}
+.pickup-state.ready{background:#dcfce7;color:#166534}.pickup-state.waiting{background:#fef3c7;color:#92400e}
+.pickup-details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 24px;padding:20px 0}
+.pickup-details dt{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#64748b}
+.pickup-details dd{margin-top:4px;font-weight:700;color:#111827;overflow-wrap:anywhere}
+.pickup-items-title{font-size:16px;font-weight:800;color:#111827;margin:4px 0 8px}
+.pickup-items{border-top:1px solid #e2e8f0}.pickup-items li{display:flex;justify-content:space-between;gap:16px;padding:14px 0;border-bottom:1px solid #e2e8f0;color:#111827}.pickup-items small{display:block;color:#475569;font-weight:500}.pickup-items b{white-space:nowrap}
+.pickup-check{display:flex;align-items:flex-start;gap:12px;margin-top:20px;padding:16px;border-radius:12px;background:#f8fafc;line-height:1.5;color:#334155;cursor:pointer}.pickup-check input{width:20px;height:20px;flex:none;margin-top:2px;accent-color:#d60032}
+.pickup-confirm{display:block;width:100%;margin-top:16px}
+@media(max-width:600px){.pickup-panel,.pickup-result{padding:18px}.pickup-details{grid-template-columns:1fr;gap:12px}.pickup-result-head{flex-direction:column}.pickup-search-row{flex-direction:column}.pickup-search-row input{width:100%}.pickup-search-row button{width:100%}}
+@media(prefers-reduced-motion:reduce){.pickup-primary{transition:none}}
