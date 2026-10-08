@@ -18,6 +18,13 @@ npm run dev
 Luego abre `http://localhost:3001/login.html`.
 Si ese puerto está ocupado, el servidor usará el siguiente libre y lo mostrará en la terminal.
 
+Para probar **Retiros** con los cambios de la API aún no desplegados, inicia también
+Web Peluquero en otra terminal con `npm run dev` (puerto 3000). El servidor local
+de Horarios reenvía únicamente `/api/horarios/pickups` a
+`http://127.0.0.1:3000`, sin CORS. Si Web usa otro puerto, inicia Horarios con
+`WEB_API_URL=http://127.0.0.1:PUERTO npm run dev`. Reinicia Horarios después de
+cambiar esa variable.
+
 ## Archivos SQL (Supabase)
 
 Scripts de configuración para la base de datos Supabase:

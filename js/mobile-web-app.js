@@ -4861,112 +4861,320 @@
     class PickupsView extends BaseView {
         constructor() {
             super('pickups');
-            this.code = '';
-            this.order = null;
-            this.error = '';
+            // The local static server proxies this path to the local Web Peluquero API.
+            this.apiUrl = ['localhost', '127.0.0.1'].includes(window.location.hostname)
+                ? `${window.location.origin}/api/horarios/pickups`
+                : 'https://elpeluquero.ec/api/horarios/pickups';
             this.success = '';
-            this.busy = false;
+            this.pending = [];
+            this.pendingTotal = 0;
+            this.pendingPage = 1;
+            this.pendingPageSize = 20;
+            this.pendingLocations = [];
+            this.pendingLocationId = null;
+            this.canChoosePickupStore = false;
+            this.pendingError = '';
+            this.pendingBusy = false;
+            this.readyBusyId = null;
+            this.readyMessage = '';
+            this.shipments = [];
+            this.shipmentTotal = 0;
+            this.shipmentPage = 1;
+            this.shipmentPageSize = 20;
+            this.showShipments = false;
+            this.shippingBusyId = null;
+            this.shippingMessage = '';
         }
 
-        async load() {}
+        async load() {
+            await this.loadPending();
+        }
+
+        async accessToken() {
+            const { data, error } = await db.auth.getSession();
+            if (error || !data?.session?.access_token) throw new Error('Tu sesión expiró. Vuelve a iniciar sesión.');
+            return data.session.access_token;
+        }
+
+        async loadPending() {
+            this.pendingBusy = true;
+            this.pendingError = '';
+            this.pending = [];
+            this.shipments = [];
+            try {
+                const url = new URL(this.apiUrl);
+                url.searchParams.set('page', String(this.pendingPage));
+                url.searchParams.set('shipmentPage', String(this.shipmentPage));
+                if (this.pendingLocationId) url.searchParams.set('locationId', this.pendingLocationId);
+                const response = await fetch(url, {
+                    headers: { Authorization: `Bearer ${await this.accessToken()}` },
+                    cache: 'no-store'
+                });
+                const result = await response.json().catch(() => null);
+                if (!response.ok || !result?.success) throw new Error(result?.error || 'No se pudieron cargar los retiros.');
+                this.pending = result.data.orders || [];
+                this.shipments = result.data.shipments || [];
+                this.shipmentTotal = result.data.shipmentTotal || 0;
+                this.shipmentPage = result.data.shipmentPage || 1;
+                this.shipmentPageSize = result.data.shipmentPageSize || 20;
+                this.showShipments = result.data.showShipments === true;
+                this.pendingTotal = result.data.total || 0;
+                this.pendingPage = result.data.page || 1;
+                this.pendingPageSize = result.data.pageSize || 20;
+                this.pendingLocations = result.data.locations || [];
+                this.pendingLocationId = result.data.selectedLocationId;
+                this.canChoosePickupStore = result.data.canChooseStore === true;
+            } catch (error) {
+                this.pendingError = error.message || 'No se pudieron cargar los retiros.';
+                this.pending = [];
+                this.pendingTotal = 0;
+                this.shipments = [];
+                this.shipmentTotal = 0;
+                this.showShipments = false;
+            } finally {
+                this.pendingBusy = false;
+            }
+        }
+
+        async changePickupStore(value) {
+            if (!this.canChoosePickupStore || this.pendingBusy) return;
+            this.pendingLocationId = value;
+            this.pendingPage = 1;
+            this.shipmentPage = 1;
+            this.shippingMessage = '';
+            this.pending = [];
+            this.shipments = [];
+            this.showShipments = false;
+            this.pendingBusy = true;
+            this.render();
+            await this.loadPending();
+            this.render();
+        }
+
+        async changePickupPage(delta) {
+            if (this.pendingBusy) return;
+            const next = this.pendingPage + delta;
+            if (next < 1 || (next - 1) * this.pendingPageSize >= this.pendingTotal) return;
+            this.pendingPage = next;
+            this.pending = [];
+            this.pendingBusy = true;
+            this.render();
+            await this.loadPending();
+            this.render();
+            document.getElementById('pickup-pending-heading')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        async changeShipmentPage(delta) {
+            if (this.pendingBusy || this.shippingBusyId) return;
+            const next = this.shipmentPage + delta;
+            if (next < 1 || (next - 1) * this.shipmentPageSize >= this.shipmentTotal) return;
+            this.shipmentPage = next;
+            this.pendingBusy = true;
+            this.render();
+            await this.loadPending();
+            this.render();
+            document.getElementById('shipment-pending-heading')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        renderShipments() {
+            if (!this.showShipments) return '';
+            const cards = this.shipments.map((item, index) => `<li class="pickup-list-item">
+                <button type="button" class="pickup-list-button" onclick="mobileApp.openShipment(${index})" ${this.pendingBusy || this.shippingBusyId ? 'disabled' : ''} aria-label="Ver detalles del envío de la orden ${h(item.orderNumber)}">
+                    <span class="pickup-list-main"><strong>Orden #${h(item.orderNumber)}</strong><span>${h(item.customerName)}</span><small>${h(new Date(item.createdAt).toLocaleDateString('es-EC'))}${item.trackingNumber ? ' · Guía guardada' : ''}</small></span>
+                    <span class="pickup-list-end"><span class="pickup-state waiting">Pendiente de envío</span><span class="material-icons" aria-hidden="true">chevron_right</span></span>
+                </button>
+            </li>`).join('');
+            return `<section class="app-card pickup-pending" aria-labelledby="shipment-pending-heading">
+                <div class="pickup-pending-head"><div><h2 id="shipment-pending-heading">Envíos pendientes · Rumichaca</h2><p>${this.pendingBusy ? 'Actualizando…' : `${h(this.shipmentTotal)} pedido${this.shipmentTotal === 1 ? '' : 's'} pendiente${this.shipmentTotal === 1 ? '' : 's'}`}</p></div>
+                    <button type="button" class="pickup-secondary" onclick="mobileApp.reload()" ${this.pendingBusy ? 'disabled' : ''}><span class="material-icons" aria-hidden="true">refresh</span> Actualizar</button></div>
+                ${this.shippingMessage ? `<p class="pickup-alert success" role="status">${h(this.shippingMessage)}</p>` : ''}
+                ${!this.pendingBusy && !this.pendingError && !this.shipments.length ? '<p class="pickup-empty">No hay envíos pendientes.</p>' : ''}
+                <ul class="pickup-compact-list" aria-live="polite">${cards}</ul>
+                ${this.shipmentTotal > this.shipmentPageSize ? `<nav class="pickup-pages" aria-label="Páginas de envíos"><button type="button" class="pickup-secondary" onclick="mobileApp.changeShipmentPage(-1)" ${this.shipmentPage <= 1 || this.pendingBusy ? 'disabled' : ''}>Anterior</button><span>Página ${h(this.shipmentPage)} de ${h(Math.ceil(this.shipmentTotal / this.shipmentPageSize))}</span><button type="button" class="pickup-secondary" onclick="mobileApp.changeShipmentPage(1)" ${this.shipmentPage * this.shipmentPageSize >= this.shipmentTotal || this.pendingBusy ? 'disabled' : ''}>Siguiente</button></nav>` : ''}
+            </section>`;
+        }
 
         render() {
-            const order = this.order;
-            const ready = order?.readyToDeliver;
-            shell('pickups', 'Retiros', 'Verifica el código antes de entregar el pedido', '', `
-                <section class="app-card pickup-panel" aria-labelledby="pickup-heading">
-                    <div class="pickup-heading"><span class="material-icons" aria-hidden="true">qr_code_scanner</span><div><h2 id="pickup-heading">Buscar pedido</h2><p>Ingresa el código de 4 caracteres que trae el cliente.</p></div></div>
-                    <form onsubmit="event.preventDefault(); mobileApp.lookupPickup()">
-                        <label class="pickup-label" for="pickup-code">Código de retiro</label>
-                        <div class="pickup-search-row">
-                            <input id="pickup-code" type="text" maxlength="4" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text" placeholder="Ej. QGC7" value="${h(this.code)}" oninput="mobileApp.code = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4); this.value = mobileApp.code; mobileApp.order = null; document.getElementById('pickup-result')?.remove()" ${this.busy ? 'disabled' : ''}>
-                            <button type="submit" class="pickup-primary" ${this.busy ? 'disabled' : ''}>${this.busy ? 'Buscando…' : 'Buscar'}</button>
-                        </div>
-                    </form>
-                    ${this.error ? `<p class="pickup-alert error" role="alert">${h(this.error)}</p>` : ''}
-                    ${this.success ? `<div class="pickup-alert success" role="status"><strong>Entrega confirmada.</strong> ${h(this.success)}</div>` : ''}
+            const storeName = this.pendingLocations.find((item) => item.id === this.pendingLocationId)?.name || 'Todas las tiendas';
+            shell('pickups', 'Retiros', 'Pedidos pendientes del local y verificación de entregas', '', `
+                <section class="app-card pickup-pending" aria-labelledby="pickup-pending-heading">
+                    <div class="pickup-pending-head"><div><h2 id="pickup-pending-heading">Retiros pendientes</h2><p>${this.pendingBusy ? 'Actualizando…' : `${h(this.pendingTotal)} pedido${this.pendingTotal === 1 ? '' : 's'} pendiente${this.pendingTotal === 1 ? '' : 's'}`}</p></div><button type="button" class="pickup-secondary" onclick="mobileApp.reload()" ${this.pendingBusy ? 'disabled' : ''}><span class="material-icons" aria-hidden="true">refresh</span> Actualizar</button></div>
+                    ${this.success ? `<p class="pickup-alert success" role="status">${h(this.success)}</p>` : ''}
+                    <label class="pickup-label" for="pickup-store">Tienda de retiro</label>
+                    ${this.canChoosePickupStore ? `<select id="pickup-store" class="pickup-store-select" onchange="mobileApp.changePickupStore(this.value)" ${this.pendingBusy ? 'disabled' : ''}><option value="all" ${this.pendingLocationId === 'all' ? 'selected' : ''}>Todas las tiendas</option>${this.pendingLocations.map((location) => `<option value="${h(location.id)}" ${location.id === this.pendingLocationId ? 'selected' : ''}>${h(location.name)}</option>`).join('')}</select>` : `<div id="pickup-store" class="pickup-store-fixed">${h(storeName)}</div>`}
+                    ${this.pendingError ? `<p class="pickup-alert error" role="alert">${h(this.pendingError)} <button type="button" class="pickup-retry" onclick="mobileApp.reload()">Reintentar</button></p>` : ''}
+                    ${this.readyMessage ? `<p class="pickup-alert success" role="status">${h(this.readyMessage)}</p>` : ''}
+                    ${!this.pendingBusy && !this.pendingError && !this.pending.length ? '<p class="pickup-empty">No hay retiros pendientes en esta tienda.</p>' : ''}
+                    <ul class="pickup-compact-list" aria-live="polite">${this.pending.map((item, index) => `<li class="pickup-list-item">
+                        <button type="button" class="pickup-list-button" onclick="mobileApp.openPickup(${index})" ${this.pendingBusy || this.readyBusyId ? 'disabled' : ''} aria-label="Ver detalles del retiro de la orden ${h(item.orderNumber)}">
+                            <span class="pickup-list-main"><strong>Orden #${h(item.orderNumber)}</strong><span>${h(item.customerName)}</span><small>${h(item.pickupLocation?.name || 'Tienda sin asignar')} · ${h(new Date(item.createdAt).toLocaleDateString('es-EC'))}</small></span>
+                            <span class="pickup-list-end"><span class="pickup-state ${item.readyToDeliver ? 'ready' : 'waiting'}">${item.readyToDeliver ? 'Lista para entregar' : 'En preparación'}</span><span class="material-icons" aria-hidden="true">chevron_right</span></span>
+                        </button>
+                    </li>`).join('')}</ul>
+                    ${this.pendingTotal > this.pendingPageSize ? `<nav class="pickup-pages" aria-label="Páginas de retiros"><button type="button" class="pickup-secondary" onclick="mobileApp.changePickupPage(-1)" ${this.pendingPage <= 1 || this.pendingBusy ? 'disabled' : ''}>Anterior</button><span>Página ${h(this.pendingPage)} de ${h(Math.ceil(this.pendingTotal / this.pendingPageSize))}</span><button type="button" class="pickup-secondary" onclick="mobileApp.changePickupPage(1)" ${this.pendingPage * this.pendingPageSize >= this.pendingTotal || this.pendingBusy ? 'disabled' : ''}>Siguiente</button></nav>` : ''}
                 </section>
-                ${order ? `<section id="pickup-result" class="app-card pickup-result" aria-labelledby="pickup-order-heading">
-                    <div class="pickup-result-head"><div><p class="pickup-eyebrow">Pedido para retiro</p><h2 id="pickup-order-heading">Orden #${h(order.orderNumber)}</h2></div><span class="pickup-state ${ready ? 'ready' : 'waiting'}">${ready ? 'Listo para entregar' : 'Aún no entregable'}</span></div>
-                    <dl class="pickup-details">
-                        <div><dt>Cliente</dt><dd>${h(order.customerName)}</dd></div>
-                        <div><dt>Documento</dt><dd>${h(order.idNumber || 'No registrado')}</dd></div>
-                        <div><dt>Teléfono</dt><dd>${h(order.phone || 'No registrado')}</dd></div>
-                        <div><dt>Correo</dt><dd>${h(order.email || 'No registrado')}</dd></div>
-                        ${order.authorizedPerson ? `<div><dt>Persona autorizada</dt><dd>${h(order.authorizedPerson)}</dd></div>` : ''}
-                        <div><dt>Tienda de retiro</dt><dd>${h(order.pickupLocation?.name || 'No asignada')}</dd></div>
-                        <div><dt>Pago</dt><dd>${h(order.financialStatus === 'PAID' ? 'Pagado' : order.paymentMethod === 'cash_on_delivery' ? 'Cobrar al entregar' : 'Pendiente')}</dd></div>
-                    </dl>
-                    <h3 class="pickup-items-title">Productos a entregar</h3>
-                    <ul class="pickup-items">${order.items.map((item) => `<li><span><strong>${h(item.title)}</strong>${item.variantTitle ? `<small>${h(item.variantTitle)}</small>` : ''}<small>SKU ${h(item.sku || '—')}</small></span><b>× ${h(item.quantity)}</b></li>`).join('')}</ul>
-                    ${ready ? `<label class="pickup-check"><input id="pickup-verified" type="checkbox"><span>Verifiqué la identidad de quien retira, los productos y el pago si corresponde.</span></label><button type="button" class="pickup-primary pickup-confirm" onclick="mobileApp.confirmPickup()" ${this.busy ? 'disabled' : ''}>${this.busy ? 'Confirmando…' : 'Confirmar entrega'}</button>` : `<p class="pickup-alert waiting" role="status">${h(order.blockReason || 'Este pedido aún no está listo para retiro.')}</p>`}
-                </section>` : ''}
+                ${this.renderShipments()}
             `);
         }
 
-        async requestPickup(action) {
-            const { data, error } = await db.auth.getSession();
-            if (error || !data?.session?.access_token) throw new Error('Tu sesión expiró. Vuelve a iniciar sesión.');
-            const response = await fetch('https://elpeluquero.ec/api/horarios/pickups', {
+        async openPickup(index) {
+            const item = this.pending[index];
+            if (!item || this.pendingBusy || this.readyBusyId) return;
+            const action = item.readyToDeliver && item.hasPickupCode ? 'code' : item.canMarkReady ? 'ready' : null;
+            const result = await Swal.fire({
+                title: `Retiro · Orden #${h(item.orderNumber)}`,
+                html: `<div class="pickup-dialog-content">
+                    <p class="pickup-dialog-customer">${h(item.customerName)}</p>
+                    <p class="pickup-dialog-meta">${h(item.pickupLocation?.name || 'Tienda sin asignar')} · ${h(new Date(item.createdAt).toLocaleDateString('es-EC'))}</p>
+                    <p><span class="pickup-state ${item.readyToDeliver ? 'ready' : 'waiting'}">${item.readyToDeliver ? 'Lista para entregar' : 'En preparación'}</span></p>
+                    ${action === 'code' ? `<div class="pickup-dialog-code"><label class="pickup-label" for="pickup-dialog-code-input">Código de retiro del cliente</label>
+                        <input id="pickup-dialog-code-input" type="text" maxlength="4" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text" placeholder="Ej. QGC7" aria-describedby="pickup-dialog-code-hint" oninput="this.value = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4)">
+                        <p id="pickup-dialog-code-hint">Ingresa el código de este pedido solo cuando lo vayas a entregar.</p>
+                    </div>` : ''}
+                    <dl class="pickup-details"><div><dt>Documento</dt><dd>${h(item.idNumber || 'No registrado')}</dd></div><div><dt>Teléfono</dt><dd>${h(item.phone || 'No registrado')}</dd></div><div><dt>Correo</dt><dd>${h(item.email || 'No registrado')}</dd></div>${item.authorizedPerson ? `<div><dt>Persona autorizada</dt><dd>${h(item.authorizedPerson)}</dd></div>` : ''}<div><dt>Pago</dt><dd>${h(item.financialStatus === 'PAID' ? 'Pagado' : item.paymentMethod === 'cash_on_delivery' ? 'Cobrar al entregar' : 'Pendiente')}</dd></div></dl>
+                    <h3 class="pickup-items-title">Productos a entregar</h3><ul class="pickup-items">${item.items.map((line) => `<li><span><strong>${h(line.title)}</strong>${line.variantTitle ? `<small>${h(line.variantTitle)}</small>` : ''}<small>SKU ${h(line.sku || '—')}</small></span><b>× ${h(line.quantity)}</b></li>`).join('')}</ul>
+                    ${action === 'code' ? '<label class="pickup-check"><input id="pickup-dialog-verified" type="checkbox"><span>Verifiqué la identidad de quien retira y los productos del pedido.</span></label>' : !item.readyToDeliver ? `<p class="pickup-pending-note">${h(item.blockReason || 'El pedido todavía no está listo para retiro.')}</p>` : '<p class="pickup-pending-note">Este pedido no tiene código de retiro emitido.</p>'}
+                </div>`,
+                customClass: { popup: 'pickup-order-dialog' },
+                showCloseButton: true, showCancelButton: true, showConfirmButton: Boolean(action),
+                confirmButtonText: action === 'ready' ? 'Listo para el retiro' : 'Verificar y entregar',
+                cancelButtonText: 'Cerrar', focusConfirm: false,
+                showLoaderOnConfirm: action === 'code',
+                allowOutsideClick: () => !Swal.isLoading(),
+                allowEscapeKey: () => !Swal.isLoading(),
+                ...(action === 'code' ? { preConfirm: async () => {
+                    const popup = Swal.getPopup();
+                    const code = (popup?.querySelector('#pickup-dialog-code-input')?.value || '').trim().toUpperCase();
+                    if (!/^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{4}$/.test(code) || new Set(code).size !== 4) {
+                        Swal.showValidationMessage('Ingresa los 4 caracteres válidos del código de retiro.');
+                        popup?.querySelector('#pickup-dialog-code-input')?.focus();
+                        return false;
+                    }
+                    if (!popup?.querySelector('#pickup-dialog-verified')?.checked) {
+                        Swal.showValidationMessage('Confirma que verificaste la identidad y los productos.');
+                        popup?.querySelector('#pickup-dialog-verified')?.focus();
+                        return false;
+                    }
+                    try {
+                        return await this.requestPickup('confirm', item.id, code);
+                    } catch (error) {
+                        Swal.showValidationMessage(error.message || 'No se pudo confirmar la entrega.');
+                        return false;
+                    }
+                } } : {})
+            });
+            if (!result.isConfirmed) return;
+            if (action === 'ready') await this.markPickupReady(index);
+            if (action === 'code') {
+                this.success = `La orden #${item.orderNumber} quedó marcada como entregada.`;
+                await this.loadPending();
+                this.render();
+            }
+        }
+
+        async openShipment(index) {
+            const item = this.shipments[index];
+            if (!item || this.pendingBusy || this.shippingBusyId) return;
+            const result = await Swal.fire({
+                title: `Envío · Orden #${h(item.orderNumber)}`,
+                html: `<div class="pickup-dialog-content">
+                    <p class="pickup-dialog-customer">${h(item.customerName)}</p>
+                    <p class="pickup-dialog-meta">${h(new Date(item.createdAt).toLocaleDateString('es-EC'))}</p>
+                    <dl class="pickup-details"><div><dt>Teléfono</dt><dd>${h(item.phone || 'No registrado')}</dd></div><div><dt>Correo</dt><dd>${h(item.email || 'No registrado')}</dd></div><div class="pickup-dialog-wide"><dt>Destino</dt><dd>${h(item.shippingAddress || 'No registrado')}</dd></div></dl>
+                    <h3 class="pickup-items-title">Productos a enviar</h3><ul class="pickup-items">${item.items.map((line) => `<li><span><strong>${h(line.title)}</strong>${line.variantTitle ? `<small>${h(line.variantTitle)}</small>` : ''}<small>SKU ${h(line.sku || '—')}</small></span><b>× ${h(line.quantity)}</b></li>`).join('')}</ul>
+                    ${item.canMarkShipped ? `<div class="pickup-shipping-form">
+                        ${item.trackingNumber ? '<p class="pickup-saved-guide">Esta orden ya tiene una guía guardada. Confirma que corresponda a este envío antes de registrarlo.</p>' : ''}
+                        <div><label class="pickup-label" for="shipment-carrier">Cooperativa / transportista</label><input id="shipment-carrier" class="pickup-store-select" type="text" list="shipment-carriers" maxlength="120" value="${h(item.shippingCarrier || '')}" placeholder="Selecciona o escribe la cooperativa"></div>
+                        <div><label class="pickup-label" for="shipment-guide">Número de guía</label><input id="shipment-guide" class="pickup-store-select" type="text" maxlength="120" value="${h(item.trackingNumber || '')}" placeholder="Escribe el número de guía"></div>
+                        <datalist id="shipment-carriers"><option value="ServiEntrega"><option value="Urbano"><option value="Tramaco"></datalist>
+                        <p class="pickup-shipping-hint">Al registrar ambos datos, la orden pasará a «Enviado» en Gestión de Órdenes.</p>
+                    </div>` : '<p class="pickup-pending-note">Aún no se puede enviar esta orden por su fecha de disponibilidad.</p>'}
+                </div>`,
+                customClass: { popup: 'pickup-order-dialog' },
+                showCloseButton: true, showCancelButton: true, showConfirmButton: item.canMarkShipped,
+                confirmButtonText: 'Registrar envío', cancelButtonText: 'Cerrar', focusConfirm: false,
+                showLoaderOnConfirm: true,
+                preConfirm: async () => {
+                    const shippingCarrier = (Swal.getPopup()?.querySelector('#shipment-carrier')?.value || '').trim();
+                    const trackingNumber = (Swal.getPopup()?.querySelector('#shipment-guide')?.value || '').trim();
+                    if (!shippingCarrier || !trackingNumber) {
+                        Swal.showValidationMessage('Ingresa la cooperativa y el número de guía.');
+                        return false;
+                    }
+                    this.shippingBusyId = item.id;
+                    try {
+                        const response = await fetch(this.apiUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await this.accessToken()}` },
+                            body: JSON.stringify({ action: 'ship', orderId: item.id, shippingCarrier, trackingNumber }),
+                            cache: 'no-store'
+                        });
+                        const data = await response.json().catch(() => null);
+                        if (!response.ok || !data?.success) throw new Error(data?.error || 'No se pudo registrar el envío.');
+                        return data.data;
+                    } catch (error) {
+                        Swal.showValidationMessage(error.message || 'No se pudo registrar el envío. Intenta de nuevo.');
+                        return false;
+                    } finally {
+                        this.shippingBusyId = null;
+                    }
+                }
+            });
+            if (!result.isConfirmed) return;
+            this.shippingMessage = `La orden #${item.orderNumber} quedó marcada como Enviada.`;
+            await this.loadPending();
+            this.render();
+        }
+
+        async requestPickup(action, orderId, code) {
+            const response = await fetch(this.apiUrl, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session.access_token}` },
-                body: JSON.stringify({ action, code: this.code }),
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await this.accessToken()}` },
+                body: JSON.stringify({ action, code, orderId }),
                 cache: 'no-store'
             });
             const result = await response.json().catch(() => null);
-            if (!response.ok || !result?.success) throw new Error(result?.error || 'No se pudo consultar el pedido. Intenta de nuevo.');
+            if (!response.ok || !result?.success) throw new Error(result?.error || 'No se pudo confirmar la entrega. Intenta de nuevo.');
             return result.data;
         }
 
-        async lookupPickup() {
-            if (this.busy) return;
-            this.code = (document.getElementById('pickup-code')?.value || '').trim().toUpperCase();
-            this.order = null;
-            this.success = '';
-            if (!/^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{4}$/.test(this.code) || new Set(this.code).size !== 4) {
-                this.error = 'Ingresa los 4 caracteres válidos del código.';
-                this.render();
-                return;
-            }
-            this.error = '';
-            this.busy = true;
+        async markPickupReady(index) {
+            const item = this.pending[index];
+            if (!item?.canMarkReady || this.readyBusyId || this.pendingBusy) return;
+            const answer = await Swal.fire({
+                title: `¿La orden #${item.orderNumber} está lista?`,
+                text: 'Se actualizará el estado en la web y se enviará un aviso por WhatsApp al cliente. La entrega todavía requerirá su código.',
+                icon: 'question', showCancelButton: true,
+                confirmButtonText: 'Sí, lista para retiro', cancelButtonText: 'Cancelar'
+            });
+            if (!answer.isConfirmed) return;
+            this.readyBusyId = item.id;
+            this.readyMessage = '';
+            this.pendingError = '';
             this.render();
             try {
-                this.order = await this.requestPickup('lookup');
+                const response = await fetch(this.apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await this.accessToken()}` },
+                    body: JSON.stringify({ action: 'ready', orderId: item.id }),
+                    cache: 'no-store'
+                });
+                const result = await response.json().catch(() => null);
+                if (!response.ok || !result?.success) throw new Error(result?.error || 'No se pudo actualizar el pedido.');
+                this.readyMessage = result.data.alreadyReady
+                    ? `La orden #${item.orderNumber} ya estaba lista para retiro.`
+                    : result.data.notificationQueued
+                        ? `La orden #${item.orderNumber} quedó lista para retiro; el aviso al cliente está en cola.`
+                        : `La orden #${item.orderNumber} quedó lista para retiro; el aviso ya estaba registrado.`;
+                await this.loadPending();
             } catch (error) {
-                this.error = error.message || 'No se pudo buscar el pedido.';
+                this.pendingError = error.message || 'No se pudo marcar el pedido como listo.';
             } finally {
-                this.busy = false;
+                this.readyBusyId = null;
                 this.render();
-                if (this.order) document.getElementById('pickup-result')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
         }
 
-        async confirmPickup() {
-            if (this.busy || !this.order?.readyToDeliver) return;
-            if (!document.getElementById('pickup-verified')?.checked) {
-                this.error = 'Verifica la identidad, los productos y el pago antes de confirmar.';
-                this.render();
-                return;
-            }
-            const answer = await Swal.fire({ title: `¿Entregar orden #${this.order.orderNumber}?`, text: 'Esta acción marca el pedido como entregado y consume el código.', icon: 'question', showCancelButton: true, confirmButtonText: 'Sí, entregar', cancelButtonText: 'Volver' });
-            if (!answer.isConfirmed) return;
-            this.busy = true;
-            this.error = '';
-            this.render();
-            try {
-                const orderNumber = this.order.orderNumber;
-                await this.requestPickup('confirm');
-                this.order = null;
-                this.code = '';
-                this.success = `La orden #${orderNumber} quedó marcada como entregada.`;
-            } catch (error) {
-                this.error = error.message || 'No se pudo confirmar la entrega.';
-            } finally {
-                this.busy = false;
-                this.render();
-            }
-        }
     }
 
     class NavigationView extends BaseView {

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const preferredPort = Number.parseInt(process.env.PORT || '3001', 10);
+const webApiOrigin = process.env.WEB_API_URL || 'http://127.0.0.1:3000';
 
 const mimeTypes = {
     '.css': 'text/css; charset=utf-8',
@@ -33,6 +34,54 @@ function resolveRequestPath(requestUrl) {
 }
 
 const server = createServer(async (req, res) => {
+    const requestUrl = new URL(req.url || '/', 'http://localhost');
+    // Development-only, exact-route proxy: keep the Horarios token on localhost
+    // and use the unpublished Web Peluquero API without browser CORS errors.
+    if (requestUrl.pathname === '/api/horarios/pickups') {
+        if (!['GET', 'POST'].includes(req.method || '')) {
+            res.writeHead(405, { 'content-type': 'application/json; charset=utf-8', allow: 'GET, POST' });
+            res.end(JSON.stringify({ success: false, error: 'Método no permitido' }));
+            return;
+        }
+        try {
+            const target = new URL('/api/horarios/pickups', webApiOrigin);
+            target.search = requestUrl.search;
+            const chunks = [];
+            let size = 0;
+            if (req.method === 'POST') {
+                for await (const chunk of req) {
+                    size += chunk.length;
+                    if (size > 16_384) {
+                        res.writeHead(413, { 'content-type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ success: false, error: 'Solicitud demasiado grande' }));
+                        return;
+                    }
+                    chunks.push(chunk);
+                }
+            }
+            const upstream = await fetch(target, {
+                method: req.method,
+                headers: {
+                    ...(req.headers.authorization ? { authorization: req.headers.authorization } : {}),
+                    ...(req.method === 'POST' ? { 'content-type': req.headers['content-type'] || 'application/json' } : {})
+                },
+                ...(req.method === 'POST' ? { body: Buffer.concat(chunks) } : {}),
+                signal: AbortSignal.timeout(15_000)
+            });
+            const responseBody = Buffer.from(await upstream.arrayBuffer());
+            res.writeHead(upstream.status, {
+                'content-type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
+                'cache-control': 'no-store'
+            });
+            res.end(responseBody);
+        } catch (error) {
+            console.error('Web Peluquero local no disponible:', error.message);
+            res.writeHead(502, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+            res.end(JSON.stringify({ success: false, error: 'No se pudo conectar con Web Peluquero local. Inicia npm run dev en ese proyecto y verifica WEB_API_URL.' }));
+        }
+        return;
+    }
+
     const filePath = resolveRequestPath(req.url || '/');
 
     if (!filePath) {
@@ -87,3 +136,4 @@ if (!activePort) {
 }
 
 console.log(`StaffPlanner local: http://localhost:${activePort}/login.html`);
+console.log(`API de retiros local: ${webApiOrigin}/api/horarios/pickups`);
