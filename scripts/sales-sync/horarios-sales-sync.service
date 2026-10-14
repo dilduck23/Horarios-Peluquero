@@ -1,0 +1,13 @@
+[Unit]
+Description=Sincroniza ventas diarias de PCGN con Horarios
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/horarios-sales-sync
+EnvironmentFile=%h/.config/horarios-sales-sync/env
+ExecStart=/usr/bin/node %h/horarios-sales-sync/sync-sales.mjs
+
+[Install]
+WantedBy=default.target

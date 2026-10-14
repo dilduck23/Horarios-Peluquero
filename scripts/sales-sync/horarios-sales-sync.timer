@@ -1,0 +1,10 @@
+[Unit]
+Description=Ejecuta la sincronización de ventas a las 20:00 de Ecuador
+
+[Timer]
+OnCalendar=*-*-* 20:00:00 America/Guayaquil
+Persistent=true
+Unit=horarios-sales-sync.service
+
+[Install]
+WantedBy=timers.target

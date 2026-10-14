@@ -17,7 +17,10 @@
         audit: 'Tiendas_Registros',
         messages: 'Tiendas_Mensajes',
         messageDestinations: 'Tiendas_Mensajes_Destinos',
-        messageStates: 'Tiendas_Mensajes_Estados'
+        messageStates: 'Tiendas_Mensajes_Estados',
+        dailySales: 'Tiendas_Ventas_Diarias',
+        dailySalesProducts: 'Tiendas_Ventas_Diarias_Productos',
+        salesSyncs: 'Tiendas_Ventas_Sincronizaciones'
     };
 
     if (!window.supabase) {

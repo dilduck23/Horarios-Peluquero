@@ -54,11 +54,14 @@
     }
 
     function webProviders() {
-        return data.webProviders.map((provider) => ({
-            id: number(provider.idProveedor),
-            name: provider.proveedorNombre,
-            searchText: [provider.proveedorNombre, provider.idProveedor, ...(provider.accounts || []).flatMap((account) => [account.name, account.email])].join(' ')
-        }));
+        const linkedProviderIds = new Set((data.links || []).map((link) => number(link.webProviderId)).filter(Boolean));
+        return data.webProviders
+            .filter((provider) => !linkedProviderIds.has(number(provider.idProveedor)))
+            .map((provider) => ({
+                id: number(provider.idProveedor),
+                name: provider.proveedorNombre,
+                searchText: [provider.proveedorNombre, provider.idProveedor, ...(provider.accounts || []).flatMap((account) => [account.name, account.email])].join(' ')
+            }));
     }
 
     function providerEntries(kind) {
@@ -74,7 +77,12 @@
     function providerOptionButtons(kind, providers) {
         const ids = providerElementIds(kind);
         const selected = document.getElementById(ids.base)?.value || '';
-        if (!providers.length) return '<p class="vendor-combobox-empty">No hay proveedores que coincidan.</p>';
+        if (!providers.length) {
+            const message = kind === 'web' && providerEntries('web').length === 0
+                ? 'Todos los proveedores web ya tienen un enlace activo.'
+                : 'No hay proveedores que coincidan.';
+            return `<p class="vendor-combobox-empty">${message}</p>`;
+        }
         return providers.map((provider) => {
             const isSelected = String(provider.id) === selected;
             return `<button type="button" class="vendor-combobox-option" role="option" aria-selected="${isSelected}" data-provider-id="${number(provider.id)}"><span>${esc(provider.name)} · ID ${number(provider.id)}</span>${isSelected ? '<span class="material-icons" aria-hidden="true">check</span>' : ''}</button>`;
@@ -180,14 +188,17 @@
         setProviderMatchStatus(`No se encontró el ID ${webProvider.id} en Horarios. Selecciona el proveedor manualmente.`, 'warning');
     }
 
-    function providerCombobox(kind, label, placeholder) {
+    function providerCombobox(kind, label, placeholder, disabled = false) {
         const ids = providerElementIds(kind);
         const providers = providerEntries(kind);
+        const hasProviders = providers.length > 0;
+        const isEnabled = hasProviders && !disabled;
+        const emptyLabel = hasProviders ? 'No se requiere selección' : kind === 'web' ? 'Sin proveedores pendientes' : 'Sin proveedores disponibles';
         return `
             <div class="vendor-combobox" data-provider-combobox="${kind}">
                 <label id="${ids.base}-field-label" class="text-sm font-bold">${esc(label)}</label>
-                <button id="${ids.trigger}" type="button" class="vendor-combobox-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="${ids.panel}" aria-labelledby="${ids.base}-field-label ${ids.label}">
-                    <span id="${ids.label}">Seleccionar…</span><span class="material-icons" aria-hidden="true">expand_more</span>
+                <button id="${ids.trigger}" type="button" class="vendor-combobox-trigger disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500" aria-haspopup="listbox" aria-expanded="false" aria-controls="${ids.panel}" aria-labelledby="${ids.base}-field-label ${ids.label}" ${isEnabled ? '' : 'disabled'}>
+                    <span id="${ids.label}">${isEnabled ? 'Seleccionar…' : emptyLabel}</span><span class="material-icons" aria-hidden="true">expand_more</span>
                 </button>
                 <div id="${ids.panel}" class="vendor-combobox-panel" hidden>
                     <div class="vendor-search-wrap"><span class="material-icons" aria-hidden="true">search</span><input id="${ids.search}" type="search" class="vendor-search-input" placeholder="${esc(placeholder)}" aria-label="Buscar ${esc(label.toLowerCase())}" autocomplete="off"></div>
@@ -247,15 +258,16 @@
     }
 
     function renderLinks() {
+        const hasAvailableWebProviders = webProviders().length > 0;
         content.innerHTML = `
             <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <h2 class="text-lg font-black">Enlazar proveedores</h2>
                 <p class="mt-1 text-sm text-slate-500">El enlace se aplica automáticamente a todas las cuentas y correos autorizados para el proveedor web, también a los que se agreguen después.</p>
                 <form id="vendor-link-form" class="mt-4 grid gap-3 md:grid-cols-2">
                     ${providerCombobox('web', 'Proveedor web autorizado', 'Nombre, ID, cuenta o correo')}
-                    ${providerCombobox('horarios', 'Proveedor en Horarios (automático por ID)', 'Nombre o ID del proveedor')}
-                    <p id="provider-match-status" class="rounded-xl bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600 md:col-span-2" aria-live="polite">Selecciona el proveedor web y buscaremos automáticamente el mismo ID en Horarios.</p>
-                    <p id="linked-accounts" class="text-sm text-slate-600 md:col-span-2" aria-live="polite">Elige un proveedor web para ver sus cuentas autorizadas.</p>
+                    ${providerCombobox('horarios', 'Proveedor en Horarios (automático por ID)', 'Nombre o ID del proveedor', !hasAvailableWebProviders)}
+                    <p id="provider-match-status" class="rounded-xl bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600 md:col-span-2" aria-live="polite">${hasAvailableWebProviders ? 'Selecciona el proveedor web y buscaremos automáticamente el mismo ID en Horarios.' : 'Todos los proveedores web autorizados ya tienen un enlace activo.'}</p>
+                    <p id="linked-accounts" class="text-sm text-slate-600 md:col-span-2" aria-live="polite">${hasAvailableWebProviders ? 'Elige un proveedor web para ver sus cuentas autorizadas.' : 'Desenlaza un proveedor si necesitas volver a configurarlo.'}</p>
                     <button id="save-vendor-link" type="submit" disabled class="rounded-xl bg-rose-500 px-4 py-3 font-bold text-white md:col-span-2 disabled:cursor-not-allowed disabled:bg-slate-300">Guardar enlace</button>
                 </form>
             </section>

@@ -1,0 +1,9 @@
+{
+  "name": "horarios-sales-sync",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "mssql": "12.7.6"
+  }
+}

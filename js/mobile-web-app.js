@@ -74,6 +74,7 @@
         ];
         if (layoutMode === 'desktop') items.splice(-1, 0,
             ['pickups', 'retiros.html', 'qr_code_scanner', 'Retiros'],
+            ['sales', 'ventas.html', 'point_of_sale', 'Ventas'],
             ['vendors', 'proveedores-web.html', 'link', 'Proveedores web']);
         return items;
     }
@@ -5277,6 +5278,144 @@
 
     }
 
+    class SalesView extends BaseView {
+        constructor() {
+            super('sales');
+            this.selectedDate = todayKeyInGuayaquil();
+            this.selectedSellerId = 0;
+            this.search = '';
+            this.daily = [];
+            this.products = [];
+            this.promoters = [];
+            this.sync = null;
+            this.didResolveLatestDate = false;
+        }
+
+        async load() {
+            if (!this.session.isManager) {
+                window.location.href = 'navegacion.html';
+                return;
+            }
+            if (!this.didResolveLatestDate) {
+                const latest = await rows(db.from(tables.dailySales).select('fecha').order('fecha', { ascending: false }).limit(1));
+                if (latest[0]?.fecha) this.selectedDate = latest[0].fecha;
+                this.didResolveLatestDate = true;
+            }
+            const [daily, products, promoters, syncs] = await Promise.all([
+                rows(db.from(tables.dailySales).select('*').eq('fecha', this.selectedDate).order('nombre_vendedor')),
+                rows(db.from(tables.dailySalesProducts).select('*').eq('fecha', this.selectedDate).order('producto')),
+                rows(db.from(tables.impulsadoras).select('*')),
+                rows(db.from(tables.salesSyncs).select('*').eq('fecha', this.selectedDate).order('sincronizado_en', { ascending: false }).limit(1))
+            ]);
+            this.daily = daily;
+            this.products = products;
+            this.promoters = promoters.filter(activePromoter);
+            this.sync = syncs[0] || null;
+            if (!this.daily.some((item) => asInt(item.id_vendedor) === this.selectedSellerId)) {
+                this.selectedSellerId = asInt(this.daily[0]?.id_vendedor);
+            }
+        }
+
+        money(value) {
+            return new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(Number(value) || 0);
+        }
+
+        quantity(value) {
+            return new Intl.NumberFormat('es-EC', { maximumFractionDigits: 2 }).format(Number(value) || 0);
+        }
+
+        promoterMatches(vendorId) {
+            return this.promoters.filter((person) => asInt(person.idVendedor) === asInt(vendorId));
+        }
+
+        sellerLabel(sale) {
+            const matches = this.promoterMatches(sale.id_vendedor);
+            if (matches.length === 1) return `${promoterDisplayName(matches[0])} · ${asText(matches[0].Marca, 'Sin marca')}`;
+            if (matches.length > 1) return `${matches.map(promoterDisplayName).join(' / ')} · ID duplicado`;
+            return asText(sale.nombre_vendedor, `Vendedor ${sale.id_vendedor}`);
+        }
+
+        selectedSale() {
+            return this.daily.find((item) => asInt(item.id_vendedor) === this.selectedSellerId) || null;
+        }
+
+        selectedProvider() {
+            const matches = this.promoterMatches(this.selectedSellerId);
+            const providerIds = [...new Set(matches.map((person) => asInt(person.idProveedor)).filter(Boolean))];
+            return providerIds.length === 1 ? providerIds[0] : 0;
+        }
+
+        selectedProducts() {
+            const providerId = this.selectedProvider();
+            return this.products.filter((item) => asInt(item.id_vendedor) === this.selectedSellerId && (!providerId || asInt(item.id_proveedor) === providerId));
+        }
+
+        duplicateWarnings() {
+            const byCode = new Map();
+            this.promoters.forEach((person) => {
+                const code = asInt(person.idVendedor);
+                if (!code) return;
+                const people = byCode.get(code) || [];
+                people.push(person);
+                byCode.set(code, people);
+            });
+            return [...byCode.entries()].filter(([, people]) => people.length > 1);
+        }
+
+        render() {
+            const sale = this.selectedSale();
+            const providerId = this.selectedProvider();
+            const providerMatches = this.promoterMatches(this.selectedSellerId);
+            const providerName = providerMatches.length === 1 ? asText(providerMatches[0].Proveedor, 'Proveedor asignado') : 'Proveedor no definido';
+            const products = this.selectedProducts();
+            const providerSales = products.reduce((sum, item) => sum + Number(item.venta_neta || 0), 0);
+            const providerItems = products.reduce((sum, item) => sum + Number(item.cantidad_neta || 0), 0);
+            const needle = normalizeSearch(this.search);
+            const sellers = this.daily.filter((item) => normalizeSearch(`${this.sellerLabel(item)} ${item.nombre_vendedor} ${item.id_vendedor}`).includes(needle));
+            const duplicates = this.duplicateWarnings();
+            const syncStatus = this.sync?.estado === 'completado'
+                ? `Actualizado ${new Date(this.sync.sincronizado_en).toLocaleString('es-EC')}`
+                : this.sync?.estado === 'error' ? 'La última sincronización terminó con error' : 'Sin sincronización registrada para esta fecha';
+            const cards = [
+                ['Ventas totales', this.money(sale?.ventas_netas), 'Facturas menos notas de crédito', 'payments', '#E85D75'],
+                ['Ventas del proveedor', this.money(providerSales), providerId ? `${providerName} · ID ${providerId}` : 'Revisa el proveedor asignado', 'storefront', '#0E9F8F'],
+                ['Ítems totales', this.quantity(sale?.items_netos), 'Sin productos OBSEQUIO', 'shopping_bag', '#111827'],
+                ['Ítems del proveedor', this.quantity(providerItems), `${products.length} productos distintos`, 'inventory_2', '#D97706']
+            ];
+            shell('sales', 'Ventas diarias', 'Resultados por vendedora y proveedor', iconButton('refresh', 'mobileApp.reload()', 'Actualizar'), `
+                <section class="app-card p-4 md:p-5 mb-4">
+                    <div class="grid gap-3 md:grid-cols-[190px_minmax(240px,1fr)_minmax(260px,1.4fr)] md:items-end">
+                        <label class="text-xs font-bold text-slate-500">Fecha<input type="date" value="${h(this.selectedDate)}" max="${h(todayKeyInGuayaquil())}" onchange="mobileApp.setDate(this.value)" class="mt-1 w-full rounded-xl border border-slate-200 bg-white p-3 text-base font-bold"></label>
+                        <label class="text-xs font-bold text-slate-500">Buscar vendedora<span class="app-search mt-1"><span class="material-icons">search</span><input value="${h(this.search)}" oninput="mobileApp.setSearch(this.value, this)" placeholder="Nombre, marca o ID"></span></label>
+                        <label class="text-xs font-bold text-slate-500">Vendedora<select onchange="mobileApp.setSeller(this.value)" class="mt-1 w-full rounded-xl border border-slate-200 bg-white p-3 text-base font-bold"><option value="">${sellers.length ? 'Seleccionar…' : 'Sin ventas para esta fecha'}</option>${sellers.map((item) => `<option value="${asInt(item.id_vendedor)}" ${asInt(item.id_vendedor) === this.selectedSellerId ? 'selected' : ''}>${h(this.sellerLabel(item))} · ID ${asInt(item.id_vendedor)}</option>`).join('')}</select></label>
+                    </div>
+                    <p class="mt-3 flex items-center gap-2 text-sm font-semibold ${this.sync?.estado === 'completado' ? 'text-emerald-700' : 'text-amber-700'}"><span class="material-icons text-base">${this.sync?.estado === 'completado' ? 'check_circle' : 'schedule'}</span>${h(syncStatus)}</p>
+                </section>
+                ${duplicates.length ? `<section class="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><strong class="flex items-center gap-2"><span class="material-icons">warning_amber</span>Códigos de vendedor duplicados en Horarios</strong><p class="mt-1">${h(duplicates.map(([code, people]) => `ID ${code}: ${people.map(promoterDisplayName).join(', ')}`).join(' · '))}. Estas personas compartirían las mismas ventas hasta corregir sus códigos.</p></section>` : ''}
+                <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 mb-4">${cards.map(([label, value, detail, icon, color]) => `<article class="app-card p-4"><span class="flex h-10 w-10 items-center justify-center rounded-xl" style="background:${color}18;color:${color}"><span class="material-icons">${icon}</span></span><p class="mt-3 text-xs font-bold uppercase tracking-wide text-slate-500">${h(label)}</p><strong class="mt-1 block text-2xl font-black text-slate-900">${h(value)}</strong><span class="mt-1 block text-xs text-slate-500">${h(detail)}</span></article>`).join('')}</section>
+                <section class="app-card overflow-hidden">
+                    <div class="border-b border-slate-100 p-4 md:p-5"><h2 class="text-lg font-black">Productos del proveedor</h2><p class="mt-1 text-sm text-slate-500">Solo productos vendidos, sin líneas marcadas como OBSEQUIO.</p></div>
+                    ${products.length ? `<div class="overflow-x-auto"><table class="w-full min-w-[650px] text-left"><thead class="bg-slate-50 text-xs uppercase text-slate-500"><tr><th class="p-4">Código</th><th class="p-4">Producto</th><th class="p-4 text-right">Ítems</th><th class="p-4 text-right">Venta neta</th></tr></thead><tbody>${products.map((item) => `<tr class="border-t border-slate-100"><td class="p-4 font-mono text-sm">${h(asText(item.codigo_producto, '-'))}</td><td class="p-4 font-semibold">${h(item.producto)}</td><td class="p-4 text-right font-bold">${h(this.quantity(item.cantidad_neta))}</td><td class="p-4 text-right font-black">${h(this.money(item.venta_neta))}</td></tr>`).join('')}</tbody></table></div>` : `<div class="p-8 text-center text-slate-500"><span class="material-icons text-4xl">inventory_2</span><p class="mt-2 font-bold">${sale ? 'No hay productos del proveedor para esta vendedora.' : 'Selecciona una fecha con ventas.'}</p></div>`}
+                </section>
+            `);
+        }
+
+        async setDate(value) {
+            this.selectedDate = value || todayKeyInGuayaquil();
+            this.selectedSellerId = 0;
+            await this.reload();
+        }
+
+        setSeller(value) {
+            this.selectedSellerId = asInt(value);
+            this.render();
+        }
+
+        setSearch(value, input) {
+            this.updateSearch(value, input);
+        }
+    }
+
     class NavigationView extends BaseView {
         constructor() {
             super('nav');
@@ -5300,6 +5439,7 @@
                     <span class="material-icons text-slate-400">chevron_right</span>
                 </button>
                 ${this.session.isManager ? `<a class="navigation-tile app-card" href="proveedores-web.html"><span class="navigation-icon" style="background:rgba(14,159,143,.16);color:#0E9F8F"><span class="material-icons">link</span></span><span class="flex-1 min-w-0"><strong class="app-list-title block">Proveedores web</strong><span class="app-list-subtitle block">Enlaces y propuestas de horario</span></span><span class="material-icons text-slate-400">chevron_right</span></a>` : ''}
+                ${this.session.isManager ? `<a class="navigation-tile app-card" href="ventas.html"><span class="navigation-icon" style="background:rgba(217,119,6,.15);color:#D97706"><span class="material-icons">point_of_sale</span></span><span class="flex-1 min-w-0"><strong class="app-list-title block">Ventas</strong><span class="app-list-subtitle block">Ventas diarias por vendedora y proveedor</span></span><span class="material-icons text-slate-400">chevron_right</span></a>` : ''}
             `);
         }
 
@@ -5343,6 +5483,7 @@
             internal: InternalMonthView,
             messages: MessagesView,
             reports: ReportsView,
+            sales: SalesView,
             pickups: PickupsView,
             nav: NavigationView
         };
