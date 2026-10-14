@@ -37,14 +37,14 @@ const server = createServer(async (req, res) => {
     const requestUrl = new URL(req.url || '/', 'http://localhost');
     // Development-only, exact-route proxy: keep the Horarios token on localhost
     // and use the unpublished Web Peluquero API without browser CORS errors.
-    if (requestUrl.pathname === '/api/horarios/pickups') {
+    if (['/api/horarios/pickups', '/api/horarios/vendor-integrations'].includes(requestUrl.pathname)) {
         if (!['GET', 'POST'].includes(req.method || '')) {
             res.writeHead(405, { 'content-type': 'application/json; charset=utf-8', allow: 'GET, POST' });
             res.end(JSON.stringify({ success: false, error: 'Método no permitido' }));
             return;
         }
         try {
-            const target = new URL('/api/horarios/pickups', webApiOrigin);
+            const target = new URL(requestUrl.pathname, webApiOrigin);
             target.search = requestUrl.search;
             const chunks = [];
             let size = 0;

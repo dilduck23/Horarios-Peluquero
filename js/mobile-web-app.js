@@ -72,7 +72,9 @@
             ['reports', 'reportes.html', 'report_problem', 'Reportes'],
             ['nav', 'navegacion.html', 'apps', 'Navegación']
         ];
-        if (layoutMode === 'desktop') items.splice(-1, 0, ['pickups', 'retiros.html', 'qr_code_scanner', 'Retiros']);
+        if (layoutMode === 'desktop') items.splice(-1, 0,
+            ['pickups', 'retiros.html', 'qr_code_scanner', 'Retiros'],
+            ['vendors', 'proveedores-web.html', 'link', 'Proveedores web']);
         return items;
     }
 
@@ -637,6 +639,28 @@
         return data || [];
     }
 
+    async function pagedRows(queryForRange, pageSize = 100) {
+        const result = [];
+        let from = 0;
+        while (true) {
+            const page = await rows(queryForRange(from, from + pageSize - 1));
+            result.push(...page);
+            if (page.length < pageSize) return result;
+            from += pageSize;
+        }
+    }
+
+    async function rowsByIds(table, ids, chunkSize = 100) {
+        const uniqueIds = [...new Set(ids.map((id) => asInt(id)).filter(Boolean))];
+        const requests = [];
+        for (let index = 0; index < uniqueIds.length; index += chunkSize) {
+            requests.push(rows(db.from(table)
+                .select('*')
+                .in('id', uniqueIds.slice(index, index + chunkSize))));
+        }
+        return (await Promise.all(requests)).flat();
+    }
+
     function isMissingMessageTable(error) {
         const message = asText(error?.message || error?.details || error);
         return error?.code === '42P01'
@@ -1175,9 +1199,61 @@
             shell(this.active, 'Novepsa Planner', 'Cargando...', iconButton('refresh', 'mobileApp.reload()'), loadingState());
         }
 
-        async reload() {
+        captureViewPosition() {
+            const scrollingElement = document.scrollingElement;
+            const horizontalScrolls = Array.from(document.querySelectorAll([
+                '.date-strip',
+                '.horizontal-scroll',
+                '.vendor-scroll',
+                '.side-schedule-scroll',
+                '.desktop-table-scroll'
+            ].join(','))).map((element, index) => ({
+                index,
+                left: element.scrollLeft,
+                top: element.scrollTop
+            }));
+            return {
+                left: scrollingElement?.scrollLeft || window.scrollX || 0,
+                top: scrollingElement?.scrollTop || window.scrollY || 0,
+                horizontalScrolls
+            };
+        }
+
+        restoreViewPosition(position) {
+            if (!position) return;
+            const schedule = window.requestAnimationFrame
+                ? window.requestAnimationFrame.bind(window)
+                : ((callback) => setTimeout(callback, 0));
+            schedule(() => {
+                const scrollingElement = document.scrollingElement;
+                if (scrollingElement) {
+                    scrollingElement.scrollLeft = position.left;
+                    scrollingElement.scrollTop = position.top;
+                } else {
+                    window.scrollTo(position.left, position.top);
+                }
+                const horizontalScrolls = document.querySelectorAll([
+                    '.date-strip',
+                    '.horizontal-scroll',
+                    '.vendor-scroll',
+                    '.side-schedule-scroll',
+                    '.desktop-table-scroll'
+                ].join(','));
+                position.horizontalScrolls.forEach((saved) => {
+                    const element = horizontalScrolls[saved.index];
+                    if (!element) return;
+                    element.scrollLeft = saved.left;
+                    element.scrollTop = saved.top;
+                    syncScrollFrame(element.closest('.desktop-scroll-frame'));
+                });
+            });
+        }
+
+        async reload(options = {}) {
+            const position = options.position || (options.preservePosition ? this.captureViewPosition() : null);
             await this.load();
             this.render();
+            this.restoreViewPosition(position);
         }
 
         async saveInternalDayOff(row) {
@@ -2720,6 +2796,7 @@
         }
 
         async showPromoterForm(existing, date, forcedStoreId, forcedPromoterId) {
+            const viewPosition = this.captureViewPosition();
             const currentPromoter = asInt(existing?.impulsadora_id || forcedPromoterId || '', '');
             const activePromoters = mergePromoterOptions(this.promoters
                 .filter((person) => activePromoter(person) || asInt(person.id) === currentPromoter), currentPromoter);
@@ -2763,15 +2840,33 @@
                 Swal.fire('Faltan datos', 'Selecciona fecha, impulsadora y tienda.', 'warning');
                 return;
             }
-            const duplicate = this.monthlyRows.some((row) => asInt(row.impulsadora_id) === value.impulsadora_id && asText(row.fecha) === value.fecha && asInt(row.id) !== asInt(existing?.id));
-            if (duplicate) {
-                Swal.fire('Asignación duplicada', 'Esa impulsadora ya tiene turno ese día.', 'warning');
+            let dayRows;
+            try {
+                dayRows = await rows(db.from(tables.schedule).select('id,fecha,impulsadora_id,tienda_id,categoria_asignada_id').eq('fecha', value.fecha));
+            } catch (error) {
+                Swal.fire('Error', error.message || 'No se pudo validar el horario actual.', 'error');
                 return;
             }
-            const quota = this.quotaMessage(value.fecha, value.impulsadora_id, value.tienda_id, asInt(existing?.id, null));
+            const duplicate = dayRows.some((row) => asInt(row.impulsadora_id) === value.impulsadora_id && asInt(row.id) !== asInt(existing?.id));
+            if (duplicate) {
+                Swal.fire('Modificar horario', 'Esa impulsadora ya tiene turno ese día en otra asignación. Modifica el horario existente antes de guardar.', 'warning');
+                return;
+            }
+            const quota = this.quotaMessage(value.fecha, value.impulsadora_id, value.tienda_id, asInt(existing?.id, null), dayRows);
             if (quota) {
                 Swal.fire('Cupo lleno', quota, 'warning');
                 return;
+            }
+            if (existing && asInt(existing.impulsadora_id) !== value.impulsadora_id) {
+                const previous = byId(this.promoters, existing.impulsadora_id);
+                const replacement = byId(this.promoters, value.impulsadora_id);
+                const confirmation = await Swal.fire({
+                    title: 'Vas a sobrescribir la impulsadora',
+                    text: `${promoterDisplayName(previous)} será reemplazada por ${promoterDisplayName(replacement)} en este turno.`,
+                    icon: 'warning', showCancelButton: true,
+                    confirmButtonText: 'Sí, reemplazar', cancelButtonText: 'Modificar horario'
+                });
+                if (!confirmation.isConfirmed) return;
             }
             const payload = {
                 fecha: value.fecha,
@@ -2785,19 +2880,20 @@
                 } else {
                     await rows(db.from(tables.schedule).insert(payload).select());
                 }
-                await this.reload();
+                if (this.vendorMode) this.selectedPromoterId = value.impulsadora_id;
+                await this.reload({ position: viewPosition });
             } catch (error) {
                 Swal.fire('Error', window.StaffPlanner.duplicateMessage(error), 'error');
             }
         }
 
-        quotaMessage(date, promoterId, storeId, existingId) {
+        quotaMessage(date, promoterId, storeId, existingId, dayRows = this.monthlyRows) {
             const person = byId(this.promoters, promoterId);
             const store = byId(this.stores, storeId);
             const category = byId(this.categories, person?.idCategoria);
             if (!person || !store || !category) return '';
             const zoneId = asInt(category.id_zona);
-            const rowsForStore = this.monthlyRows.filter((row) => asText(row.fecha) === date && asInt(row.tienda_id) === storeId && asInt(row.id) !== existingId);
+            const rowsForStore = dayRows.filter((row) => asText(row.fecha) === date && asInt(row.tienda_id) === storeId && asInt(row.id) !== existingId);
             let zoneCount = 0;
             rowsForStore.forEach((row) => {
                 const rowPerson = byId(this.promoters, row.impulsadora_id);
@@ -4307,11 +4403,15 @@
         }
 
         async load() {
-            const [incidents, promoters, stores, schedules] = await Promise.all([
-                rows(db.from(tables.incidences).select('*').order('creado_en', { ascending: false })),
-                rows(db.from(tables.impulsadoras).select('*')),
-                rows(db.from(tables.stores).select('*')),
-                rows(db.from(tables.schedule).select('*'))
+            const incidents = await pagedRows((from, to) => db.from(tables.incidences)
+                .select('*')
+                .order('creado_en', { ascending: false })
+                .order('id', { ascending: false })
+                .range(from, to));
+            const schedules = await rowsByIds(tables.schedule, incidents.map((incident) => incident.id_horario));
+            const [promoters, stores] = await Promise.all([
+                rowsByIds(tables.impulsadoras, schedules.map((schedule) => schedule.impulsadora_id)),
+                rowsByIds(tables.stores, schedules.map((schedule) => schedule.tienda_id))
             ]);
             this.incidents = incidents;
             this.promoters = promoters;
@@ -5199,11 +5299,7 @@
                     <span class="flex-1 min-w-0"><strong class="app-list-title block">Usuario</strong><span class="app-list-subtitle block">${h(email)} - ${h(this.session.roleName)}</span></span>
                     <span class="material-icons text-slate-400">chevron_right</span>
                 </button>
-                <article class="navigation-tile app-card opacity-75">
-                    <span class="navigation-icon" style="background:rgba(14,159,143,.16);color:#0E9F8F"><span class="material-icons">extension</span></span>
-                    <span class="flex-1 min-w-0"><strong class="app-list-title block">Integraciones</strong><span class="app-list-subtitle block">Espacio listo para nuevos accesos</span></span>
-                    <span class="material-icons text-slate-400">lock_clock</span>
-                </article>
+                ${this.session.isManager ? `<a class="navigation-tile app-card" href="proveedores-web.html"><span class="navigation-icon" style="background:rgba(14,159,143,.16);color:#0E9F8F"><span class="material-icons">link</span></span><span class="flex-1 min-w-0"><strong class="app-list-title block">Proveedores web</strong><span class="app-list-subtitle block">Enlaces y propuestas de horario</span></span><span class="material-icons text-slate-400">chevron_right</span></a>` : ''}
             `);
         }
 
