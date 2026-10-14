@@ -133,7 +133,51 @@
         document.getElementById(ids.base).value = String(provider.id);
         document.getElementById(ids.label).textContent = `${provider.name} · ID ${provider.id}`;
         closeProviderMenu(kind, true);
-        if (kind === 'web') updateLinkedAccounts();
+        if (kind === 'web') {
+            updateLinkedAccounts();
+            autoMatchHorariosProvider(provider);
+        } else {
+            const webProviderId = number(document.getElementById('link-web-provider').value);
+            setProviderMatchStatus(
+                webProviderId === number(provider.id)
+                    ? `Coincidencia automática confirmada por ID ${provider.id}.`
+                    : 'Proveedor de Horarios seleccionado manualmente.',
+                webProviderId === number(provider.id) ? 'success' : 'normal'
+            );
+        }
+        updateLinkSubmitState();
+    }
+
+    function setProviderMatchStatus(message, tone = 'normal') {
+        const element = document.getElementById('provider-match-status');
+        if (!element) return;
+        element.textContent = message;
+        element.className = `rounded-xl px-3 py-2 text-sm font-semibold md:col-span-2 ${tone === 'success' ? 'bg-green-50 text-green-800' : tone === 'warning' ? 'bg-amber-50 text-amber-900' : 'bg-slate-50 text-slate-600'}`;
+    }
+
+    function updateLinkSubmitState() {
+        const button = document.getElementById('save-vendor-link');
+        if (!button) return;
+        const ready = number(document.getElementById('link-web-provider')?.value) > 0
+            && number(document.getElementById('link-horarios-provider')?.value) > 0;
+        button.disabled = !ready;
+    }
+
+    function autoMatchHorariosProvider(webProvider) {
+        const horariosIds = providerElementIds('horarios');
+        const match = providerEntries('horarios').find((provider) => number(provider.id) === number(webProvider.id));
+        const hidden = document.getElementById(horariosIds.base);
+        const label = document.getElementById(horariosIds.label);
+        if (match) {
+            hidden.value = String(match.id);
+            label.textContent = `${match.name} · ID ${match.id}`;
+            closeProviderMenu('horarios');
+            setProviderMatchStatus(`Coincidencia automática por ID ${match.id}. El enlace está listo para guardar.`, 'success');
+            return;
+        }
+        hidden.value = '';
+        label.textContent = 'Seleccionar manualmente…';
+        setProviderMatchStatus(`No se encontró el ID ${webProvider.id} en Horarios. Selecciona el proveedor manualmente.`, 'warning');
     }
 
     function providerCombobox(kind, label, placeholder) {
@@ -209,9 +253,10 @@
                 <p class="mt-1 text-sm text-slate-500">El enlace se aplica automáticamente a todas las cuentas y correos autorizados para el proveedor web, también a los que se agreguen después.</p>
                 <form id="vendor-link-form" class="mt-4 grid gap-3 md:grid-cols-2">
                     ${providerCombobox('web', 'Proveedor web autorizado', 'Nombre, ID, cuenta o correo')}
-                    ${providerCombobox('horarios', 'Proveedor en Horarios', 'Nombre o ID del proveedor')}
+                    ${providerCombobox('horarios', 'Proveedor en Horarios (automático por ID)', 'Nombre o ID del proveedor')}
+                    <p id="provider-match-status" class="rounded-xl bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600 md:col-span-2" aria-live="polite">Selecciona el proveedor web y buscaremos automáticamente el mismo ID en Horarios.</p>
                     <p id="linked-accounts" class="text-sm text-slate-600 md:col-span-2" aria-live="polite">Elige un proveedor web para ver sus cuentas autorizadas.</p>
-                    <button type="submit" class="rounded-xl bg-rose-500 px-4 py-3 font-bold text-white md:col-span-2">Guardar enlace</button>
+                    <button id="save-vendor-link" type="submit" disabled class="rounded-xl bg-rose-500 px-4 py-3 font-bold text-white md:col-span-2 disabled:cursor-not-allowed disabled:bg-slate-300">Guardar enlace</button>
                 </form>
             </section>
             <section class="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -224,6 +269,7 @@
             </section>`;
         bindProviderCombobox('web');
         bindProviderCombobox('horarios');
+        updateLinkSubmitState();
         document.getElementById('vendor-link-form').addEventListener('submit', async (event) => {
             event.preventDefault();
             const webProviderId = number(document.getElementById('link-web-provider').value);
