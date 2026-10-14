@@ -6,7 +6,7 @@
     const status = document.getElementById('vendor-integration-status');
     const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
     const number = (value) => Number.isInteger(Number(value)) ? Number(value) : 0;
-    let data = { vendors: [], links: [], proposals: [], shifts: [], stores: [], categories: [], brands: [], promoters: [] };
+    let data = { webProviders: [], links: [], proposals: [], shifts: [], stores: [], categories: [], brands: [], promoters: [] };
     let tab = 'proposals';
 
     async function token() {
@@ -51,40 +51,46 @@
     function renderLinks() {
         content.innerHTML = `
             <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <h2 class="text-lg font-black">Enlazar proveedor de Horarios con cuenta web</h2>
-                <p class="mt-1 text-sm text-slate-500">Selecciona la cuenta y su proveedor autorizado en la web. Solo se mostrarán a esa cuenta sus propias impulsadoras y turnos.</p>
-                <form id="vendor-link-form" class="mt-4 grid gap-3 md:grid-cols-3">
-                    <label class="text-sm font-bold">Cuenta web<select id="link-user" required class="mt-1 w-full rounded-xl border p-3" onchange="vendorIntegration.updateProviderOptions()"><option value="">Seleccionar…</option>${data.vendors.map((vendor) => `<option value="${esc(vendor.id)}">${esc(vendor.name)} · ${esc(vendor.email)}</option>`).join('')}</select></label>
-                    <label class="text-sm font-bold">Proveedor web autorizado<select id="link-web-provider" required class="mt-1 w-full rounded-xl border p-3"><option value="">Primero elige la cuenta</option></select></label>
+                <h2 class="text-lg font-black">Enlazar proveedores</h2>
+                <p class="mt-1 text-sm text-slate-500">El enlace se aplica automáticamente a todas las cuentas y correos autorizados para el proveedor web, también a los que se agreguen después.</p>
+                <form id="vendor-link-form" class="mt-4 grid gap-3 md:grid-cols-2">
+                    <label class="text-sm font-bold">Proveedor web autorizado<select id="link-web-provider" required class="mt-1 w-full rounded-xl border p-3"><option value="">Seleccionar…</option>${data.webProviders.map((provider) => `<option value="${number(provider.idProveedor)}">${esc(provider.proveedorNombre)} · ID ${number(provider.idProveedor)}</option>`).join('')}</select></label>
                     <label class="text-sm font-bold">Proveedor en Horarios<select id="link-horarios-provider" required class="mt-1 w-full rounded-xl border p-3"><option value="">Seleccionar…</option>${providerOptions()}</select></label>
-                    <button type="submit" class="rounded-xl bg-rose-500 px-4 py-3 font-bold text-white md:col-span-3">Guardar enlace</button>
+                    <p id="linked-accounts" class="text-sm text-slate-600 md:col-span-2" aria-live="polite">Elige un proveedor web para ver sus cuentas autorizadas.</p>
+                    <button type="submit" class="rounded-xl bg-rose-500 px-4 py-3 font-bold text-white md:col-span-2">Guardar enlace</button>
                 </form>
             </section>
             <section class="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <h2 class="text-lg font-black">Enlaces activos (${data.links.length})</h2>
                 <div class="mt-3 space-y-2">${data.links.map((link) => {
-                    const vendor = data.vendors.find((item) => item.id === link.vendorUserId);
-                    const web = vendor?.providers?.find((item) => item.idProveedor === link.webProviderId);
-                    return `<div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 text-sm"><span><strong>${esc(vendor?.name || 'Cuenta inactiva')}</strong><br>${esc(web?.proveedorNombre || `Web #${link.webProviderId}`)} → ${esc(link.horariosProviderName || `Horarios #${link.horariosProviderId}`)}</span><button type="button" class="rounded-lg border border-red-200 px-3 py-2 font-bold text-red-700" onclick="vendorIntegration.unlink('${esc(link.vendorUserId)}', ${number(link.webProviderId)})">Desenlazar</button></div>`;
+                    const web = data.webProviders.find((item) => number(item.idProveedor) === number(link.webProviderId));
+                    const accounts = web?.accounts?.map((account) => esc(account.email)).join(', ') || 'Sin cuentas web activas';
+                    return `<div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 text-sm"><span><strong>${esc(web?.proveedorNombre || `Web #${link.webProviderId}`)}</strong> → ${esc(link.horariosProviderName || `Horarios #${link.horariosProviderId}`)}<br><span class="text-slate-500">Correos autorizados: ${accounts}</span></span><button type="button" class="rounded-lg border border-red-200 px-3 py-2 font-bold text-red-700" onclick="vendorIntegration.unlink(${number(link.webProviderId)})">Desenlazar</button></div>`;
                 }).join('') || '<p class="text-sm text-slate-500">Todavía no hay enlaces.</p>'}</div>
             </section>`;
+        document.getElementById('link-web-provider').addEventListener('change', updateLinkedAccounts);
         document.getElementById('vendor-link-form').addEventListener('submit', async (event) => {
             event.preventDefault();
+            const button = event.currentTarget.querySelector('button[type="submit"]');
+            button.disabled = true;
+            button.textContent = 'Guardando…';
             try {
                 await request('POST', {
-                    action: 'link', vendorUserId: document.getElementById('link-user').value,
+                    action: 'link',
                     webProviderId: number(document.getElementById('link-web-provider').value),
                     horariosProviderId: number(document.getElementById('link-horarios-provider').value)
                 });
-                setStatus('Enlace guardado.', 'success'); await load();
+                if (await load()) setStatus('Enlace guardado para todas las cuentas autorizadas.', 'success');
             } catch (error) { setStatus(error.message, 'error'); }
+            finally { if (button.isConnected) { button.disabled = false; button.textContent = 'Guardar enlace'; } }
         });
     }
 
-    function updateProviderOptions() {
-        const user = data.vendors.find((item) => item.id === document.getElementById('link-user').value);
-        document.getElementById('link-web-provider').innerHTML = '<option value="">Seleccionar…</option>' + (user?.providers || []).map((provider) =>
-            `<option value="${number(provider.idProveedor)}">${esc(provider.proveedorNombre || `Proveedor #${provider.idProveedor}`)}</option>`).join('');
+    function updateLinkedAccounts() {
+        const provider = data.webProviders.find((item) => number(item.idProveedor) === number(document.getElementById('link-web-provider').value));
+        document.getElementById('linked-accounts').textContent = provider
+            ? `Cuentas y correos con acceso automático: ${provider.accounts.map((account) => `${account.name} (${account.email})`).join(', ')}`
+            : 'Elige un proveedor web para ver sus cuentas autorizadas.';
     }
 
     function proposalConflict(proposal) {
@@ -130,13 +136,14 @@
             data = next;
             setStatus('Datos actualizados.');
             render();
-        } catch (error) { setStatus(error.message, 'error'); }
+            return true;
+        } catch (error) { setStatus(error.message, 'error'); return false; }
     }
 
-    async function unlink(vendorUserId, webProviderId) {
-        const answer = await Swal.fire({ title: 'Desenlazar proveedor', text: 'La cuenta web dejará de ver los turnos de este proveedor.', icon: 'warning', showCancelButton: true, confirmButtonText: 'Desenlazar', cancelButtonText: 'Cancelar' });
+    async function unlink(webProviderId) {
+        const answer = await Swal.fire({ title: 'Desenlazar proveedor', text: 'Todas las cuentas web autorizadas dejarán de ver los turnos de este proveedor.', icon: 'warning', showCancelButton: true, confirmButtonText: 'Desenlazar', cancelButtonText: 'Cancelar' });
         if (!answer.isConfirmed) return;
-        try { await request('POST', { action: 'unlink', vendorUserId, webProviderId }); await load(); setStatus('Enlace retirado.', 'success'); }
+        try { await request('POST', { action: 'unlink', webProviderId }); if (await load()) setStatus('Enlace retirado.', 'success'); }
         catch (error) { setStatus(error.message, 'error'); }
     }
 
@@ -168,7 +175,7 @@
         } catch (error) { setStatus(error.message, 'error'); }
     }
 
-    window.vendorIntegration = { load, setTab, updateProviderOptions, unlink, review };
+    window.vendorIntegration = { load, setTab, unlink, review };
     if (![1, 2].includes(window.StaffPlanner.getRoleId())) {
         window.location.replace('navegacion.html');
     } else {
