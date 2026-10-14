@@ -8,23 +8,63 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <style>body{font-family:Inter,sans-serif;background:#f7f4f2}</style>
+    <link rel="stylesheet" href="css/mobile-app.css">
+    <style>
+        body{font-family:Inter,sans-serif;background:#f7f4f2}
+        .vendor-skip-link{position:fixed;left:16px;top:12px;z-index:50;transform:translateY(-160%);border-radius:12px;background:#111827;color:#fff;padding:10px 14px;font-weight:800;transition:transform .18s ease}
+        .vendor-skip-link:focus{transform:translateY(0)}
+        .vendor-search-wrap{position:relative;margin-top:6px}
+        .vendor-search-wrap .material-icons{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:#756c65;font-size:20px;pointer-events:none}
+        .vendor-search-input{width:100%;min-height:46px;border:1px solid #d8d0c8;border-radius:12px;background:#fff;padding:10px 38px 10px 42px;font-size:16px;font-weight:600;outline:none}
+        .vendor-search-input:focus{border-color:#e85d75;box-shadow:0 0 0 3px rgba(232,93,117,.14)}
+        .vendor-search-input::-webkit-search-cancel-button{cursor:pointer}
+        .vendor-result-count{display:block;margin-top:5px;color:#756c65;font-size:12px;font-weight:600}
+        .vendor-page .desktop-content{max-width:1120px}
+        @media(prefers-reduced-motion:reduce){.vendor-skip-link{transition:none}}
+        @media(max-width:980px){.vendor-page .desktop-sidebar{display:none}.vendor-page .desktop-topbar{position:static;padding:20px 18px 12px}.vendor-page .desktop-content{padding:12px 18px 36px}}
+    </style>
 </head>
 <body class="text-slate-900">
     <script src="js/app-core.js"></script>
-    <main class="mx-auto max-w-5xl px-4 py-7">
-        <header class="mb-6 flex flex-wrap items-center justify-between gap-3">
-            <div><p class="text-xs font-black uppercase tracking-widest text-rose-500">Integraciones · Roles 1 y 2</p><h1 class="text-3xl font-black">Proveedores web</h1><p class="text-sm text-slate-500">Enlaza cuentas y revisa propuestas de turnos.</p></div>
-            <a href="navegacion.html" class="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold">Volver a Navegación</a>
-        </header>
-        <div class="mb-5 flex gap-2" role="tablist" aria-label="Gestión de proveedores">
-            <button id="tab-proposals" type="button" class="rounded-xl bg-rose-500 px-4 py-3 text-sm font-bold text-white" onclick="vendorIntegration.setTab('proposals')">Propuestas</button>
-            <button id="tab-links" type="button" class="rounded-xl bg-white px-4 py-3 text-sm font-bold" onclick="vendorIntegration.setTab('links')">Enlaces</button>
-        </div>
-        <div id="vendor-integration-status" role="status" class="mb-4 text-sm text-slate-600">Cargando…</div>
-        <div id="vendor-integration-content"></div>
-    </main>
+    <a class="vendor-skip-link" href="#vendor-main-content">Ir al contenido</a>
+    <div class="desktop-app vendor-page">
+        <aside class="desktop-sidebar" aria-label="Navegación principal">
+            <div class="desktop-brand"><span>Novepsa Planner</span></div>
+            <nav class="desktop-nav">
+                <a href="index.html" class="desktop-nav-item"><span class="material-icons" aria-hidden="true">space_dashboard</span><span>Planificar</span></a>
+                <a href="mensajes.html" class="desktop-nav-item"><span class="material-icons" aria-hidden="true">inbox</span><span>Mensajes</span></a>
+                <a href="calendario-tienda.html" class="desktop-nav-item"><span class="material-icons" aria-hidden="true">storefront</span><span>Tienda</span></a>
+                <a href="personal.html" class="desktop-nav-item"><span class="material-icons" aria-hidden="true">work_outline</span><span>Interno</span></a>
+                <a href="reportes.html" class="desktop-nav-item"><span class="material-icons" aria-hidden="true">report_problem</span><span>Reportes</span></a>
+                <a href="retiros.html" class="desktop-nav-item"><span class="material-icons" aria-hidden="true">qr_code_scanner</span><span>Retiros</span></a>
+                <a href="proveedores-web.html" class="desktop-nav-item active" aria-current="page"><span class="material-icons" aria-hidden="true">link</span><span>Proveedores web</span></a>
+                <a href="navegacion.html" class="desktop-nav-item"><span class="material-icons" aria-hidden="true">apps</span><span>Navegación</span></a>
+            </nav>
+            <div class="desktop-user-card">
+                <div class="desktop-user-profile">
+                    <span id="vendor-user-initial" class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-900 font-black text-white">U</span>
+                    <span class="min-w-0"><strong id="vendor-user-role">Usuario</strong><small id="vendor-user-email">Sesión activa</small></span>
+                </div>
+                <button class="desktop-logout-btn" type="button" onclick="vendorIntegration.logout()"><span class="material-icons" aria-hidden="true">logout</span><span>Cerrar sesión</span></button>
+            </div>
+        </aside>
+        <section class="desktop-main">
+            <header class="desktop-topbar">
+                <div class="desktop-title-block"><div class="desktop-breadcrumb">Integraciones · Roles 1 y 2</div><h1>Proveedores web</h1><p>Enlaza cuentas y revisa propuestas de turnos.</p></div>
+                <a href="navegacion.html" class="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold">Volver a Navegación</a>
+            </header>
+            <main id="vendor-main-content" class="desktop-content" tabindex="-1">
+                <div class="mb-5 flex gap-2" role="tablist" aria-label="Gestión de proveedores">
+                    <button id="tab-proposals" type="button" role="tab" aria-selected="true" aria-controls="vendor-integration-content" class="rounded-xl bg-rose-500 px-4 py-3 text-sm font-bold text-white" onclick="vendorIntegration.setTab('proposals')">Propuestas</button>
+                    <button id="tab-links" type="button" role="tab" aria-selected="false" aria-controls="vendor-integration-content" class="rounded-xl bg-white px-4 py-3 text-sm font-bold" onclick="vendorIntegration.setTab('links')">Enlaces</button>
+                </div>
+                <div id="vendor-integration-status" role="status" class="mb-4 text-sm text-slate-600">Cargando…</div>
+                <div id="vendor-integration-content" role="tabpanel"></div>
+            </main>
+        </section>
+    </div>
     <script src="js/vendor-integration.js"></script>
 </body>
 </html>
