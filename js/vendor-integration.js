@@ -53,10 +53,6 @@
             .sort((a, b) => a.name.localeCompare(b.name, 'es'));
     }
 
-    function providerOptions(providers) {
-        return providers.map((provider) => `<option value="${number(provider.id)}">${esc(provider.name)} · ID ${number(provider.id)}</option>`).join('');
-    }
-
     function webProviders() {
         return data.webProviders.map((provider) => ({
             id: number(provider.idProveedor),
@@ -65,20 +61,145 @@
         }));
     }
 
-    function filterProviderSelect(kind) {
-        const isWeb = kind === 'web';
-        const input = document.getElementById(isWeb ? 'link-web-provider-search' : 'link-horarios-provider-search');
-        const select = document.getElementById(isWeb ? 'link-web-provider' : 'link-horarios-provider');
-        const counter = document.getElementById(isWeb ? 'link-web-provider-count' : 'link-horarios-provider-count');
-        if (!input || !select || !counter) return;
+    function providerEntries(kind) {
+        if (kind === 'web') return webProviders();
+        return horariosProviders().map((provider) => ({ ...provider, searchText: `${provider.name} ${provider.id}` }));
+    }
+
+    function providerElementIds(kind) {
+        const base = kind === 'web' ? 'link-web-provider' : 'link-horarios-provider';
+        return { base, trigger: `${base}-trigger`, label: `${base}-label`, panel: `${base}-panel`, search: `${base}-search`, count: `${base}-count`, list: `${base}-list` };
+    }
+
+    function providerOptionButtons(kind, providers) {
+        const ids = providerElementIds(kind);
+        const selected = document.getElementById(ids.base)?.value || '';
+        if (!providers.length) return '<p class="vendor-combobox-empty">No hay proveedores que coincidan.</p>';
+        return providers.map((provider) => {
+            const isSelected = String(provider.id) === selected;
+            return `<button type="button" class="vendor-combobox-option" role="option" aria-selected="${isSelected}" data-provider-id="${number(provider.id)}"><span>${esc(provider.name)} · ID ${number(provider.id)}</span>${isSelected ? '<span class="material-icons" aria-hidden="true">check</span>' : ''}</button>`;
+        }).join('');
+    }
+
+    function refreshProviderOptions(kind) {
+        const ids = providerElementIds(kind);
+        const input = document.getElementById(ids.search);
+        const list = document.getElementById(ids.list);
+        const counter = document.getElementById(ids.count);
+        if (!input || !list || !counter) return;
         const query = normalizeSearch(input.value);
-        const providers = (isWeb ? webProviders() : horariosProviders().map((provider) => ({ ...provider, searchText: `${provider.name} ${provider.id}` })))
-            .filter((provider) => !query || normalizeSearch(provider.searchText).includes(query));
-        const currentValue = select.value;
-        select.innerHTML = `<option value="">${providers.length ? 'Seleccionar…' : 'Sin coincidencias'}</option>${providerOptions(providers)}`;
-        if (providers.some((provider) => String(provider.id) === currentValue)) select.value = currentValue;
+        const providers = providerEntries(kind).filter((provider) => !query || normalizeSearch(provider.searchText).includes(query));
+        list.innerHTML = providerOptionButtons(kind, providers);
         counter.textContent = providerCountLabel(providers.length);
-        if (isWeb && !select.value) updateLinkedAccounts();
+    }
+
+    function closeProviderMenu(kind, restoreFocus = false) {
+        const ids = providerElementIds(kind);
+        const trigger = document.getElementById(ids.trigger);
+        const panel = document.getElementById(ids.panel);
+        if (!trigger || !panel) return;
+        panel.hidden = true;
+        trigger.setAttribute('aria-expanded', 'false');
+        if (restoreFocus) trigger.focus();
+    }
+
+    function closeProviderMenus(exceptKind = '') {
+        ['web', 'horarios'].forEach((kind) => {
+            if (kind !== exceptKind) closeProviderMenu(kind);
+        });
+    }
+
+    function toggleProviderMenu(kind, forceOpen = null) {
+        const ids = providerElementIds(kind);
+        const trigger = document.getElementById(ids.trigger);
+        const panel = document.getElementById(ids.panel);
+        const input = document.getElementById(ids.search);
+        if (!trigger || !panel || !input) return;
+        const shouldOpen = forceOpen === null ? panel.hidden : forceOpen;
+        closeProviderMenus(kind);
+        panel.hidden = !shouldOpen;
+        trigger.setAttribute('aria-expanded', String(shouldOpen));
+        if (shouldOpen) {
+            input.value = '';
+            refreshProviderOptions(kind);
+            window.requestAnimationFrame(() => input.focus());
+        }
+    }
+
+    function selectProvider(kind, providerId) {
+        const ids = providerElementIds(kind);
+        const provider = providerEntries(kind).find((item) => number(item.id) === number(providerId));
+        if (!provider) return;
+        document.getElementById(ids.base).value = String(provider.id);
+        document.getElementById(ids.label).textContent = `${provider.name} · ID ${provider.id}`;
+        closeProviderMenu(kind, true);
+        if (kind === 'web') updateLinkedAccounts();
+    }
+
+    function providerCombobox(kind, label, placeholder) {
+        const ids = providerElementIds(kind);
+        const providers = providerEntries(kind);
+        return `
+            <div class="vendor-combobox" data-provider-combobox="${kind}">
+                <label id="${ids.base}-field-label" class="text-sm font-bold">${esc(label)}</label>
+                <button id="${ids.trigger}" type="button" class="vendor-combobox-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="${ids.panel}" aria-labelledby="${ids.base}-field-label ${ids.label}">
+                    <span id="${ids.label}">Seleccionar…</span><span class="material-icons" aria-hidden="true">expand_more</span>
+                </button>
+                <div id="${ids.panel}" class="vendor-combobox-panel" hidden>
+                    <div class="vendor-search-wrap"><span class="material-icons" aria-hidden="true">search</span><input id="${ids.search}" type="search" class="vendor-search-input" placeholder="${esc(placeholder)}" aria-label="Buscar ${esc(label.toLowerCase())}" autocomplete="off"></div>
+                    <span id="${ids.count}" class="vendor-result-count" aria-live="polite">${providerCountLabel(providers.length)}</span>
+                    <div id="${ids.list}" class="vendor-combobox-list" role="listbox" aria-labelledby="${ids.base}-field-label">${providerOptionButtons(kind, providers)}</div>
+                </div>
+                <input id="${ids.base}" type="hidden" value="">
+            </div>`;
+    }
+
+    function bindProviderCombobox(kind) {
+        const ids = providerElementIds(kind);
+        const wrapper = document.querySelector(`[data-provider-combobox="${kind}"]`);
+        const trigger = document.getElementById(ids.trigger);
+        const input = document.getElementById(ids.search);
+        const list = document.getElementById(ids.list);
+        trigger.addEventListener('click', () => toggleProviderMenu(kind));
+        trigger.addEventListener('keydown', (event) => {
+            if (event.key !== 'ArrowDown') return;
+            event.preventDefault();
+            toggleProviderMenu(kind, true);
+        });
+        input.addEventListener('input', () => refreshProviderOptions(kind));
+        input.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                closeProviderMenu(kind, true);
+                return;
+            }
+            if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                list.querySelector('.vendor-combobox-option')?.focus();
+            }
+        });
+        list.addEventListener('click', (event) => {
+            const option = event.target.closest('[data-provider-id]');
+            if (option) selectProvider(kind, option.dataset.providerId);
+        });
+        list.addEventListener('keydown', (event) => {
+            const option = event.target.closest('[data-provider-id]');
+            if (!option) return;
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                closeProviderMenu(kind, true);
+                return;
+            }
+            if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault();
+            const options = [...list.querySelectorAll('[data-provider-id]')];
+            const index = options.indexOf(option);
+            const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? options.length - 1 : event.key === 'ArrowDown' ? Math.min(index + 1, options.length - 1) : Math.max(index - 1, 0);
+            options[nextIndex]?.focus();
+        });
+        wrapper.addEventListener('focusout', (event) => {
+            if (!wrapper.contains(event.relatedTarget)) closeProviderMenu(kind);
+        });
     }
 
     function renderLinks() {
@@ -87,20 +208,8 @@
                 <h2 class="text-lg font-black">Enlazar proveedores</h2>
                 <p class="mt-1 text-sm text-slate-500">El enlace se aplica automáticamente a todas las cuentas y correos autorizados para el proveedor web, también a los que se agreguen después.</p>
                 <form id="vendor-link-form" class="mt-4 grid gap-3 md:grid-cols-2">
-                    <div>
-                        <label for="link-web-provider-search" class="text-sm font-bold">Buscar proveedor web</label>
-                        <div class="vendor-search-wrap"><span class="material-icons" aria-hidden="true">search</span><input id="link-web-provider-search" type="search" class="vendor-search-input" placeholder="Nombre, ID, cuenta o correo" autocomplete="off"></div>
-                        <span id="link-web-provider-count" class="vendor-result-count" aria-live="polite">${providerCountLabel(data.webProviders.length)}</span>
-                        <label for="link-web-provider" class="mt-3 block text-sm font-bold">Proveedor web autorizado</label>
-                        <select id="link-web-provider" required class="mt-1 w-full rounded-xl border p-3"><option value="">Seleccionar…</option>${providerOptions(webProviders())}</select>
-                    </div>
-                    <div>
-                        <label for="link-horarios-provider-search" class="text-sm font-bold">Buscar proveedor en Horarios</label>
-                        <div class="vendor-search-wrap"><span class="material-icons" aria-hidden="true">search</span><input id="link-horarios-provider-search" type="search" class="vendor-search-input" placeholder="Nombre o ID del proveedor" autocomplete="off"></div>
-                        <span id="link-horarios-provider-count" class="vendor-result-count" aria-live="polite">${providerCountLabel(horariosProviders().length)}</span>
-                        <label for="link-horarios-provider" class="mt-3 block text-sm font-bold">Proveedor en Horarios</label>
-                        <select id="link-horarios-provider" required class="mt-1 w-full rounded-xl border p-3"><option value="">Seleccionar…</option>${providerOptions(horariosProviders())}</select>
-                    </div>
+                    ${providerCombobox('web', 'Proveedor web autorizado', 'Nombre, ID, cuenta o correo')}
+                    ${providerCombobox('horarios', 'Proveedor en Horarios', 'Nombre o ID del proveedor')}
                     <p id="linked-accounts" class="text-sm text-slate-600 md:col-span-2" aria-live="polite">Elige un proveedor web para ver sus cuentas autorizadas.</p>
                     <button type="submit" class="rounded-xl bg-rose-500 px-4 py-3 font-bold text-white md:col-span-2">Guardar enlace</button>
                 </form>
@@ -113,19 +222,25 @@
                     return `<div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 text-sm"><span><strong>${esc(web?.proveedorNombre || `Web #${link.webProviderId}`)}</strong> → ${esc(link.horariosProviderName || `Horarios #${link.horariosProviderId}`)}<br><span class="text-slate-500">Correos autorizados: ${accounts}</span></span><button type="button" class="rounded-lg border border-red-200 px-3 py-2 font-bold text-red-700" onclick="vendorIntegration.unlink(${number(link.webProviderId)})">Desenlazar</button></div>`;
                 }).join('') || '<p class="text-sm text-slate-500">Todavía no hay enlaces.</p>'}</div>
             </section>`;
-        document.getElementById('link-web-provider').addEventListener('change', updateLinkedAccounts);
-        document.getElementById('link-web-provider-search').addEventListener('input', () => filterProviderSelect('web'));
-        document.getElementById('link-horarios-provider-search').addEventListener('input', () => filterProviderSelect('horarios'));
+        bindProviderCombobox('web');
+        bindProviderCombobox('horarios');
         document.getElementById('vendor-link-form').addEventListener('submit', async (event) => {
             event.preventDefault();
+            const webProviderId = number(document.getElementById('link-web-provider').value);
+            const horariosProviderId = number(document.getElementById('link-horarios-provider').value);
+            if (!webProviderId || !horariosProviderId) {
+                setStatus('Selecciona el proveedor web y el proveedor de Horarios antes de guardar.', 'error');
+                document.getElementById(!webProviderId ? 'link-web-provider-trigger' : 'link-horarios-provider-trigger').focus();
+                return;
+            }
             const button = event.currentTarget.querySelector('button[type="submit"]');
             button.disabled = true;
             button.textContent = 'Guardando…';
             try {
                 await request('POST', {
                     action: 'link',
-                    webProviderId: number(document.getElementById('link-web-provider').value),
-                    horariosProviderId: number(document.getElementById('link-horarios-provider').value)
+                    webProviderId,
+                    horariosProviderId
                 });
                 if (await load()) setStatus('Enlace guardado para todas las cuentas autorizadas.', 'success');
             } catch (error) { setStatus(error.message, 'error'); }
@@ -238,6 +353,9 @@
     }
 
     window.vendorIntegration = { load, setTab, unlink, review, logout };
+    document.addEventListener('pointerdown', (event) => {
+        if (!event.target.closest('.vendor-combobox')) closeProviderMenus();
+    });
     if (![1, 2].includes(window.StaffPlanner.getRoleId())) {
         window.location.replace('navegacion.html');
     } else {
