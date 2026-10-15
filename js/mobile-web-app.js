@@ -3578,7 +3578,7 @@
         }
 
         exitButton(row, attendance, state) {
-            if (state.className !== 'approved' || !attendance?.almuerzo_ingreso_en || attendance?.salida_en) return '';
+            if (!this.exitFeatureAvailable || state.className !== 'approved' || !attendance?.almuerzo_ingreso_en || attendance?.salida_en) return '';
             return `<button class="attendance-exit-btn" onclick="mobileApp.markExit(${asInt(row.id)})">Marcar salida</button>`;
         }
 
