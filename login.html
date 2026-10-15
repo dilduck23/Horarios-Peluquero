@@ -214,29 +214,19 @@
             }
 
             try {
-                // First, try to find in Impulsadoras
-                let { data: impulsadora } = await db
-                    .from('Tiendas_Impulsadoras')
-                    .select('*')
-                    .eq('pin', pin)
-                    .single();
-
-                // If not found, try Personal Interno
-                let { data: personal } = await db
-                    .from('Tiendas_Personal')
-                    .select('*')
-                    .eq('pin', pin)
-                    .single();
-
-                const staffUser = impulsadora || personal;
-                const isPersonal = !impulsadora && !!personal;
-
-                if (!staffUser) throw new Error('PIN no encontrado');
+                const { data, error } = await db.functions.invoke('self-attendance-status', {
+                    body: { action: 'login', pin }
+                });
+                const detail = error?.context?.json ? await error.context.json().catch(() => null) : null;
+                if (error || !data?.success || !data?.sessionToken || !data?.person) throw new Error(detail?.error || data?.error || 'PIN inválido');
+                const staffUser = data.person;
+                const isPersonal = staffUser.kind === 'personal';
 
                 // Success - Store session data
                 sessionStorage.setItem('staffPlannerAuth', 'true');
                 sessionStorage.setItem('staffPlannerRole', isPersonal ? 'personal' : 'staff');
                 sessionStorage.setItem('staffPlannerStaffId', staffUser.id);
+                sessionStorage.setItem('staffPlannerPinSession', data.sessionToken);
                 sessionStorage.setItem('staffPlannerIsAdmin', 'false');
                 sessionStorage.setItem('staffPlannerRoleId', '4');
                 sessionStorage.setItem('staffPlannerRoleName', isPersonal ? 'Personal Interno' : 'Impulsadora');
@@ -257,7 +247,7 @@
 
             } catch (err) {
                 console.error('PIN Login error:', err);
-                errorMsg.textContent = 'PIN Inválido';
+                errorMsg.textContent = err.message === 'Demasiados intentos. Espera 15 minutos.' ? err.message : 'PIN inválido';
                 errorMsg.classList.remove('hidden');
 
                 const card = document.getElementById('loginCard');

@@ -5,6 +5,7 @@
     const TABLES = {
         stores: 'Tiendas_Razonamiento',
         impulsadoras: 'Tiendas_Impulsadoras',
+        promoterProviders: 'Tiendas_Impulsadoras_Proveedores',
         schedule: 'Tiendas_Horario',
         attendance: 'Tiendas_Asistencia',
         incidences: 'Tiendas_Faltas',

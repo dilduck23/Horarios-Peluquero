@@ -1084,6 +1084,24 @@ nav.fixed {
     background: var(--app-rose);
 }
 
+.calendar-cell.past {
+    background: #f8f5f2;
+}
+
+.calendar-cell.past .calendar-day-number {
+    background: #625b56;
+}
+
+.calendar-cell.has-sales {
+    position: relative;
+    overflow: visible;
+}
+
+.calendar-cell.has-sales:hover,
+.calendar-cell.has-sales:focus-visible {
+    z-index: 30;
+}
+
 .calendar-empty-mark {
     margin: auto;
     color: #c7bdb5;
@@ -2113,6 +2131,418 @@ nav.fixed {
     font-size: 10px;
     font-weight: 900;
     line-height: 1;
+}
+
+.vendor-sales-indicator {
+    position: relative;
+    display: flex;
+    min-height: 24px;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    margin-top: 5px;
+    padding: 4px 5px;
+    border: 1px solid #a7f3d0;
+    border-radius: 6px;
+    background: #ecfdf5;
+    color: #065f46;
+    font-size: 9px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+}
+
+.vendor-sales-indicator > .material-icons {
+    font-size: 13px;
+}
+
+.vendor-sales-indicator > strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.vendor-sales-tooltip {
+    position: absolute;
+    z-index: 80;
+    left: 50%;
+    bottom: calc(100% + 8px);
+    width: 190px;
+    max-width: calc(100vw - 32px);
+    display: grid;
+    gap: 4px;
+    transform: translate(-50%, 4px);
+    border-radius: 10px;
+    background: #111827;
+    padding: 10px 12px;
+    color: #fff;
+    text-align: left;
+    box-shadow: 0 12px 28px rgba(17, 24, 39, .24);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity .18s ease, transform .18s ease, visibility .18s ease;
+}
+
+.vendor-sales-tooltip::after {
+    position: absolute;
+    left: 50%;
+    top: 100%;
+    width: 0;
+    height: 0;
+    border: 6px solid transparent;
+    border-top-color: #111827;
+    content: '';
+    transform: translateX(-50%);
+}
+
+.vendor-sales-tooltip b {
+    font-size: 12px;
+}
+
+.vendor-sales-tooltip small,
+.vendor-sales-tooltip em {
+    color: #d1d5db;
+    font-size: 10px;
+    font-style: normal;
+    line-height: 1.25;
+}
+
+.calendar-cell.has-sales:hover .vendor-sales-tooltip,
+.calendar-cell.has-sales:focus-visible .vendor-sales-tooltip {
+    transform: translate(-50%, 0);
+    opacity: 1;
+    visibility: visible;
+}
+
+.calendar-cell:nth-child(7n + 1) .vendor-sales-tooltip {
+    left: 0;
+    transform: translate(0, 4px);
+}
+
+.calendar-cell:nth-child(7n + 1):hover .vendor-sales-tooltip,
+.calendar-cell:nth-child(7n + 1):focus-visible .vendor-sales-tooltip {
+    transform: translate(0, 0);
+}
+
+.calendar-cell:nth-child(7n) .vendor-sales-tooltip {
+    right: 0;
+    left: auto;
+    transform: translate(0, 4px);
+}
+
+.calendar-cell:nth-child(7n):hover .vendor-sales-tooltip,
+.calendar-cell:nth-child(7n):focus-visible .vendor-sales-tooltip {
+    transform: translate(0, 0);
+}
+
+.calendar-cell:nth-child(7n + 1) .vendor-sales-tooltip::after {
+    left: 18px;
+    transform: none;
+}
+
+.calendar-cell:nth-child(7n) .vendor-sales-tooltip::after {
+    right: 18px;
+    left: auto;
+    transform: none;
+}
+
+.vendor-sales-dialog .swal2-title {
+    padding-right: 42px;
+    text-align: left;
+}
+
+.vendor-sales-dialog .swal2-html-container {
+    margin: 8px 24px 0;
+    padding: 0 2px 4px;
+    text-align: left;
+}
+
+.vendor-sales-dialog-body {
+    display: grid;
+    gap: 12px;
+}
+
+.vendor-sales-kpis {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.vendor-sales-kpis article {
+    min-width: 0;
+    border: 1px solid var(--app-border);
+    border-radius: 12px;
+    background: #fff;
+    padding: 11px;
+}
+
+.vendor-sales-kpis small,
+.vendor-sales-kpis strong,
+.vendor-sales-kpis span {
+    display: block;
+}
+
+.vendor-sales-kpis small {
+    color: var(--app-muted);
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.vendor-sales-kpis strong {
+    margin-top: 5px;
+    color: var(--app-ink);
+    font-size: 20px;
+    font-weight: 950;
+    font-variant-numeric: tabular-nums;
+}
+
+.vendor-sales-kpis span {
+    margin-top: 3px;
+    overflow: hidden;
+    color: var(--app-muted);
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.vendor-day-schedule,
+.vendor-locked-note {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-radius: 12px;
+    padding: 10px 12px;
+}
+
+.vendor-day-schedule {
+    border: 1px solid #dbeafe;
+    background: #eff6ff;
+    color: #1e40af;
+}
+
+.vendor-locked-note {
+    border: 1px solid #e7dfd8;
+    background: #f5f1ed;
+    color: #4b443f;
+}
+
+.vendor-day-schedule .material-icons,
+.vendor-locked-note .material-icons {
+    font-size: 20px;
+}
+
+.vendor-day-schedule span:last-child,
+.vendor-locked-note span:last-child {
+    min-width: 0;
+}
+
+.vendor-day-schedule strong,
+.vendor-day-schedule small,
+.vendor-locked-note strong,
+.vendor-locked-note small {
+    display: block;
+}
+
+.vendor-day-schedule small,
+.vendor-locked-note small {
+    margin-top: 2px;
+    font-size: 11px;
+}
+
+.vendor-day-empty {
+    border: 1px dashed var(--app-border-strong);
+    border-radius: 12px;
+    padding: 12px;
+    color: var(--app-muted);
+    text-align: center;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.vendor-sales-products {
+    max-height: 250px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border: 1px solid var(--app-border);
+    border-radius: 12px;
+}
+
+.vendor-sales-products-head,
+.vendor-sales-product {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+}
+
+.vendor-sales-products-head {
+    position: sticky;
+    z-index: 1;
+    top: 0;
+    background: #f8f4f0;
+    color: var(--app-ink);
+    font-size: 12px;
+}
+
+.vendor-sales-products-head span {
+    min-width: 24px;
+    border-radius: 999px;
+    background: #111827;
+    padding: 3px 7px;
+    color: #fff;
+    text-align: center;
+}
+
+.vendor-sales-product + .vendor-sales-product {
+    border-top: 1px solid var(--app-border);
+}
+
+.vendor-sales-product > span:first-child {
+    min-width: 0;
+    flex: 1;
+}
+
+.vendor-sales-product > span:last-child {
+    flex: 0 0 auto;
+    text-align: right;
+}
+
+.vendor-sales-product strong,
+.vendor-sales-product b,
+.vendor-sales-product small {
+    display: block;
+}
+
+.vendor-sales-product strong {
+    overflow: hidden;
+    color: var(--app-ink);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.vendor-sales-product b {
+    color: #065f46;
+    font-size: 11px;
+}
+
+.vendor-sales-product small {
+    margin-top: 2px;
+    color: var(--app-muted);
+    font-size: 10px;
+    font-weight: 700;
+}
+
+.vendor-provider-add-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: stretch;
+}
+
+.vendor-provider-add-button {
+    min-height: 44px;
+    padding: 0 16px;
+    border: 0;
+    border-radius: 12px;
+    background: var(--app-ink);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.vendor-provider-add-button:disabled {
+    cursor: not-allowed;
+    opacity: .45;
+}
+
+.vendor-provider-add-button:focus-visible,
+.vendor-provider-chip button:focus-visible {
+    outline: 3px solid rgba(232, 93, 117, .35);
+    outline-offset: 2px;
+}
+
+.vendor-provider-chips {
+    display: grid;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.vendor-provider-chip {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 10px 10px 12px;
+    border: 1px solid #dbe4e2;
+    border-radius: 12px;
+    background: #f5faf9;
+    color: #123d38;
+    text-align: left;
+}
+
+.vendor-provider-chip > span:first-child {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+}
+
+.vendor-provider-chip strong,
+.vendor-provider-chip small {
+    overflow-wrap: anywhere;
+}
+
+.vendor-provider-chip small {
+    color: #55736f;
+}
+
+.vendor-provider-chip > .material-icons {
+    color: var(--app-teal);
+}
+
+.vendor-provider-chip button {
+    display: grid;
+    width: 44px;
+    height: 44px;
+    flex: 0 0 44px;
+    place-items: center;
+    border: 0;
+    border-radius: 10px;
+    background: #fff;
+    color: #b42318;
+    cursor: pointer;
+}
+
+@media (max-width: 600px) {
+    .vendor-sales-dialog .swal2-html-container {
+        margin-right: 14px;
+        margin-left: 14px;
+    }
+
+    .vendor-sales-kpis {
+        grid-template-columns: 1fr;
+    }
+
+    .vendor-sales-tooltip {
+        display: none;
+    }
+
+    .vendor-provider-add-row {
+        grid-template-columns: 1fr;
+    }
+
+    .vendor-provider-add-button {
+        width: 100%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .vendor-sales-tooltip {
+        transition: none;
+    }
 }
 
 .agenda-list {

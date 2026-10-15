@@ -11,6 +11,7 @@ const tablePromoters = "Tiendas_Impulsadoras";
 const tableStores = "Tiendas_Razonamiento";
 const tableUsers = "Tiendas_Usuarios";
 const tableBrandCatalog = "Tiendas_Marcas_Proveedores";
+const tablePromoterProviders = "Tiendas_Impulsadoras_Proveedores";
 const blockedRecipientEmails = new Set([
   "croman@novepsa.com",
   "liglesias@novepsa.com",
@@ -101,13 +102,26 @@ async function providerEmailsForPromoter(
   supabase: ReturnType<typeof createClient>,
   promoter: Record<string, unknown> | null,
 ) {
-  const providerId = Number(recordValue(promoter, "idProveedor") ?? 0);
-  if (!Number.isFinite(providerId) || providerId <= 0) return [];
+  const promoterId = Number(recordValue(promoter, "id") ?? 0);
+  const legacyProviderId = Number(recordValue(promoter, "idProveedor") ?? 0);
+  const providerIds = Number.isFinite(legacyProviderId) && legacyProviderId > 0 ? [legacyProviderId] : [];
+  if (Number.isFinite(promoterId) && promoterId > 0) {
+    const { data: links, error: linksError } = await supabase
+      .from(tablePromoterProviders)
+      .select("id_proveedor")
+      .eq("impulsadora_id", promoterId);
+    if (linksError) throw linksError;
+    (links || []).forEach((link) => {
+      const providerId = Number(recordValue(link, "id_proveedor") ?? 0);
+      if (Number.isFinite(providerId) && providerId > 0 && !providerIds.includes(providerId)) providerIds.push(providerId);
+    });
+  }
+  if (!providerIds.length) return [];
 
   const { data, error } = await supabase
     .from(tableBrandCatalog)
     .select("correo_proveedor,correos_proveedor")
-    .eq("idProveedor", providerId)
+    .in("idProveedor", providerIds)
     .eq("activo", true);
   if (error) throw error;
 

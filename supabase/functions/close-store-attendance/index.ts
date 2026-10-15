@@ -12,6 +12,7 @@ const tableStores = "Tiendas_Razonamiento";
 const tableSchedule = "Tiendas_Horario";
 const tableUsers = "Tiendas_Usuarios";
 const tableBrandCatalog = "Tiendas_Marcas_Proveedores";
+const tablePromoterProviders = "Tiendas_Impulsadoras_Proveedores";
 const autoSubject = "FALTA NO APROBADA";
 const autoObservation = "Falta automatica: el punto de venta no aprobo la asistencia antes de las 20:00 America/Guayaquil.";
 const closeCutoffHour = 20;
@@ -81,13 +82,26 @@ async function providerEmailsForPromoter(
   supabase: ReturnType<typeof createClient>,
   promoter: Record<string, unknown> | null,
 ) {
-  const providerId = asInt(recordValue(promoter, "idProveedor"));
-  if (!providerId) return [];
+  const promoterId = asInt(recordValue(promoter, "id"));
+  const legacyProviderId = asInt(recordValue(promoter, "idProveedor"));
+  const providerIds = legacyProviderId ? [legacyProviderId] : [];
+  if (promoterId) {
+    const { data: links, error: linksError } = await supabase
+      .from(tablePromoterProviders)
+      .select("id_proveedor")
+      .eq("impulsadora_id", promoterId);
+    if (linksError) throw linksError;
+    (links || []).forEach((link) => {
+      const providerId = asInt(recordValue(link, "id_proveedor"));
+      if (providerId && !providerIds.includes(providerId)) providerIds.push(providerId);
+    });
+  }
+  if (!providerIds.length) return [];
 
   const { data, error } = await supabase
     .from(tableBrandCatalog)
     .select("correo_proveedor,correos_proveedor")
-    .eq("idProveedor", providerId)
+    .in("idProveedor", providerIds)
     .eq("activo", true);
   if (error) throw error;
 

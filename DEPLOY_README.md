@@ -94,6 +94,40 @@ La Beta de asistencia permite que el usuario **Punto de Venta** confirme la pres
     4.  La función genera `FALTA NO APROBADA` para turnos que no fueron aprobados y envía el correo automático por Resend.
     5.  El cierre marca `correo_falta_auto_enviado_en` para no duplicar correos si se reintenta el proceso.
 
+### Protección del PIN y del historial de asistencia
+
+El PIN de cuatro dígitos se mantiene, pero se valida en el servidor. El navegador
+ya no consulta `pin` en `Tiendas_Impulsadoras` ni en `Tiendas_Personal`.
+`self-attendance-status` emite una sesión firmada de ocho horas al iniciar con
+PIN para la pantalla “Mi horario”. Ese PIN no autoriza consultar asistencias ni
+reclamos: el historial solo se sirve a la integración privada Web→Horarios,
+después de que la Web valide la cuenta del proveedor. Los reclamos/incidencias
+también se restringen por RLS.
+
+Orden de activación (las tres partes deben ir juntas para no romper “Mi horario”):
+
+1. En Supabase SQL Editor, aplicar `supabase_pin_attendance_protection.sql`.
+   Crea un límite atómico de cinco intentos por IP y cien globales cada 15 minutos,
+   oculta los PIN al rol anónimo y restringe `Tiendas_Faltas` a roles internos.
+2. Configurar en Supabase Edge Functions dos secretos aleatorios independientes
+   de al menos 32 caracteres: `HORARIOS_STAFF_SESSION_SECRET` y
+   `HORARIOS_ATTENDANCE_BRIDGE_SECRET`. Configurar **el mismo**
+   `HORARIOS_ATTENDANCE_BRIDGE_SECRET` en el servidor Web/Vercel; nunca usar
+   `NEXT_PUBLIC_*` ni colocarlo en HTML/JS.
+3. Desplegar `self-attendance-status` conservando `verify_jwt=false` porque el
+   acceso por PIN no tiene JWT de Supabase. La consulta de asistencias exige la
+   clave privada; una sesión de PIN no es suficiente y recibe 401.
+4. Desplegar las páginas actualizadas (`login.html`, `mi-horario.html` y
+   `js/mobile-self-app.js`) y la API Web `/api/vendor/horarios/history`.
+5. Probar PIN válido/incorrecto, acceso anónimo directo a PIN y faltas,
+   calendario sin datos de asistencia, rechazo de consultas de historial con
+   sesión PIN y lectura del historial solo desde un proveedor web autorizado.
+
+La protección por PIN sigue siendo menos fuerte que una cuenta personal: un PIN
+de cuatro dígitos debe cambiarse ante sospecha de exposición. El límite de
+intentos y la ocultación de la columna reducen el riesgo de adivinación, pero
+no sustituyen una autenticación individual más fuerte.
+
 ---
 
 ## 📂 Estructura del Proyecto

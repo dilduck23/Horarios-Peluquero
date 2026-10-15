@@ -74,7 +74,7 @@
         ];
         if (layoutMode === 'desktop') items.splice(-1, 0,
             ['pickups', 'retiros.html', 'qr_code_scanner', 'Retiros'],
-            ['sales', 'ventas.html', 'point_of_sale', 'Ventas'],
+            ['sales', 'ventas.html', 'point_of_sale', 'Ventas mensuales por proveedor'],
             ['vendors', 'proveedores-web.html', 'link', 'Proveedores web']);
         return items;
     }
@@ -161,6 +161,11 @@
 
     function todayKeyInGuayaquil() {
         return dateKeyInGuayaquil();
+    }
+
+    function isPastDateKey(value) {
+        const key = asText(value).slice(0, 10);
+        return /^\d{4}-\d{2}-\d{2}$/.test(key) && key < todayKeyInGuayaquil();
     }
 
     function pageParams() {
@@ -539,6 +544,10 @@
         if (asText(person?.idVendedor)) parts.push(`Codigo ${asText(person.idVendedor)}`);
         if (promoterPin(person)) parts.push(`PIN ${promoterPin(person)}`);
         return parts.join(' - ');
+    }
+
+    function promoterProviderSearchText(person) {
+        return [asText(person?.Proveedor), ...(person?._providerNames || []).map((name) => asText(name))].filter(Boolean).join(' ');
     }
 
     function promoterCanonicalKey(person) {
@@ -1012,10 +1021,12 @@
             const key = dateKey(date);
             const rowsForDay = grouped[day] || [];
             const isToday = key === todayKeyInGuayaquil();
+            const hasExtraContent = typeof options.hasDayContent === 'function' && options.hasDayContent(key, rowsForDay);
+            const extraClass = typeof options.cellClass === 'function' ? options.cellClass(key, rowsForDay) : '';
             cells += `
-                <button class="calendar-cell ${isToday ? 'today' : ''}" onclick="${options.dayHandler}('${key}')">
+                <button class="calendar-cell ${isToday ? 'today' : ''} ${isPastDateKey(key) ? 'past' : ''} ${h(extraClass)}" onclick="${options.dayHandler}('${key}')">
                     <span class="calendar-day-number">${day}</span>
-                    ${rowsForDay.length === 0 ? '<span class="calendar-empty-mark">-</span>' : options.cellContent(rowsForDay)}
+                    ${rowsForDay.length === 0 && !hasExtraContent ? '<span class="calendar-empty-mark">-</span>' : options.cellContent(rowsForDay, key)}
                     ${rowsForDay.length ? `<span class="calendar-cell-count">${rowsForDay.length}</span>` : ''}
                 </button>`;
         }
@@ -1186,6 +1197,7 @@
         constructor(active) {
             this.active = active;
             this.session = session();
+            this.promoterProviders = [];
         }
 
         async init() {
@@ -1259,6 +1271,10 @@
 
         async saveInternalDayOff(row) {
             if (!row?.id) return;
+            if (isPastDateKey(row.fecha)) {
+                Swal.fire('Fecha cerrada', 'Las fechas anteriores ya no se pueden modificar.', 'info');
+                return;
+            }
             try {
                 await rows(db.from(tables.internalSchedule).update({ tipo: internalDayOffType }).eq('id', asInt(row.id)).select());
                 await this.reload();
@@ -1290,16 +1306,43 @@
         }
 
         async loadBase() {
-            const [stores, promoters, categories, internalStaff] = await Promise.all([
+            const [stores, promoters, categories, internalStaff, promoterProviders, brandCatalog] = await Promise.all([
                 rows(db.from(tables.stores).select('*').order('nombre_display')),
                 rows(db.from(tables.impulsadoras).select('*')),
                 rows(db.from(tables.categories).select('*')),
-                rows(db.from(tables.internalStaff).select('*').order('nombre_completo'))
+                rows(db.from(tables.internalStaff).select('*').order('nombre_completo')),
+                rows(db.from(tables.promoterProviders).select('*')),
+                rows(db.from(tables.brandCatalog).select('*').eq('activo', true).order('marca'))
             ]);
             this.stores = stores;
-            this.promoters = promoters;
+            this.promoterProviders = promoterProviders;
+            this.brandCatalog = brandCatalog;
+            this.promoters = promoters.map((person) => {
+                const providerIds = this.promoterProviderIds(person, promoterProviders);
+                return {
+                    ...person,
+                    _providerIds: providerIds,
+                    _providerNames: providerIds.map((id) => this.providerNameById(id, brandCatalog))
+                };
+            });
             this.categories = categories;
             this.internalStaff = internalStaff;
+        }
+
+        promoterProviderIds(person, links = this.promoterProviders) {
+            const personIds = promoterIds(person);
+            const linked = (links || [])
+                .filter((link) => personIds.includes(asInt(link.impulsadora_id)))
+                .sort((a, b) => Number(b.es_principal === true) - Number(a.es_principal === true))
+                .map((link) => asInt(link.id_proveedor))
+                .filter(Boolean);
+            const legacy = asInt(person?.idProveedor);
+            return [...new Set([...linked, ...(legacy ? [legacy] : [])])];
+        }
+
+        providerNameById(providerId, catalog = this.brandCatalog) {
+            const match = (catalog || []).find((brand) => asInt(brand.idProveedor) === asInt(providerId));
+            return asText(match?.proveedor, `Proveedor ${asInt(providerId)}`);
         }
 
         async promoterAssignmentsForKey(key) {
@@ -1438,6 +1481,10 @@
             this.attendanceRows = [];
             this.incidentRows = [];
             this.brandCatalog = [];
+            this.vendorDailySales = [];
+            this.vendorProductSales = [];
+            this.vendorSalesCacheKey = '';
+            this.vendorSalesLoading = false;
         }
 
         async load() {
@@ -1459,6 +1506,7 @@
                 ? (await rows(db.from(tables.incidences).select('*').in('id_horario', scheduleIds).order('creado_en', { ascending: false })))
                     .filter((incident) => asText(incident.asunto).toUpperCase() !== automaticAbsenceSubject)
                 : [];
+            if (this.vendorMode && this.vendorKind === 'impulso') await this.loadVendorSales(true);
         }
 
         shouldScopeToStore() {
@@ -1861,7 +1909,7 @@
                     if (this.zoneFilter && String(asInt(category?.id_zona)) !== this.zoneFilter) return false;
                     if (this.onlyAssigned && !rowPersonIds.has(asInt(person.id))) return false;
                     if (!needle) return true;
-                    return normalizeSearch(`${promoterDisplayName(person)} ${asText(person.Marca)} ${asText(person.Proveedor)} ${asText(category?.descripcion)}`).includes(normalizeSearch(needle));
+                    return normalizeSearch(`${promoterDisplayName(person)} ${asText(person.Marca)} ${promoterProviderSearchText(person)} ${asText(category?.descripcion)}`).includes(normalizeSearch(needle));
                 });
             return mergePromoterOptions(candidates).sort((a, b) => {
                 const zoneA = asInt(byId(this.categories, a?.idCategoria)?.id_zona, 99);
@@ -1952,7 +2000,7 @@
                     if (this.onlyAssigned && !hasRows) return false;
                     if (!needle) return true;
                     const category = byId(this.categories, person?.idCategoria);
-                    return `${normalizeSearch(promoterDisplayName(person))} ${normalizeSearch(person.Marca)} ${normalizeSearch(person.Proveedor)} ${normalizeSearch(person.idVendedor)} ${normalizeSearch(promoterPin(person))} ${normalizeSearch(category?.descripcion)}`.includes(needle);
+                    return `${normalizeSearch(promoterDisplayName(person))} ${normalizeSearch(person.Marca)} ${normalizeSearch(promoterProviderSearchText(person))} ${normalizeSearch(person.idVendedor)} ${normalizeSearch(promoterPin(person))} ${normalizeSearch(category?.descripcion)}`.includes(needle);
                 });
             return mergePromoterOptions(candidates, selectedId).sort((a, b) => {
                 const aSelected = promoterIds(a).includes(selectedId);
@@ -2064,6 +2112,92 @@
                 .sort((a, b) => asText(a.fecha).localeCompare(asText(b.fecha)) || asText(byId(this.stores, a.tienda_id)?.nombre_display).localeCompare(asText(byId(this.stores, b.tienda_id)?.nombre_display)));
         }
 
+        async loadVendorSales(force = false) {
+            const person = this.vendorKind === 'impulso' ? this.selectedVendor() : null;
+            const vendorId = asInt(person?.idVendedor);
+            const first = dateKey(monthStart(this.selected));
+            const last = dateKey(monthEnd(this.selected));
+            const cacheKey = `${vendorId}:${first}:${last}`;
+            if (!this.session.isManager || !vendorId) {
+                this.vendorDailySales = [];
+                this.vendorProductSales = [];
+                this.vendorSalesCacheKey = cacheKey;
+                this.vendorSalesLoading = false;
+                return;
+            }
+            if (!force && this.vendorSalesCacheKey === cacheKey) {
+                this.vendorSalesLoading = false;
+                return;
+            }
+            this.vendorSalesLoading = true;
+            try {
+                await this.ensureBrandCatalog();
+                const [daily, products] = await Promise.all([
+                    rows(db.from(tables.dailySales).select('*').eq('id_vendedor', vendorId).gte('fecha', first).lte('fecha', last).order('fecha')),
+                    rows(db.from(tables.dailySalesProducts).select('*').eq('id_vendedor', vendorId).gte('fecha', first).lte('fecha', last).order('fecha').order('producto'))
+                ]);
+                this.vendorDailySales = daily;
+                this.vendorProductSales = products;
+                this.vendorSalesCacheKey = cacheKey;
+            } catch (error) {
+                console.error('No se pudo cargar el detalle de ventas del vendedor:', error);
+                this.vendorDailySales = [];
+                this.vendorProductSales = [];
+            } finally {
+                this.vendorSalesLoading = false;
+            }
+        }
+
+        vendorSaleForDate(person, key) {
+            const vendorId = asInt(person?.idVendedor);
+            return this.vendorDailySales.find((item) => asInt(item.id_vendedor) === vendorId && asText(item.fecha) === key) || null;
+        }
+
+        vendorProductsForDate(person, key) {
+            const vendorId = asInt(person?.idVendedor);
+            const providerIds = this.promoterProviderIds(person);
+            return this.vendorProductSales.filter((item) => asInt(item.id_vendedor) === vendorId
+                && asText(item.fecha) === key
+                && (!providerIds.length || providerIds.includes(asInt(item.id_proveedor))));
+        }
+
+        salesMoney(value) {
+            return new Intl.NumberFormat('es-EC', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(Number(value) || 0);
+        }
+
+        salesQuantity(value) {
+            return new Intl.NumberFormat('es-EC', { maximumFractionDigits: 2 }).format(Number(value) || 0);
+        }
+
+        providerSalesGroups(products) {
+            const groups = new Map();
+            products.forEach((item) => {
+                const providerId = asInt(item.id_proveedor);
+                const current = groups.get(providerId) || {
+                    id: providerId,
+                    name: asText(item.proveedor, this.providerNameById(providerId)),
+                    sales: 0,
+                    items: 0,
+                    products: []
+                };
+                current.sales += Number(item.venta_neta || 0);
+                current.items += Number(item.cantidad_neta || 0);
+                current.products.push(item);
+                groups.set(providerId, current);
+            });
+            return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name, 'es'));
+        }
+
+        vendorSalesIndicator(person, key) {
+            const sale = this.vendorSaleForDate(person, key);
+            if (!sale) return '';
+            const products = this.vendorProductsForDate(person, key);
+            const providerSales = products.reduce((sum, item) => sum + Number(item.venta_neta || 0), 0);
+            const providerItems = products.reduce((sum, item) => sum + Number(item.cantidad_neta || 0), 0);
+            const tooltip = `Venta total ${this.salesMoney(sale.ventas_netas)} · Proveedores ${this.salesMoney(providerSales)} · ${this.salesQuantity(providerItems)} ítems`;
+            return `<span class="vendor-sales-indicator" title="${h(tooltip)}"><span class="material-icons" aria-hidden="true">payments</span><strong>${h(this.salesMoney(sale.ventas_netas))}</strong><span class="vendor-sales-tooltip" role="tooltip"><b>Venta total: ${h(this.salesMoney(sale.ventas_netas))}</b><small>Proveedores asignados: ${h(this.salesMoney(providerSales))}</small><small>${h(this.salesQuantity(providerItems))} ítems de proveedores</small><em>Pulsa para ver el desglose</em></span></span>`;
+        }
+
         internalVendorScheduleRows(person) {
             if (!person) return [];
             return this.monthlyInternalRows
@@ -2086,7 +2220,7 @@
                         ${this.canEditVendor() || this.canManagePlanner() ? `
                             <span class="vendor-schedule-actions">
                                 ${this.canEditVendor() ? `<button class="planner-icon-btn" title="Editar vendedor" onclick="mobileApp.showVendorEditForm(${asInt(person.id)})"><span class="material-icons">manage_accounts</span></button>` : ''}
-                                <button class="planner-icon-btn" title="Asignar día" onclick="mobileApp.showPromoterFormForPerson(${asInt(person.id)}, '${dateKey(this.defaultVendorDate())}')"><span class="material-icons">edit_calendar</span></button>
+                                ${!isPastDateKey(dateKey(this.defaultVendorDate())) ? `<button class="planner-icon-btn" title="Asignar día" aria-label="Asignar un día a ${h(promoterDisplayName(person))}" onclick="mobileApp.showPromoterFormForPerson(${asInt(person.id)}, '${dateKey(this.defaultVendorDate())}')"><span class="material-icons">edit_calendar</span></button>` : ''}
                             </span>` : ''}
                     </div>
                     <div class="vendor-stat-row">
@@ -2095,6 +2229,7 @@
                         ${this.vendorStat('Mes', monthShort[this.selected.getMonth()], 'calendar_month', '#111827')}
                         ${this.vendorStat('PIN', promoterPin(person) || '-', 'pin', '#111827')}
                     </div>
+                    ${this.vendorSalesLoading ? '<div class="mx-[18px] mb-3 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-800" role="status">Cargando ventas del vendedor…</div>' : ''}
                     ${calendarBoard({
                         selected: this.selected,
                         rows: rowsForPerson,
@@ -2103,7 +2238,9 @@
                         personId: () => asInt(person.id),
                         peopleLabel: () => `${storeCount} puntos`,
                         dayHandler: 'mobileApp.openVendorDay',
-                        cellContent: (dayRows) => `<div>${dayRows.slice(0, 3).map((row) => this.vendorCalendarLabel(row)).join('')}${dayRows.length > 3 ? `<div class="text-[8px] font-black text-[#756c65] mt-1">+${dayRows.length - 3} más</div>` : ''}</div>`
+                        hasDayContent: (key) => Boolean(this.vendorSaleForDate(person, key)),
+                        cellClass: (key) => this.vendorSaleForDate(person, key) ? 'has-sales' : '',
+                        cellContent: (dayRows, key) => `<div>${dayRows.slice(0, 3).map((row) => this.vendorCalendarLabel(row)).join('')}${dayRows.length > 3 ? `<div class="text-[8px] font-black text-[#756c65] mt-1">+${dayRows.length - 3} más</div>` : ''}${this.vendorSalesIndicator(person, key)}</div>`
                     })}
                 </section>`;
         }
@@ -2234,6 +2371,7 @@
             const initialBrand = brand ? this.brandLabel(brand) : '';
             const providerText = brand?.proveedor || this.usefulValue(person.Proveedor) || 'Selecciona una marca registrada';
             const emailValue = brand ? this.getProviderEmail(brand.idProveedor) : this.emailListText(person.Correo);
+            this.vendorProviderDraftIds = this.promoterProviderIds(person);
             return `
                 <div>
                     <label class="block text-xs font-bold text-slate-500 mb-1">Marca registrada *</label>
@@ -2244,6 +2382,15 @@
                 <div>
                     <label class="block text-xs font-bold text-slate-500 mb-1">Correos del proveedor</label>
                     <textarea id="swal-correo" class="w-full min-h-[86px] p-3 border rounded-xl resize-none bg-slate-50 text-slate-500 cursor-not-allowed" placeholder="Se completa con el proveedor seleccionado" readonly aria-readonly="true">${h(emailValue)}</textarea>
+                </div>
+                <div>
+                    <label for="swal-extra-provider" class="block text-xs font-bold text-slate-500 mb-1">Proveedores asignados</label>
+                    <p class="text-xs text-slate-500 mb-2">La marca registrada define el proveedor principal. Puedes agregar otros proveedores sin duplicar a la impulsadora.</p>
+                    <div class="vendor-provider-add-row">
+                        <select id="swal-extra-provider" class="w-full p-3 border rounded-xl" aria-label="Proveedor adicional"></select>
+                        <button type="button" id="swal-add-provider" class="vendor-provider-add-button">Agregar</button>
+                    </div>
+                    <div id="swal-provider-chips" class="vendor-provider-chips" aria-live="polite"></div>
                 </div>`;
         }
 
@@ -2253,12 +2400,42 @@
             const emailInput = document.getElementById('swal-correo');
             if (!input || !providerEl || !emailInput) return;
 
+            const uniqueProviders = [...new Map(this.brandCatalog.map((brand) => [
+                asInt(brand.idProveedor),
+                { id: asInt(brand.idProveedor), name: asText(brand.proveedor, `Proveedor ${asInt(brand.idProveedor)}`) }
+            ])).values()].filter((provider) => provider.id).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+            const select = document.getElementById('swal-extra-provider');
+            const addButton = document.getElementById('swal-add-provider');
+            const chips = document.getElementById('swal-provider-chips');
+
+            const renderProviders = () => {
+                if (!select || !chips) return;
+                const primaryId = asInt(this.resolveBrandInput(input.value)?.idProveedor);
+                this.vendorProviderDraftIds = [...new Set((this.vendorProviderDraftIds || []).map(asInt).filter(Boolean))];
+                if (primaryId && !this.vendorProviderDraftIds.includes(primaryId)) this.vendorProviderDraftIds.push(primaryId);
+                const available = uniqueProviders.filter((provider) => !this.vendorProviderDraftIds.includes(provider.id));
+                select.innerHTML = `<option value="">${available.length ? 'Seleccionar proveedor…' : 'Todos los proveedores elegidos'}</option>${available.map((provider) => `<option value="${provider.id}">${h(provider.name)} · ID ${provider.id}</option>`).join('')}`;
+                select.disabled = !available.length;
+                if (addButton) addButton.disabled = !available.length;
+                chips.innerHTML = this.vendorProviderDraftIds.map((providerId) => {
+                    const principal = providerId === primaryId;
+                    const providerName = this.providerNameById(providerId);
+                    return `<span class="vendor-provider-chip"><span><strong>${h(providerName)}</strong><small>ID ${providerId}${principal ? ' · Principal' : ''}</small></span>${principal ? '<span class="material-icons" aria-hidden="true">verified</span>' : `<button type="button" data-remove-provider="${providerId}" aria-label="Quitar ${h(providerName)}"><span class="material-icons" aria-hidden="true">close</span></button>`}</span>`;
+                }).join('');
+                chips.querySelectorAll('[data-remove-provider]').forEach((button) => button.addEventListener('click', () => {
+                    const providerId = asInt(button.dataset.removeProvider);
+                    this.vendorProviderDraftIds = this.vendorProviderDraftIds.filter((id) => id !== providerId);
+                    renderProviders();
+                }));
+            };
+
             const renderBrand = () => {
                 const brand = this.resolveBrandInput(input.value);
                 if (!brand) {
                     providerEl.textContent = 'Elige una marca de la lista para asociar proveedor e IDs internos.';
                     providerEl.className = 'mt-2 rounded-xl bg-amber-50 border border-amber-100 px-3 py-2 text-xs text-amber-700';
                     emailInput.value = '';
+                    renderProviders();
                     return;
                 }
                 providerEl.innerHTML = `
@@ -2266,7 +2443,18 @@
                     <div>ID marca ${h(asText(brand.idMarca))} · ID proveedor ${h(asText(brand.idProveedor))}</div>`;
                 providerEl.className = 'mt-2 rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2 text-xs text-emerald-700';
                 emailInput.value = this.getProviderEmail(brand.idProveedor);
+                if (!this.vendorProviderDraftIds.includes(asInt(brand.idProveedor))) {
+                    this.vendorProviderDraftIds.push(asInt(brand.idProveedor));
+                }
+                renderProviders();
             };
+
+            addButton?.addEventListener('click', () => {
+                const providerId = asInt(select?.value);
+                if (!providerId || this.vendorProviderDraftIds.includes(providerId)) return;
+                this.vendorProviderDraftIds.push(providerId);
+                renderProviders();
+            });
 
             input.addEventListener('input', renderBrand);
             renderBrand();
@@ -2279,7 +2467,11 @@
                 return null;
             }
             const correos = this.getProviderEmails(brand.idProveedor);
-            return { brand, correo: correos.join(', '), correos };
+            const providerIds = [...new Set([
+                asInt(brand.idProveedor),
+                ...(this.vendorProviderDraftIds || []).map(asInt)
+            ].filter(Boolean))];
+            return { brand, correo: correos.join(', '), correos, providerIds };
         }
 
         promoterBrandPayload(brand, correos) {
@@ -2376,7 +2568,8 @@
                                 Habilitado: document.getElementById('swal-habilitado')?.checked === true
                             },
                             providerId: brandSelection.brand.idProveedor,
-                            providerEmail: brandSelection.correos
+                            providerEmail: brandSelection.correos,
+                            providerIds: brandSelection.providerIds
                         };
                     }
                 });
@@ -2386,8 +2579,21 @@
                 return;
             }
             if (!value) return;
+            Swal.fire({
+                title: 'Guardando vendedor…',
+                text: 'Actualizando sus proveedores asignados.',
+                allowOutsideClick: false,
+                allowEscapeKey: false,
+                didOpen: () => Swal.showLoading()
+            });
             try {
                 await rows(db.from(tables.impulsadoras).update(value.data).eq('id', asInt(person.id)).select());
+                const { error: providerError } = await db.rpc('establecer_impulsadora_proveedores', {
+                    p_impulsadora_id: asInt(person.id),
+                    p_provider_ids: value.providerIds,
+                    p_primary_provider_id: asInt(value.providerId)
+                });
+                if (providerError) throw providerError;
                 await this.syncProviderEmail(value.providerId, value.providerEmail);
                 this.selectedPromoterId = asInt(person.id);
                 await this.reload();
@@ -2470,7 +2676,7 @@
                     if (!person) return false;
                     if (this.zoneFilter && String(asInt(category?.id_zona)) !== this.zoneFilter) return false;
                     if (!needle) return true;
-                    return normalizeSearch(`${promoterDisplayName(person)} ${asText(person.Marca)} ${asText(person.Proveedor)} ${asText(store?.nombre_display)} ${asText(store?.alias_tienda)} ${asText(category?.descripcion)}`).includes(normalizeSearch(needle));
+                    return normalizeSearch(`${promoterDisplayName(person)} ${asText(person.Marca)} ${promoterProviderSearchText(person)} ${asText(store?.nombre_display)} ${asText(store?.alias_tienda)} ${asText(category?.descripcion)}`).includes(normalizeSearch(needle));
                 })
                 .sort((a, b) => asText(a.fecha).localeCompare(asText(b.fecha)) || asText(byId(this.stores, a.tienda_id)?.nombre_display).localeCompare(asText(byId(this.stores, b.tienda_id)?.nombre_display)));
         }
@@ -2520,7 +2726,7 @@
             const date = parseDate(key);
             Swal.fire({
                 title: prettyDate(date),
-                html: `<p class="text-slate-500 mb-3">${dayRows.length} ${dayRows.length === 1 ? 'asignación' : 'asignaciones'}</p>${dayRows.length ? dayRows.map((row) => this.promoterAgendaRow(row)).join('') : emptyState('event_available', 'Día libre', 'No hay personal asignado en esta fecha.')}${this.canManagePlanner() ? `<button class="bottom-action mt-3" onclick="Swal.close(); mobileApp.openPromoterSheetForDate('${key}')">Asignar este día</button>` : ''}`,
+                html: `<p class="text-slate-500 mb-3">${dayRows.length} ${dayRows.length === 1 ? 'asignación' : 'asignaciones'}</p>${isPastDateKey(key) ? '<div class="vendor-locked-note mb-3"><span class="material-icons">lock</span><span><strong>Fecha cerrada</strong><small>Disponible solo para consulta.</small></span></div>' : ''}${dayRows.length ? dayRows.map((row) => this.promoterAgendaRow(row)).join('') : emptyState('event_available', 'Día libre', 'No hay personal asignado en esta fecha.')}${this.canManagePlanner() && !isPastDateKey(key) ? `<button class="bottom-action mt-3" onclick="Swal.close(); mobileApp.openPromoterSheetForDate('${key}')">Asignar este día</button>` : ''}`,
                 showConfirmButton: false,
                 showCloseButton: true,
                 width: 420
@@ -2535,6 +2741,10 @@
                 return;
             }
             if (!this.canManagePlanner()) return;
+            if (isPastDateKey(key)) {
+                Swal.fire('Fecha cerrada', 'Las fechas anteriores están disponibles solo para consulta.', 'info');
+                return;
+            }
             const date = parseDate(key);
             const person = byId(this.promoters, ids[0]);
             Swal.fire({
@@ -2572,13 +2782,14 @@
             if (!row) return;
             const person = byId(this.promoters, row.impulsadora_id);
             const store = byId(this.stores, row.tienda_id);
+            const locked = isPastDateKey(row.fecha);
             Swal.fire({
                 title: person ? promoterDisplayName(person) : 'Turno',
                 html: `
                     <p class="text-slate-500 mb-4 text-sm">${h(asText(store?.nombre_display, 'Tienda'))} - ${h(asText(row.fecha))}</p>
                     <div class="grid gap-2">
                         ${person ? `<button class="bottom-action neutral full" onclick="Swal.close(); mobileApp.openVendorScheduleForPerson(${asInt(person.id)}, '${h(asText(row.fecha))}')">Ver horario</button>` : ''}
-                        ${this.canManagePlanner() ? `<button class="bottom-action full" onclick="Swal.close(); mobileApp.openPromoterSheet(${asInt(row.id)})">Modificar asignación</button><button class="bottom-action ink full" onclick="Swal.close(); mobileApp.deletePromoter(${asInt(row.id)})">Eliminar</button>` : ''}
+                        ${locked ? '<div class="vendor-locked-note"><span class="material-icons">lock</span><span><strong>Fecha cerrada</strong><small>La asignación ya no se puede modificar.</small></span></div>' : this.canManagePlanner() ? `<button class="bottom-action full" onclick="Swal.close(); mobileApp.openPromoterSheet(${asInt(row.id)})">Modificar asignación</button><button class="bottom-action ink full" onclick="Swal.close(); mobileApp.deletePromoter(${asInt(row.id)})">Eliminar</button>` : ''}
                         ${this.canReportFromPlanner() ? `<button class="bottom-action teal full" onclick="Swal.close(); mobileApp.reportIncident(${asInt(row.id)})">Reportar incidencia</button>` : ''}
                     </div>`,
                 showConfirmButton: false,
@@ -2665,11 +2876,12 @@
             this.render();
         }
 
-        showVendorMode() {
+        async showVendorMode() {
             this.vendorMode = true;
             this.sideMode = false;
             this.monthMode = false;
             this.selected = monthStart(this.selected);
+            await this.loadVendorSales();
             this.render();
         }
 
@@ -2678,9 +2890,15 @@
             this.render();
         }
 
-        selectVendor(id) {
+        async selectVendor(id) {
             this.vendorKind = 'impulso';
             this.selectedPromoterId = asInt(id) || null;
+            this.vendorSalesCacheKey = '';
+            this.vendorDailySales = [];
+            this.vendorProductSales = [];
+            this.vendorSalesLoading = true;
+            this.render();
+            await this.loadVendorSales();
             this.render();
         }
 
@@ -2702,18 +2920,62 @@
             if (this.vendorKind === 'interno') {
                 const rowsForDay = this.internalVendorScheduleRows(person).filter((row) => asText(row.fecha) === key);
                 if (rowsForDay.length) {
+                    if (isPastDateKey(key)) {
+                        const row = rowsForDay[0];
+                        const store = byId(this.stores, row.tienda_id);
+                        Swal.fire({
+                            title: prettyDate(parseDate(key)),
+                            html: `<div class="vendor-locked-note"><span class="material-icons">lock</span><span><strong>Fecha cerrada</strong><small>Las fechas anteriores ya no se pueden modificar.</small></span></div><div class="mt-3 text-left"><strong>${h(asText(person.nombre_completo, 'Personal'))}</strong><p class="text-sm text-slate-500">${h(asText(store?.nombre_display, 'Tienda'))} · ${h(asText(row.tipo, 'TRABAJO'))}</p></div>`,
+                            showConfirmButton: false,
+                            showCloseButton: true
+                        });
+                        return;
+                    }
                     this.showInternalForm(rowsForDay[0], parseDate(rowsForDay[0].fecha), rowsForDay[0].tienda_id, asInt(person.id));
                     return;
                 }
-                if (this.canManagePlanner()) this.showInternalFormForPerson(asInt(person.id), key);
+                if (this.canManagePlanner() && !isPastDateKey(key)) this.showInternalFormForPerson(asInt(person.id), key);
                 return;
             }
             const rowsForDay = this.vendorScheduleRows(person).filter((row) => asText(row.fecha) === key);
-            if (rowsForDay.length) {
-                this.openEntryActions('impulso', asInt(rowsForDay[0].id));
-                return;
-            }
-            if (this.canManagePlanner()) this.showPromoterFormForPerson(asInt(person.id), key);
+            const sale = this.vendorSaleForDate(person, key);
+            const products = this.vendorProductsForDate(person, key);
+            const providerGroups = this.providerSalesGroups(products);
+            const providerSales = products.reduce((sum, item) => sum + Number(item.venta_neta || 0), 0);
+            const providerItems = products.reduce((sum, item) => sum + Number(item.cantidad_neta || 0), 0);
+            const providerNames = this.promoterProviderIds(person).map((id) => this.providerNameById(id));
+            const locked = isPastDateKey(key);
+            const scheduleHtml = rowsForDay.length
+                ? rowsForDay.map((row) => `<div class="vendor-day-schedule"><span class="material-icons">storefront</span><span><strong>${h(asText(byId(this.stores, row.tienda_id)?.nombre_display, 'Tienda'))}</strong><small>Asignación registrada</small></span></div>`).join('')
+                : '<p class="vendor-day-empty">Sin asignación registrada en Horarios.</p>';
+            const productsHtml = providerGroups.length
+                ? providerGroups.map((group) => `<div class="vendor-sales-products"><div class="vendor-sales-products-head"><strong>${h(group.name)}</strong><span>${h(this.salesQuantity(group.items))} ítems · ${h(this.salesMoney(group.sales))}</span></div>${group.products.map((item) => `<div class="vendor-sales-product"><span><strong>${h(asText(item.producto, 'Producto'))}</strong><small>${h(asText(item.codigo_producto, '-'))}</small></span><span><b>${h(this.salesQuantity(item.cantidad_neta))} ítems</b><small>${h(this.salesMoney(item.venta_neta))}</small></span></div>`).join('')}</div>`).join('')
+                : '<p class="vendor-day-empty">No hay productos de los proveedores asignados vendidos este día.</p>';
+            const editActions = !locked && this.canManagePlanner() && rowsForDay.length
+                ? `<button class="bottom-action full" onclick="Swal.close(); mobileApp.openPromoterSheet(${asInt(rowsForDay[0].id)})">Modificar asignación</button><button class="bottom-action ink full" onclick="Swal.close(); mobileApp.deletePromoter(${asInt(rowsForDay[0].id)})">Eliminar</button>`
+                : !locked && this.canManagePlanner() && !rowsForDay.length
+                    ? `<button class="bottom-action full" onclick="Swal.close(); mobileApp.showPromoterFormForPerson(${asInt(person.id)}, '${key}')">Asignar este día</button>`
+                    : '';
+            Swal.fire({
+                title: prettyDate(parseDate(key)),
+                html: `
+                    <div class="vendor-sales-dialog-body">
+                        ${locked ? '<div class="vendor-locked-note"><span class="material-icons">lock</span><span><strong>Fecha cerrada</strong><small>Disponible solo para consulta.</small></span></div>' : ''}
+                        <div class="vendor-sales-kpis">
+                            <article><small>Venta total</small><strong>${h(this.salesMoney(sale?.ventas_netas))}</strong><span>${asInt(sale?.facturas)} facturas · ${asInt(sale?.notas_credito)} NC</span></article>
+                            <article><small>Venta proveedores</small><strong>${h(this.salesMoney(providerSales))}</strong><span>${h(providerNames.join(' · ') || asText(person.Proveedor, 'Proveedor asignado'))}</span></article>
+                            <article><small>Ítems totales</small><strong>${h(this.salesQuantity(sale?.items_netos))}</strong><span>Sin OBSEQUIO</span></article>
+                            <article><small>Ítems proveedores</small><strong>${h(this.salesQuantity(providerItems))}</strong><span>${products.length} productos</span></article>
+                        </div>
+                        ${scheduleHtml}
+                        ${productsHtml}
+                        <div class="grid gap-2 mt-3">${editActions}${rowsForDay.length && this.canReportFromPlanner() ? `<button class="bottom-action teal full" onclick="Swal.close(); mobileApp.reportIncident(${asInt(rowsForDay[0].id)})">Reportar incidencia</button>` : ''}</div>
+                    </div>`,
+                showConfirmButton: false,
+                showCloseButton: true,
+                width: 680,
+                customClass: { popup: 'vendor-sales-dialog' }
+            });
         }
 
         setSummary(value) {
@@ -2798,6 +3060,11 @@
 
         async showPromoterForm(existing, date, forcedStoreId, forcedPromoterId) {
             const viewPosition = this.captureViewPosition();
+            const requestedDate = asText(existing?.fecha) || dateKey(date || this.selected);
+            if (isPastDateKey(requestedDate)) {
+                Swal.fire('Fecha cerrada', 'Las fechas anteriores ya no se pueden modificar.', 'info');
+                return;
+            }
             const currentPromoter = asInt(existing?.impulsadora_id || forcedPromoterId || '', '');
             const activePromoters = mergePromoterOptions(this.promoters
                 .filter((person) => activePromoter(person) || asInt(person.id) === currentPromoter), currentPromoter);
@@ -2812,7 +3079,7 @@
                 title: existing ? 'Modificar impulso' : 'Asignar impulso',
                 html: `
                     <div class="grid gap-3 text-left">
-                        <label class="text-xs font-bold text-slate-500">Fecha<input id="mw-date" type="date" class="w-full p-3 border rounded-xl mt-1" value="${currentDate}"></label>
+                        <label class="text-xs font-bold text-slate-500">Fecha<input id="mw-date" type="date" min="${h(todayKeyInGuayaquil())}" class="w-full p-3 border rounded-xl mt-1" value="${currentDate}"></label>
                         <label class="text-xs font-bold text-slate-500">Impulsadora<input id="mw-person-search" list="mw-person-options" class="mw-search-input w-full p-3 border rounded-xl mt-1" value="${h(currentPromoterLabel)}" placeholder="Escribe nombre o marca"><datalist id="mw-person-options">${activePromoters.map((person) => `<option value="${h(promoterSearchLabel(person))}" data-id="${asInt(person.id)}"></option>`).join('')}</datalist></label>
                         <label class="text-xs font-bold text-slate-500">Tienda<select id="mw-store" class="mw-store-color-select w-full p-3 border rounded-xl mt-1" style="${storePickerStyle(byId(activeStores, currentStore))}" onchange="mobileApp.paintStorePicker(this)" ${this.session.isStoreUser ? 'disabled' : ''}><option value="">Seleccionar</option>${activeStores.map((store) => `<option value="${asInt(store.id)}" ${asInt(store.id) === currentStore ? 'selected' : ''}>${h(asText(store.nombre_display))}</option>`).join('')}</select></label>
                     </div>`,
@@ -2820,6 +3087,11 @@
                 confirmButtonText: 'Guardar',
                 didOpen: () => this.paintStorePicker(document.getElementById('mw-store')),
                 preConfirm: () => {
+                    const selectedDate = document.getElementById('mw-date').value;
+                    if (isPastDateKey(selectedDate)) {
+                        Swal.showValidationMessage('Las fechas anteriores ya no se pueden modificar.');
+                        return false;
+                    }
                     const resolved = resolvePromoterSearch(document.getElementById('mw-person-search').value, activePromoters);
                     if (resolved.state === 'ambiguous') {
                         Swal.showValidationMessage('Hay varias coincidencias. Elige una impulsadora de la lista.');
@@ -2830,7 +3102,7 @@
                         return false;
                     }
                     return {
-                        fecha: document.getElementById('mw-date').value,
+                        fecha: selectedDate,
                         impulsadora_id: resolved.id,
                         tienda_id: asInt(document.getElementById('mw-store').value || currentStore)
                     };
@@ -2839,6 +3111,10 @@
             if (!value) return;
             if (!value.fecha || !value.impulsadora_id || !value.tienda_id) {
                 Swal.fire('Faltan datos', 'Selecciona fecha, impulsadora y tienda.', 'warning');
+                return;
+            }
+            if (isPastDateKey(value.fecha)) {
+                Swal.fire('Fecha cerrada', 'Las fechas anteriores ya no se pueden modificar.', 'info');
                 return;
             }
             let dayRows;
@@ -2909,6 +3185,11 @@
         }
 
         async deletePromoter(id) {
+            const existing = [...(this.promoterRows || []), ...(this.monthlyRows || [])].find((row) => asInt(row.id) === asInt(id));
+            if (existing && isPastDateKey(existing.fecha)) {
+                Swal.fire('Fecha cerrada', 'Las asignaciones de fechas anteriores no se pueden eliminar.', 'info');
+                return;
+            }
             const ok = await Swal.fire({ title: 'Eliminar asignación', text: 'Esta acción no se puede deshacer.', icon: 'warning', showCancelButton: true, confirmButtonText: 'Eliminar', cancelButtonText: 'Cancelar' });
             if (!ok.isConfirmed) return;
             try {
@@ -2956,6 +3237,11 @@
         }
 
         async showInternalForm(existing, date, forcedStoreId, forcedPersonId = null) {
+            const requestedDate = asText(existing?.fecha) || dateKey(date || this.selected);
+            if (isPastDateKey(requestedDate)) {
+                Swal.fire('Fecha cerrada', 'Las fechas anteriores ya no se pueden modificar.', 'info');
+                return;
+            }
             const activeStaff = this.internalStaff
                 .filter((person) => activeInternal(person) || asInt(person.id) === asInt(existing?.personal_id) || asInt(person.id) === asInt(forcedPersonId))
                 .sort((a, b) => asText(a.nombre_completo).localeCompare(asText(b.nombre_completo)));
@@ -2967,13 +3253,14 @@
             const currentStore = asInt(existing?.tienda_id || forcedStoreId || this.session.storeId || '', '');
             const currentType = asText(existing?.tipo, 'TRABAJO');
             const canDeleteExisting = Boolean(existing?.id)
+                && !isPastDateKey(existing?.fecha)
                 && typeof this.deleteInternalAssignment === 'function'
                 && (this.session.isManager || (this.session.isStoreUser && asInt(existing.tienda_id) === asInt(this.session.storeId)));
             const result = await Swal.fire({
                 title: existing ? 'Modificar asignación' : 'Nueva asignación',
                 html: `
                     <div class="grid gap-3 text-left">
-                        <label class="text-xs font-bold text-slate-500">Fecha<input id="mw-date" type="date" class="w-full p-3 border rounded-xl mt-1" value="${currentDate}"></label>
+                        <label class="text-xs font-bold text-slate-500">Fecha<input id="mw-date" type="date" min="${h(todayKeyInGuayaquil())}" class="w-full p-3 border rounded-xl mt-1" value="${currentDate}"></label>
                         <label class="text-xs font-bold text-slate-500">Personal<select id="mw-person" class="w-full p-3 border rounded-xl mt-1"><option value="">Seleccionar</option>${activeStaff.map((person) => `<option value="${asInt(person.id)}" ${asInt(person.id) === currentPerson ? 'selected' : ''}>${h(asText(person.nombre_completo))}</option>`).join('')}</select></label>
                         <label class="text-xs font-bold text-slate-500">Bodega/Tienda<select id="mw-store" class="mw-store-color-select w-full p-3 border rounded-xl mt-1" style="${storePickerStyle(byId(activeStores, currentStore))}" onchange="mobileApp.paintStorePicker(this)" ${this.session.isStoreUser ? 'disabled' : ''}><option value="">Seleccionar</option>${activeStores.map((store) => `<option value="${asInt(store.id)}" ${asInt(store.id) === currentStore ? 'selected' : ''}>${h(asText(store.nombre_display))}</option>`).join('')}</select></label>
                         <label class="text-xs font-bold text-slate-500">Tipo<select id="mw-type" class="w-full p-3 border rounded-xl mt-1">${internalAssignmentTypes.map((type) => `<option value="${type}" ${type === currentType ? 'selected' : ''}>${type}</option>`).join('')}</select></label>
@@ -2984,12 +3271,19 @@
                 denyButtonText: 'Eliminar asignación',
                 denyButtonColor: '#111827',
                 didOpen: () => this.paintStorePicker(document.getElementById('mw-store')),
-                preConfirm: () => ({
-                    fecha: document.getElementById('mw-date').value,
-                    personal_id: asInt(document.getElementById('mw-person').value),
-                    tienda_id: asInt(document.getElementById('mw-store').value || currentStore),
-                    tipo: document.getElementById('mw-type').value
-                })
+                preConfirm: () => {
+                    const selectedDate = document.getElementById('mw-date').value;
+                    if (isPastDateKey(selectedDate)) {
+                        Swal.showValidationMessage('Las fechas anteriores ya no se pueden modificar.');
+                        return false;
+                    }
+                    return {
+                        fecha: selectedDate,
+                        personal_id: asInt(document.getElementById('mw-person').value),
+                        tienda_id: asInt(document.getElementById('mw-store').value || currentStore),
+                        tipo: document.getElementById('mw-type').value
+                    };
+                }
             });
             if (result.isDenied) {
                 await this.deleteInternalAssignment(asInt(existing.id));
@@ -2999,6 +3293,10 @@
             if (!value) return;
             if (!value.fecha || !value.personal_id || !value.tienda_id) {
                 Swal.fire('Faltan datos', 'Selecciona fecha, personal y tienda.', 'warning');
+                return;
+            }
+            if (isPastDateKey(value.fecha)) {
+                Swal.fire('Fecha cerrada', 'Las fechas anteriores ya no se pueden modificar.', 'info');
                 return;
             }
             const localConflict = this.internalRows.find((row) => asInt(row.personal_id) === value.personal_id && asText(row.fecha) === value.fecha && asInt(row.id) !== asInt(existing?.id));
@@ -3555,7 +3853,7 @@
             const person = byId(this.promoters, row.impulsadora_id);
             if (!person) return '';
             const category = byId(this.categories, person?.idCategoria) || byId(this.categories, row.categoria_asignada_id);
-            return `${promoterDisplayName(person)} ${asText(person.Marca)} ${asText(person.Proveedor)} ${asText(category?.descripcion)} Impulsadora Impulso`;
+            return `${promoterDisplayName(person)} ${asText(person.Marca)} ${promoterProviderSearchText(person)} ${asText(category?.descripcion)} Impulsadora Impulso`;
         }
 
         internalSearchText(row) {
@@ -3740,6 +4038,9 @@
         }
 
         assignmentButtonsForDay(key) {
+            if (isPastDateKey(key)) {
+                return '<div class="vendor-locked-note mt-3"><span class="material-icons">lock</span><span><strong>Fecha cerrada</strong><small>Disponible solo para consulta.</small></span></div>';
+            }
             const buttons = [];
             if (this.assignmentFilter !== 'interno' && this.session.isManager) {
                 buttons.push(`<button class="bottom-action mt-3" onclick="Swal.close(); mobileApp.openPromoterAssignmentForDate('${key}')">Asignar impulso</button>`);
@@ -3756,12 +4057,13 @@
             const person = byId(this.promoters, row.impulsadora_id);
             const store = byId(this.stores, row.tienda_id);
             const canReport = this.canReportIncidentForRow(row);
+            const locked = isPastDateKey(row.fecha);
             Swal.fire({
                 title: person ? promoterDisplayName(person) : 'Turno',
                 html: `
                     <p class="text-slate-500 mb-4 text-sm">${h(asText(store?.nombre_display, 'Tienda'))} - ${h(asText(row.fecha))}</p>
                     <div class="grid gap-2">
-                        ${this.session.isManager ? `<button class="bottom-action full" onclick="Swal.close(); mobileApp.showPromoterFormById(${asInt(row.id)})">Modificar asignación</button><button class="bottom-action ink full" onclick="Swal.close(); mobileApp.deletePromoter(${asInt(row.id)})">Eliminar</button>` : ''}
+                        ${locked ? '<div class="vendor-locked-note"><span class="material-icons">lock</span><span><strong>Fecha cerrada</strong><small>Disponible solo para consulta.</small></span></div>' : this.session.isManager ? `<button class="bottom-action full" onclick="Swal.close(); mobileApp.showPromoterFormById(${asInt(row.id)})">Modificar asignación</button><button class="bottom-action ink full" onclick="Swal.close(); mobileApp.deletePromoter(${asInt(row.id)})">Eliminar</button>` : ''}
                         ${canReport ? `<button class="bottom-action teal full" onclick="Swal.close(); mobileApp.reportIncident(${asInt(row.id)})">Reportar incidencia</button>` : '<p class="app-list-subtitle text-center">Las incidencias futuras se habilitan el día del turno.</p>'}
                     </div>`,
                 showConfirmButton: false,
@@ -3818,12 +4120,13 @@
             if (!row || asInt(row.tienda_id) !== asInt(this.selectedStoreId)) return;
             const person = byId(this.internalStaff, row.personal_id);
             const store = byId(this.stores, row.tienda_id);
+            const locked = isPastDateKey(row.fecha);
             Swal.fire({
                 title: asText(person?.nombre_completo, 'Personal interno'),
                 html: `
                     <p class="text-slate-500 mb-4 text-sm">${h(asText(store?.nombre_display, 'Bodega/Tienda'))} - ${h(asText(row.fecha))}</p>
                     <div class="grid gap-2">
-                        ${this.canManageInternal() ? `<button class="bottom-action full" onclick="Swal.close(); mobileApp.editInternalAssignment(${asInt(row.id)})">Modificar asignación</button><button class="bottom-action teal full" onclick="Swal.close(); mobileApp.markInternalDayOff(${asInt(row.id)})">Marcar día libre</button><button class="bottom-action ink full" onclick="Swal.close(); mobileApp.deleteInternalAssignment(${asInt(row.id)})">Eliminar asignación</button>` : `<p class="font-bold">${h(asText(row.tipo, 'TRABAJO'))}</p>`}
+                        ${locked ? '<div class="vendor-locked-note"><span class="material-icons">lock</span><span><strong>Fecha cerrada</strong><small>Disponible solo para consulta.</small></span></div>' : this.canManageInternal() ? `<button class="bottom-action full" onclick="Swal.close(); mobileApp.editInternalAssignment(${asInt(row.id)})">Modificar asignación</button><button class="bottom-action teal full" onclick="Swal.close(); mobileApp.markInternalDayOff(${asInt(row.id)})">Marcar día libre</button><button class="bottom-action ink full" onclick="Swal.close(); mobileApp.deleteInternalAssignment(${asInt(row.id)})">Eliminar asignación</button>` : `<p class="font-bold">${h(asText(row.tipo, 'TRABAJO'))}</p>`}
                     </div>`,
                 showConfirmButton: false,
                 showCloseButton: true
@@ -3832,19 +4135,23 @@
 
         editInternalAssignment(id) {
             const row = this.monthlyInternalRows.find((item) => asInt(item.id) === asInt(id));
-            if (!row || !this.canManageInternal() || asInt(row.tienda_id) !== asInt(this.selectedStoreId)) return;
+            if (!row || isPastDateKey(row.fecha) || !this.canManageInternal() || asInt(row.tienda_id) !== asInt(this.selectedStoreId)) return;
             this.showInternalForm(row, parseDate(row.fecha), this.selectedStoreId);
         }
 
         async markInternalDayOff(id) {
             const row = this.monthlyInternalRows.find((item) => asInt(item.id) === asInt(id));
-            if (!row || !this.canManageInternal() || asInt(row.tienda_id) !== asInt(this.selectedStoreId)) return;
+            if (!row || isPastDateKey(row.fecha) || !this.canManageInternal() || asInt(row.tienda_id) !== asInt(this.selectedStoreId)) return;
             await this.saveInternalDayOff(row);
         }
 
         async deleteInternalAssignment(id) {
             const row = this.monthlyInternalRows.find((item) => asInt(item.id) === asInt(id));
             if (!row || !this.canManageInternal() || asInt(row.tienda_id) !== asInt(this.selectedStoreId)) return;
+            if (isPastDateKey(row.fecha)) {
+                Swal.fire('Fecha cerrada', 'Las asignaciones anteriores no se pueden eliminar.', 'info');
+                return;
+            }
             const ok = await Swal.fire({
                 title: 'Eliminar asignación',
                 text: 'Se eliminará este registro del horario interno.',
@@ -4243,7 +4550,7 @@
             const date = parseDate(key);
             Swal.fire({
                 title: prettyDate(date),
-                html: `<p class="text-slate-500 mb-3">${h(this.showCrossStoreInternal ? `${asText(byId(this.stores, this.selectedStoreId)?.nombre_display, 'Bodega/Tienda')} + otros puntos` : asText(byId(this.stores, this.selectedStoreId)?.nombre_display, 'Bodega/Tienda'))}</p>${rowsForDay.length ? rowsForDay.map((row) => this.assignmentRow(row)).join('') : emptyState('person_off', 'Sin registros', 'No hay personal interno en esta fecha.')}${this.canManageInternal() ? `<button class="bottom-action mt-3" onclick="Swal.close(); mobileApp.openAssignmentForDate('${key}')">Nueva asignación interna</button>` : ''}`,
+                html: `<p class="text-slate-500 mb-3">${h(this.showCrossStoreInternal ? `${asText(byId(this.stores, this.selectedStoreId)?.nombre_display, 'Bodega/Tienda')} + otros puntos` : asText(byId(this.stores, this.selectedStoreId)?.nombre_display, 'Bodega/Tienda'))}</p>${isPastDateKey(key) ? '<div class="vendor-locked-note mb-3"><span class="material-icons">lock</span><span><strong>Fecha cerrada</strong><small>Disponible solo para consulta.</small></span></div>' : ''}${rowsForDay.length ? rowsForDay.map((row) => this.assignmentRow(row)).join('') : emptyState('person_off', 'Sin registros', 'No hay personal interno en esta fecha.')}${this.canManageInternal() && !isPastDateKey(key) ? `<button class="bottom-action mt-3" onclick="Swal.close(); mobileApp.openAssignmentForDate('${key}')">Nueva asignación interna</button>` : ''}`,
                 showConfirmButton: false,
                 showCloseButton: true
             });
@@ -4264,12 +4571,13 @@
             if (!this.personMode && asInt(row.tienda_id) !== asInt(this.selectedStoreId) && !isVisibleCrossStoreRow) return;
             const person = byId(this.staff, row.personal_id);
             const store = byId(this.stores, row.tienda_id);
-            const canEditRow = this.canManageInternalRow(row);
+            const locked = isPastDateKey(row.fecha);
+            const canEditRow = this.canManageInternalRow(row) && !locked;
             Swal.fire({
                 title: asText(person?.nombre_completo, 'Personal interno'),
                 html: `
                     <p class="text-slate-500 mb-4 text-sm">${h(asText(store?.nombre_display, 'Bodega/Tienda'))} - ${h(asText(row.fecha))}</p>
-                    ${canEditRow ? `<div class="grid gap-2">
+                    ${locked ? '<div class="vendor-locked-note"><span class="material-icons">lock</span><span><strong>Fecha cerrada</strong><small>Disponible solo para consulta.</small></span></div>' : canEditRow ? `<div class="grid gap-2">
                         <button class="bottom-action full" onclick="Swal.close(); mobileApp.editInternalAssignment(${asInt(row.id)})">Modificar asignación</button>
                         <button class="bottom-action teal full" onclick="Swal.close(); mobileApp.markInternalDayOff(${asInt(row.id)})">Marcar día libre</button>
                         <button class="bottom-action ink full" onclick="Swal.close(); mobileApp.deleteInternalAssignment(${asInt(row.id)})">Eliminar asignación</button>
@@ -4286,19 +4594,23 @@
 
         editInternalAssignment(id) {
             const row = this.monthlyRows.find((item) => asInt(item.id) === asInt(id));
-            if (!row || !this.canManageInternalRow(row)) return;
+            if (!row || isPastDateKey(row.fecha) || !this.canManageInternalRow(row)) return;
             this.showInternalForm(row, parseDate(row.fecha), row.tienda_id || this.selectedStoreId);
         }
 
         async markInternalDayOff(id) {
             const row = this.monthlyRows.find((item) => asInt(item.id) === asInt(id));
-            if (!row || !this.canManageInternalRow(row)) return;
+            if (!row || isPastDateKey(row.fecha) || !this.canManageInternalRow(row)) return;
             await this.saveInternalDayOff(row);
         }
 
         async deleteInternalAssignment(id) {
             const row = this.monthlyRows.find((item) => asInt(item.id) === asInt(id));
             if (!row || !this.canManageInternalRow(row)) return;
+            if (isPastDateKey(row.fecha)) {
+                Swal.fire('Fecha cerrada', 'Las asignaciones anteriores no se pueden eliminar.', 'info');
+                return;
+            }
             const ok = await Swal.fire({
                 title: 'Eliminar asignación',
                 text: 'Se eliminará este registro del horario interno.',
@@ -4357,6 +4669,7 @@
                 const daysInMonth = monthEnd(this.selected).getDate();
                 for (let day = 1; day <= daysInMonth; day += 1) {
                     const key = dateKey(new Date(this.selected.getFullYear(), this.selected.getMonth(), day));
+                    if (isPastDateKey(key)) continue;
                     if (assignedDates.has(key)) continue;
                     payload.push({
                         fecha: key,
@@ -5281,14 +5594,15 @@
     class SalesView extends BaseView {
         constructor() {
             super('sales');
-            this.selectedDate = todayKeyInGuayaquil();
-            this.selectedSellerId = 0;
+            this.selectedMonth = monthStart(parseDate(todayKeyInGuayaquil()) || new Date());
+            this.selectedProviderId = 0;
             this.search = '';
             this.daily = [];
             this.products = [];
             this.promoters = [];
-            this.sync = null;
-            this.didResolveLatestDate = false;
+            this.brandCatalog = [];
+            this.syncs = [];
+            this.didResolveLatestMonth = false;
         }
 
         async load() {
@@ -5296,23 +5610,50 @@
                 window.location.href = 'navegacion.html';
                 return;
             }
-            if (!this.didResolveLatestDate) {
+            if (!this.didResolveLatestMonth) {
                 const latest = await rows(db.from(tables.dailySales).select('fecha').order('fecha', { ascending: false }).limit(1));
-                if (latest[0]?.fecha) this.selectedDate = latest[0].fecha;
-                this.didResolveLatestDate = true;
+                const latestDate = parseDate(latest[0]?.fecha);
+                if (latestDate) this.selectedMonth = monthStart(latestDate);
+                this.didResolveLatestMonth = true;
             }
-            const [daily, products, promoters, syncs] = await Promise.all([
-                rows(db.from(tables.dailySales).select('*').eq('fecha', this.selectedDate).order('nombre_vendedor')),
-                rows(db.from(tables.dailySalesProducts).select('*').eq('fecha', this.selectedDate).order('producto')),
+            const first = dateKey(monthStart(this.selectedMonth));
+            const last = dateKey(monthEnd(this.selectedMonth));
+            const [daily, products, promoters, promoterProviders, brandCatalog, syncs] = await Promise.all([
+                this.monthRows(tables.dailySales, first, last, ['fecha', 'id_vendedor']),
+                this.monthRows(tables.dailySalesProducts, first, last, ['fecha', 'id_vendedor', 'id_proveedor', 'codigo_producto']),
                 rows(db.from(tables.impulsadoras).select('*')),
-                rows(db.from(tables.salesSyncs).select('*').eq('fecha', this.selectedDate).order('sincronizado_en', { ascending: false }).limit(1))
+                rows(db.from(tables.promoterProviders).select('*')),
+                rows(db.from(tables.brandCatalog).select('*').eq('activo', true).order('marca')),
+                this.monthRows(tables.salesSyncs, first, last, ['fecha'])
             ]);
             this.daily = daily;
             this.products = products;
-            this.promoters = promoters.filter(activePromoter);
-            this.sync = syncs[0] || null;
-            if (!this.daily.some((item) => asInt(item.id_vendedor) === this.selectedSellerId)) {
-                this.selectedSellerId = asInt(this.daily[0]?.id_vendedor);
+            this.promoterProviders = promoterProviders;
+            this.brandCatalog = brandCatalog;
+            this.promoters = promoters.filter(activePromoter).map((person) => ({
+                ...person,
+                _providerIds: this.promoterProviderIds(person, promoterProviders)
+            }));
+            this.syncs = syncs;
+            const providerIds = this.availableProviders().map((item) => item.id);
+            if (!providerIds.includes(this.selectedProviderId)) {
+                this.selectedProviderId = providerIds[0] || 0;
+            }
+        }
+
+        async monthRows(table, first, last, orderColumns) {
+            const pageSize = 1000;
+            const output = [];
+            for (let offset = 0; ; offset += pageSize) {
+                let query = db.from(table)
+                    .select('*')
+                    .gte('fecha', first)
+                    .lte('fecha', last);
+                orderColumns.forEach((column) => { query = query.order(column); });
+                const { data, error } = await query.range(offset, offset + pageSize - 1);
+                if (error) throw error;
+                output.push(...(data || []));
+                if (!data || data.length < pageSize) return output;
             }
         }
 
@@ -5328,26 +5669,73 @@
             return this.promoters.filter((person) => asInt(person.idVendedor) === asInt(vendorId));
         }
 
-        sellerLabel(sale) {
-            const matches = this.promoterMatches(sale.id_vendedor);
-            if (matches.length === 1) return `${promoterDisplayName(matches[0])} · ${asText(matches[0].Marca, 'Sin marca')}`;
+        sellerLabel(seller) {
+            const matches = this.promoterMatches(seller.id_vendedor);
+            if (matches.length === 1) return promoterDisplayName(matches[0]);
             if (matches.length > 1) return `${matches.map(promoterDisplayName).join(' / ')} · ID duplicado`;
-            return asText(sale.nombre_vendedor, `Vendedor ${sale.id_vendedor}`);
+            return asText(seller.nombre_vendedor, `Vendedor ${seller.id_vendedor}`);
         }
 
-        selectedSale() {
-            return this.daily.find((item) => asInt(item.id_vendedor) === this.selectedSellerId) || null;
+        availableProviders() {
+            const byId = new Map();
+            this.products.forEach((item) => {
+                const id = asInt(item.id_proveedor);
+                if (!id) return;
+                const current = byId.get(id) || { id, name: asText(item.proveedor, this.providerNameById(id)), sales: 0, items: 0 };
+                current.sales += Number(item.venta_neta || 0);
+                current.items += Number(item.cantidad_neta || 0);
+                byId.set(id, current);
+            });
+            return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, 'es'));
         }
 
         selectedProvider() {
-            const matches = this.promoterMatches(this.selectedSellerId);
-            const providerIds = [...new Set(matches.map((person) => asInt(person.idProveedor)).filter(Boolean))];
-            return providerIds.length === 1 ? providerIds[0] : 0;
+            return this.availableProviders().find((item) => item.id === this.selectedProviderId) || null;
         }
 
         selectedProducts() {
-            const providerId = this.selectedProvider();
-            return this.products.filter((item) => asInt(item.id_vendedor) === this.selectedSellerId && (!providerId || asInt(item.id_proveedor) === providerId));
+            return this.products.filter((item) => asInt(item.id_proveedor) === this.selectedProviderId);
+        }
+
+        sellerSummary(products) {
+            const bySeller = new Map();
+            products.forEach((item) => {
+                const id = asInt(item.id_vendedor);
+                const current = bySeller.get(id) || {
+                    id_vendedor: id,
+                    nombre_vendedor: '',
+                    sales: 0,
+                    items: 0,
+                    days: new Set()
+                };
+                current.nombre_vendedor = current.nombre_vendedor || this.daily.find((sale) => asInt(sale.id_vendedor) === id)?.nombre_vendedor || '';
+                current.sales += Number(item.venta_neta || 0);
+                current.items += Number(item.cantidad_neta || 0);
+                current.days.add(asText(item.fecha));
+                bySeller.set(id, current);
+            });
+            return [...bySeller.values()].sort((a, b) => b.sales - a.sales);
+        }
+
+        productSummary(products) {
+            const byProduct = new Map();
+            products.forEach((item) => {
+                const key = `${asText(item.codigo_producto)}\u0000${asText(item.producto)}`;
+                const current = byProduct.get(key) || {
+                    code: asText(item.codigo_producto, '-'),
+                    name: asText(item.producto, 'Producto'),
+                    sales: 0,
+                    items: 0,
+                    days: new Set(),
+                    sellers: new Set()
+                };
+                current.sales += Number(item.venta_neta || 0);
+                current.items += Number(item.cantidad_neta || 0);
+                current.days.add(asText(item.fecha));
+                current.sellers.add(asInt(item.id_vendedor));
+                byProduct.set(key, current);
+            });
+            return [...byProduct.values()].sort((a, b) => b.sales - a.sales);
         }
 
         duplicateWarnings() {
@@ -5363,51 +5751,57 @@
         }
 
         render() {
-            const sale = this.selectedSale();
-            const providerId = this.selectedProvider();
-            const providerMatches = this.promoterMatches(this.selectedSellerId);
-            const providerName = providerMatches.length === 1 ? asText(providerMatches[0].Proveedor, 'Proveedor asignado') : 'Proveedor no definido';
-            const products = this.selectedProducts();
-            const providerSales = products.reduce((sum, item) => sum + Number(item.venta_neta || 0), 0);
-            const providerItems = products.reduce((sum, item) => sum + Number(item.cantidad_neta || 0), 0);
+            const provider = this.selectedProvider();
+            const providerProducts = this.selectedProducts();
+            const sellers = this.sellerSummary(providerProducts);
+            const products = this.productSummary(providerProducts);
+            const providerSales = providerProducts.reduce((sum, item) => sum + Number(item.venta_neta || 0), 0);
+            const providerItems = providerProducts.reduce((sum, item) => sum + Number(item.cantidad_neta || 0), 0);
+            const salesDays = new Set(providerProducts.map((item) => asText(item.fecha))).size;
             const needle = normalizeSearch(this.search);
-            const sellers = this.daily.filter((item) => normalizeSearch(`${this.sellerLabel(item)} ${item.nombre_vendedor} ${item.id_vendedor}`).includes(needle));
+            const providers = this.availableProviders().filter((item) => normalizeSearch(`${item.name} ${item.id}`).includes(needle));
             const duplicates = this.duplicateWarnings();
-            const syncStatus = this.sync?.estado === 'completado'
-                ? `Actualizado ${new Date(this.sync.sincronizado_en).toLocaleString('es-EC')}`
-                : this.sync?.estado === 'error' ? 'La última sincronización terminó con error' : 'Sin sincronización registrada para esta fecha';
+            const latestSync = [...this.syncs].sort((a, b) => new Date(b.sincronizado_en) - new Date(a.sincronizado_en))[0];
+            const completedDays = this.syncs.filter((item) => item.estado === 'completado').length;
+            const syncStatus = latestSync
+                ? `${completedDays} días sincronizados · Última actualización ${new Date(latestSync.sincronizado_en).toLocaleString('es-EC')}`
+                : 'Sin sincronizaciones registradas para este mes';
             const cards = [
-                ['Ventas totales', this.money(sale?.ventas_netas), 'Facturas menos notas de crédito', 'payments', '#E85D75'],
-                ['Ventas del proveedor', this.money(providerSales), providerId ? `${providerName} · ID ${providerId}` : 'Revisa el proveedor asignado', 'storefront', '#0E9F8F'],
-                ['Ítems totales', this.quantity(sale?.items_netos), 'Sin productos OBSEQUIO', 'shopping_bag', '#111827'],
-                ['Ítems del proveedor', this.quantity(providerItems), `${products.length} productos distintos`, 'inventory_2', '#D97706']
+                ['Venta mensual', this.money(providerSales), provider?.name || 'Selecciona un proveedor', 'payments', '#E85D75'],
+                ['Ítems netos', this.quantity(providerItems), 'Sin productos OBSEQUIO', 'shopping_bag', '#0E9F8F'],
+                ['Vendedoras', this.quantity(sellers.length), 'Con ventas del proveedor', 'badge', '#111827'],
+                ['Días con ventas', this.quantity(salesDays), `${products.length} productos distintos`, 'calendar_month', '#D97706']
             ];
-            shell('sales', 'Ventas diarias', 'Resultados por vendedora y proveedor', iconButton('refresh', 'mobileApp.reload()', 'Actualizar'), `
+            shell('sales', 'Ventas mensuales por proveedor', monthLabel(this.selectedMonth), iconButton('refresh', 'mobileApp.reload()', 'Actualizar'), `
+                ${monthControls(this.selectedMonth, 'mobileApp.changeMonth(-1)', 'mobileApp.changeMonth(1)')}
                 <section class="app-card p-4 md:p-5 mb-4">
-                    <div class="grid gap-3 md:grid-cols-[190px_minmax(240px,1fr)_minmax(260px,1.4fr)] md:items-end">
-                        <label class="text-xs font-bold text-slate-500">Fecha<input type="date" value="${h(this.selectedDate)}" max="${h(todayKeyInGuayaquil())}" onchange="mobileApp.setDate(this.value)" class="mt-1 w-full rounded-xl border border-slate-200 bg-white p-3 text-base font-bold"></label>
-                        <label class="text-xs font-bold text-slate-500">Buscar vendedora<span class="app-search mt-1"><span class="material-icons">search</span><input value="${h(this.search)}" oninput="mobileApp.setSearch(this.value, this)" placeholder="Nombre, marca o ID"></span></label>
-                        <label class="text-xs font-bold text-slate-500">Vendedora<select onchange="mobileApp.setSeller(this.value)" class="mt-1 w-full rounded-xl border border-slate-200 bg-white p-3 text-base font-bold"><option value="">${sellers.length ? 'Seleccionar…' : 'Sin ventas para esta fecha'}</option>${sellers.map((item) => `<option value="${asInt(item.id_vendedor)}" ${asInt(item.id_vendedor) === this.selectedSellerId ? 'selected' : ''}>${h(this.sellerLabel(item))} · ID ${asInt(item.id_vendedor)}</option>`).join('')}</select></label>
+                    <div class="grid gap-3 md:grid-cols-[minmax(240px,1fr)_minmax(280px,1.5fr)] md:items-end">
+                        <label class="text-xs font-bold text-slate-500">Buscar proveedor<span class="app-search mt-1"><span class="material-icons" aria-hidden="true">search</span><input value="${h(this.search)}" oninput="mobileApp.setSearch(this.value, this)" placeholder="Nombre o ID del proveedor"></span></label>
+                        <label class="text-xs font-bold text-slate-500">Proveedor<select onchange="mobileApp.setProvider(this.value)" class="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white p-3 text-base font-bold"><option value="">${providers.length ? 'Seleccionar…' : 'Sin proveedores con ventas en este mes'}</option>${providers.map((item) => `<option value="${item.id}" ${item.id === this.selectedProviderId ? 'selected' : ''}>${h(item.name)} · ID ${item.id} · ${h(this.money(item.sales))}</option>`).join('')}</select></label>
                     </div>
-                    <p class="mt-3 flex items-center gap-2 text-sm font-semibold ${this.sync?.estado === 'completado' ? 'text-emerald-700' : 'text-amber-700'}"><span class="material-icons text-base">${this.sync?.estado === 'completado' ? 'check_circle' : 'schedule'}</span>${h(syncStatus)}</p>
+                    <p class="mt-3 flex items-center gap-2 text-sm font-semibold ${latestSync ? 'text-emerald-700' : 'text-amber-700'}"><span class="material-icons text-base" aria-hidden="true">${latestSync ? 'check_circle' : 'schedule'}</span>${h(syncStatus)}</p>
                 </section>
                 ${duplicates.length ? `<section class="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><strong class="flex items-center gap-2"><span class="material-icons">warning_amber</span>Códigos de vendedor duplicados en Horarios</strong><p class="mt-1">${h(duplicates.map(([code, people]) => `ID ${code}: ${people.map(promoterDisplayName).join(', ')}`).join(' · '))}. Estas personas compartirían las mismas ventas hasta corregir sus códigos.</p></section>` : ''}
                 <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 mb-4">${cards.map(([label, value, detail, icon, color]) => `<article class="app-card p-4"><span class="flex h-10 w-10 items-center justify-center rounded-xl" style="background:${color}18;color:${color}"><span class="material-icons">${icon}</span></span><p class="mt-3 text-xs font-bold uppercase tracking-wide text-slate-500">${h(label)}</p><strong class="mt-1 block text-2xl font-black text-slate-900">${h(value)}</strong><span class="mt-1 block text-xs text-slate-500">${h(detail)}</span></article>`).join('')}</section>
+                <section class="app-card overflow-hidden mb-4">
+                    <div class="border-b border-slate-100 p-4 md:p-5"><h2 class="text-lg font-black">Desglose por vendedora</h2><p class="mt-1 text-sm text-slate-500">Venta mensual atribuida a ${h(provider?.name || 'este proveedor')}.</p></div>
+                    ${sellers.length ? `<div class="overflow-x-auto"><table class="w-full min-w-[640px] text-left"><thead class="bg-slate-50 text-xs uppercase text-slate-500"><tr><th class="p-4">Vendedora</th><th class="p-4">ID vendedor</th><th class="p-4 text-right">Días</th><th class="p-4 text-right">Ítems</th><th class="p-4 text-right">Venta neta</th></tr></thead><tbody>${sellers.map((item) => `<tr class="border-t border-slate-100"><td class="p-4 font-bold">${h(this.sellerLabel(item))}</td><td class="p-4 font-mono text-sm">${item.id_vendedor}</td><td class="p-4 text-right font-bold">${item.days.size}</td><td class="p-4 text-right font-bold">${h(this.quantity(item.items))}</td><td class="p-4 text-right font-black">${h(this.money(item.sales))}</td></tr>`).join('')}</tbody></table></div>` : `<div class="p-8 text-center text-slate-500"><span class="material-icons text-4xl">badge</span><p class="mt-2 font-bold">Selecciona un proveedor con ventas para ver sus vendedoras.</p></div>`}
+                </section>
                 <section class="app-card overflow-hidden">
-                    <div class="border-b border-slate-100 p-4 md:p-5"><h2 class="text-lg font-black">Productos del proveedor</h2><p class="mt-1 text-sm text-slate-500">Solo productos vendidos, sin líneas marcadas como OBSEQUIO.</p></div>
-                    ${products.length ? `<div class="overflow-x-auto"><table class="w-full min-w-[650px] text-left"><thead class="bg-slate-50 text-xs uppercase text-slate-500"><tr><th class="p-4">Código</th><th class="p-4">Producto</th><th class="p-4 text-right">Ítems</th><th class="p-4 text-right">Venta neta</th></tr></thead><tbody>${products.map((item) => `<tr class="border-t border-slate-100"><td class="p-4 font-mono text-sm">${h(asText(item.codigo_producto, '-'))}</td><td class="p-4 font-semibold">${h(item.producto)}</td><td class="p-4 text-right font-bold">${h(this.quantity(item.cantidad_neta))}</td><td class="p-4 text-right font-black">${h(this.money(item.venta_neta))}</td></tr>`).join('')}</tbody></table></div>` : `<div class="p-8 text-center text-slate-500"><span class="material-icons text-4xl">inventory_2</span><p class="mt-2 font-bold">${sale ? 'No hay productos del proveedor para esta vendedora.' : 'Selecciona una fecha con ventas.'}</p></div>`}
+                    <div class="border-b border-slate-100 p-4 md:p-5"><h2 class="text-lg font-black">Productos del proveedor</h2><p class="mt-1 text-sm text-slate-500">Consolidado de todo el mes, sin líneas marcadas como OBSEQUIO.</p></div>
+                    ${products.length ? `<div class="overflow-x-auto"><table class="w-full min-w-[760px] text-left"><thead class="bg-slate-50 text-xs uppercase text-slate-500"><tr><th class="p-4">Código</th><th class="p-4">Producto</th><th class="p-4 text-right">Vendedoras</th><th class="p-4 text-right">Días</th><th class="p-4 text-right">Ítems</th><th class="p-4 text-right">Venta neta</th></tr></thead><tbody>${products.map((item) => `<tr class="border-t border-slate-100"><td class="p-4 font-mono text-sm">${h(item.code)}</td><td class="p-4 font-semibold">${h(item.name)}</td><td class="p-4 text-right font-bold">${item.sellers.size}</td><td class="p-4 text-right font-bold">${item.days.size}</td><td class="p-4 text-right font-bold">${h(this.quantity(item.items))}</td><td class="p-4 text-right font-black">${h(this.money(item.sales))}</td></tr>`).join('')}</tbody></table></div>` : `<div class="p-8 text-center text-slate-500"><span class="material-icons text-4xl">inventory_2</span><p class="mt-2 font-bold">No hay productos para el proveedor y mes seleccionados.</p></div>`}
                 </section>
             `);
         }
 
-        async setDate(value) {
-            this.selectedDate = value || todayKeyInGuayaquil();
-            this.selectedSellerId = 0;
+        async changeMonth(delta) {
+            this.selectedMonth = new Date(this.selectedMonth.getFullYear(), this.selectedMonth.getMonth() + delta, 1);
+            this.selectedProviderId = 0;
             await this.reload();
         }
 
-        setSeller(value) {
-            this.selectedSellerId = asInt(value);
+        setProvider(value) {
+            this.selectedProviderId = asInt(value);
             this.render();
         }
 
@@ -5439,7 +5833,7 @@
                     <span class="material-icons text-slate-400">chevron_right</span>
                 </button>
                 ${this.session.isManager ? `<a class="navigation-tile app-card" href="proveedores-web.html"><span class="navigation-icon" style="background:rgba(14,159,143,.16);color:#0E9F8F"><span class="material-icons">link</span></span><span class="flex-1 min-w-0"><strong class="app-list-title block">Proveedores web</strong><span class="app-list-subtitle block">Enlaces y propuestas de horario</span></span><span class="material-icons text-slate-400">chevron_right</span></a>` : ''}
-                ${this.session.isManager ? `<a class="navigation-tile app-card" href="ventas.html"><span class="navigation-icon" style="background:rgba(217,119,6,.15);color:#D97706"><span class="material-icons">point_of_sale</span></span><span class="flex-1 min-w-0"><strong class="app-list-title block">Ventas</strong><span class="app-list-subtitle block">Ventas diarias por vendedora y proveedor</span></span><span class="material-icons text-slate-400">chevron_right</span></a>` : ''}
+                ${this.session.isManager ? `<a class="navigation-tile app-card" href="ventas.html"><span class="navigation-icon" style="background:rgba(217,119,6,.15);color:#D97706"><span class="material-icons">point_of_sale</span></span><span class="flex-1 min-w-0"><strong class="app-list-title block">Ventas mensuales por proveedor</strong><span class="app-list-subtitle block">Consolidado mensual de productos y vendedoras</span></span><span class="material-icons text-slate-400">chevron_right</span></a>` : ''}
             `);
         }
 
