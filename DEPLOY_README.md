@@ -103,6 +103,10 @@ PIN para la pantalla “Mi horario”. Ese PIN no autoriza consultar asistencias
 reclamos: el historial solo se sirve a la integración privada Web→Horarios,
 después de que la Web valide la cuenta del proveedor. Los reclamos/incidencias
 también se restringen por RLS.
+El catálogo de marcas, impulsadoras y turnos que necesita el portal vendor
+también se lee por ese puente privado (`action=bridge-read`), con columnas y
+filtros permitidos explícitamente. La web ya no depende de lecturas anónimas
+que la política RLS reciente bloquea.
 
 Orden de activación (las tres partes deben ir juntas para no romper “Mi horario”):
 

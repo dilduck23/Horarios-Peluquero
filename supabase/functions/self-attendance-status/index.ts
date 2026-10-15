@@ -11,6 +11,9 @@ const tablePromoters = "Tiendas_Impulsadoras";
 const tablePersonal = "Tiendas_Personal";
 const tablePersonalSchedule = "Tiendas_Personal_Horario";
 const tableIncidents = "Tiendas_Faltas";
+const tableBrands = "Tiendas_Marcas_Proveedores";
+const tableStores = "Tiendas_Razonamiento";
+const tableCategories = "Tiendas_Categorias";
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
@@ -180,6 +183,78 @@ async function loginWithPin(supabase: ReturnType<typeof createClient>, req: Requ
     sessionToken: await signStaffSession(asInt(person.id), kind, secret) });
 }
 
+// Only the private Web bridge may read these schedule/catalog fields. In
+// particular, never return the PIN column or accept an arbitrary SQL select.
+async function bridgeRead(supabase: ReturnType<typeof createClient>, body: Record<string, unknown>) {
+  const table = asText(body.table);
+  const query = body.query && typeof body.query === "object" && !Array.isArray(body.query)
+    ? body.query as Record<string, unknown> : {};
+  const filterInt = (key: string) => {
+    const raw = asText(query[key]);
+    if (!raw) return null;
+    if (!/^eq\.[1-9]\d*$/.test(raw)) throw new Error(`Filtro ${key} inválido`);
+    return Number(raw.slice(3));
+  };
+  const filterIds = (key: string) => {
+    const raw = asText(query[key]);
+    if (!raw) return null;
+    if (!/^in\.\([1-9]\d*(,[1-9]\d*){0,1999}\)$/.test(raw)) throw new Error(`Filtro ${key} inválido`);
+    return raw.slice(4, -1).split(",").map(Number);
+  };
+  const filterProvider = () => {
+    const raw = asText(query.idProveedor);
+    if (!raw) return null;
+    return raw.startsWith("eq.") ? [filterInt("idProveedor")!] : filterIds("idProveedor");
+  };
+  let request;
+  if (table === tableStores) {
+    request = supabase.from(tableStores)
+      .select("id,nombre_display,alias_tienda,cupo_total,cupo_zona_a,cupo_zona_b,activo")
+      .order("nombre_display").limit(500);
+  } else if (table === tableCategories) {
+    request = supabase.from(tableCategories).select("id,descripcion,id_zona")
+      .order("descripcion").limit(500);
+  } else if (table === tableBrands) {
+    request = supabase.from(tableBrands)
+      .select("idMarca,marca,idProveedor,proveedor,activo")
+      .eq("activo", true).order("marca").limit(1000);
+    const ids = filterProvider();
+    if (ids) request = request.in("idProveedor", ids);
+  } else if (table === tablePromoters) {
+    request = supabase.from(tablePromoters)
+      .select("id,nombre_completo,idProveedor,idMarca,Marca,idCategoria,Habilitado")
+      .order("nombre_completo").limit(10000);
+    const ids = filterProvider();
+    const id = filterInt("id");
+    const sellerId = filterInt("idVendedor");
+    if (ids) request = request.in("idProveedor", ids);
+    if (id) request = request.eq("id", id);
+    if (sellerId) request = request.eq("idVendedor", sellerId);
+  } else if (table === tableSchedule) {
+    const from = validDateKey(asText(query.fecha).replace(/^gte\./, ""));
+    const to = validDateKey(asText(query.and).replace(/^\(fecha\.lte\./, "").replace(/\)$/, ""));
+    if (!from || !to || from > to || Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`) > 93 * 86400000) {
+      return jsonResponse({ error: "Rango de fechas inválido" }, 400);
+    }
+    const ids = filterIds("impulsadora_id");
+    const limit = Number(query.limit || 1000);
+    const offset = Number(query.offset || 0);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 1000 || !Number.isInteger(offset) || offset < 0 || offset > 20000) {
+      return jsonResponse({ error: "Paginación inválida" }, 400);
+    }
+    request = supabase.from(tableSchedule)
+      .select("id,fecha,tienda_id,impulsadora_id,categoria_asignada_id")
+      .gte("fecha", from).lte("fecha", to)
+      .order("fecha").order("id").range(offset, offset + limit - 1);
+    if (ids) request = request.in("impulsadora_id", ids);
+  } else {
+    return jsonResponse({ error: "Tabla no autorizada" }, 400);
+  }
+  const { data, error } = await request;
+  if (error) throw error;
+  return jsonResponse({ success: true, data: data || [] });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -204,6 +279,7 @@ Deno.serve(async (req) => {
     if (body.action === "login") return await loginWithPin(supabase, req, body.pin);
     if (body.action === "schedule") return await scheduleForPinSession(supabase, body);
     if (!(await bridgeAuthorized(req))) return jsonResponse({ error: "No autorizado" }, 401);
+    if (body.action === "bridge-read") return await bridgeRead(supabase, body);
 
     const impulsadoraId = Number(body?.impulsadoraId);
     const from = validDateKey(body?.from);
