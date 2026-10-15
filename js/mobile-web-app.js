@@ -5720,6 +5720,11 @@
                 && linkedSellerIds?.has(asInt(item.id_vendedor)));
         }
 
+        providerSearchStatus(count, selectedOutsideSearch = false) {
+            if (!count) return 'No hay coincidencias. Prueba otro nombre o ID.';
+            return `${count} ${count === 1 ? 'proveedor encontrado' : 'proveedores encontrados'}${selectedOutsideSearch ? ' · Selecciona uno para cambiar' : ''}`;
+        }
+
         sellerSummary(products) {
             const bySeller = new Map();
             products.forEach((item) => {
@@ -5800,7 +5805,7 @@
                         <label class="text-xs font-bold text-slate-500">Buscar proveedor<span class="app-search mt-1"><span class="material-icons" aria-hidden="true">search</span><input type="search" value="${h(this.search)}" oninput="mobileApp.setSearch(this.value)" placeholder="Nombre o ID del proveedor"></span></label>
                         <label class="text-xs font-bold text-slate-500">Proveedor<select id="sales-provider-select" onchange="mobileApp.setProvider(this.value)" class="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white p-3 text-base font-bold"><option value="">${providers.length ? 'Seleccionar…' : 'Sin proveedores enlazados'}</option>${providers.map((item) => `<option value="${item.id}" ${item.id === this.selectedProviderId ? 'selected' : ''}>${h(item.name)} · ID ${item.id} · ${h(this.money(item.sales))}</option>`).join('')}</select></label>
                     </div>
-                    <p id="sales-provider-search-status" class="mt-2 text-xs font-semibold text-slate-500" aria-live="polite">${this.search ? h(providers.length ? `${providers.length} proveedores encontrados` : 'No hay coincidencias. Prueba otro nombre o ID.') : ''}</p>
+                    <p id="sales-provider-search-status" class="mt-2 text-xs font-semibold text-slate-500" aria-live="polite">${this.search ? h(this.providerSearchStatus(providers.length)) : ''}</p>
                     <p class="mt-3 flex items-center gap-2 text-sm font-semibold ${latestSync ? 'text-emerald-700' : 'text-amber-700'}"><span class="material-icons text-base" aria-hidden="true">${latestSync ? 'check_circle' : 'schedule'}</span>${h(syncStatus)}</p>
                 </section>
                 ${duplicates.length ? `<section class="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><strong class="flex items-center gap-2"><span class="material-icons">warning_amber</span>Códigos de vendedor duplicados en Horarios</strong><p class="mt-1">${h(duplicates.map(([code, people]) => `ID ${code}: ${people.map(promoterDisplayName).join(', ')}`).join(' · '))}. Estas personas compartirían las mismas ventas hasta corregir sus códigos.</p></section>` : ''}
@@ -5845,9 +5850,7 @@
             )));
             select.value = selected ? String(selected.id) : '';
             const status = document.getElementById('sales-provider-search-status');
-            if (status) status.textContent = value
-                ? matches.length ? `${matches.length} proveedores encontrados${selectedOutsideSearch ? ' · Selecciona uno para cambiar' : ''}` : 'No hay coincidencias. Prueba otro nombre o ID.'
-                : '';
+            if (status) status.textContent = value ? this.providerSearchStatus(matches.length, selectedOutsideSearch) : '';
         }
     }
 
