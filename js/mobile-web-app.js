@@ -5597,7 +5597,6 @@
             this.selectedMonth = monthStart(parseDate(todayKeyInGuayaquil()) || new Date());
             this.selectedProviderId = 0;
             this.search = '';
-            this.daily = [];
             this.products = [];
             this.promoters = [];
             this.brandCatalog = [];
@@ -5610,30 +5609,35 @@
                 window.location.href = 'navegacion.html';
                 return;
             }
-            if (!this.didResolveLatestMonth) {
-                const latest = await rows(db.from(tables.dailySales).select('fecha').order('fecha', { ascending: false }).limit(1));
-                const latestDate = parseDate(latest[0]?.fecha);
-                if (latestDate) this.selectedMonth = monthStart(latestDate);
-                this.didResolveLatestMonth = true;
-            }
-            const first = dateKey(monthStart(this.selectedMonth));
-            const last = dateKey(monthEnd(this.selectedMonth));
-            const [daily, products, promoters, promoterProviders, brandCatalog, syncs] = await Promise.all([
-                this.monthRows(tables.dailySales, first, last, ['fecha', 'id_vendedor']),
-                this.monthRows(tables.dailySalesProducts, first, last, ['fecha', 'id_vendedor', 'id_proveedor', 'codigo_producto']),
+            const [promoters, promoterProviders, brandCatalog] = await Promise.all([
                 rows(db.from(tables.impulsadoras).select('*')),
                 rows(db.from(tables.promoterProviders).select('*')),
-                rows(db.from(tables.brandCatalog).select('*').eq('activo', true).order('marca')),
-                this.monthRows(tables.salesSyncs, first, last, ['fecha'])
+                rows(db.from(tables.brandCatalog).select('*').eq('activo', true).order('marca'))
             ]);
-            this.daily = daily;
-            this.products = products;
             this.promoterProviders = promoterProviders;
             this.brandCatalog = brandCatalog;
-            this.promoters = promoters.filter(activePromoter).map((person) => ({
+            this.promoters = promoters.map((person) => ({
                 ...person,
                 _providerIds: this.promoterProviderIds(person, promoterProviders)
             }));
+            const sellerIds = [...new Set(this.promoters.map((person) => asInt(person.idVendedor)).filter(Boolean))];
+            if (!this.didResolveLatestMonth && sellerIds.length) {
+                const latest = await rows(db.from(tables.dailySalesProducts)
+                    .select('fecha').in('id_vendedor', sellerIds)
+                    .order('fecha', { ascending: false }).limit(1));
+                const latestDate = parseDate(latest[0]?.fecha);
+                if (latestDate) this.selectedMonth = monthStart(latestDate);
+            }
+            this.didResolveLatestMonth = true;
+            const first = dateKey(monthStart(this.selectedMonth));
+            const last = dateKey(monthEnd(this.selectedMonth));
+            const [products, syncs] = await Promise.all([
+                sellerIds.length
+                    ? this.monthRows(tables.dailySalesProducts, first, last, ['fecha', 'id_vendedor', 'id_proveedor', 'codigo_producto'], sellerIds)
+                    : Promise.resolve([]),
+                this.monthRows(tables.salesSyncs, first, last, ['fecha'])
+            ]);
+            this.products = products;
             this.syncs = syncs;
             const providerIds = this.availableProviders().map((item) => item.id);
             if (!providerIds.includes(this.selectedProviderId)) {
@@ -5641,7 +5645,7 @@
             }
         }
 
-        async monthRows(table, first, last, orderColumns) {
+        async monthRows(table, first, last, orderColumns, sellerIds = null) {
             const pageSize = 1000;
             const output = [];
             for (let offset = 0; ; offset += pageSize) {
@@ -5649,6 +5653,7 @@
                     .select('*')
                     .gte('fecha', first)
                     .lte('fecha', last);
+                if (sellerIds) query = query.in('id_vendedor', sellerIds);
                 orderColumns.forEach((column) => { query = query.order(column); });
                 const { data, error } = await query.range(offset, offset + pageSize - 1);
                 if (error) throw error;
@@ -5665,26 +5670,42 @@
             return new Intl.NumberFormat('es-EC', { maximumFractionDigits: 2 }).format(Number(value) || 0);
         }
 
-        promoterMatches(vendorId) {
-            return this.promoters.filter((person) => asInt(person.idVendedor) === asInt(vendorId));
+        promoterMatches(vendorId, providerId = this.selectedProviderId) {
+            return this.promoters.filter((person) => asInt(person.idVendedor) === asInt(vendorId)
+                && this.promoterProviderIds(person).includes(providerId));
         }
 
         sellerLabel(seller) {
             const matches = this.promoterMatches(seller.id_vendedor);
             if (matches.length === 1) return promoterDisplayName(matches[0]);
             if (matches.length > 1) return `${matches.map(promoterDisplayName).join(' / ')} · ID duplicado`;
-            return asText(seller.nombre_vendedor, `Vendedor ${seller.id_vendedor}`);
+            return `Impulsadora ID ${seller.id_vendedor}`;
+        }
+
+        providerSellerIds() {
+            const byProvider = new Map();
+            this.promoters.forEach((person) => {
+                const sellerId = asInt(person.idVendedor);
+                if (!sellerId) return;
+                this.promoterProviderIds(person).forEach((providerId) => {
+                    if (!byProvider.has(providerId)) byProvider.set(providerId, new Set());
+                    byProvider.get(providerId).add(sellerId);
+                });
+            });
+            return byProvider;
         }
 
         availableProviders() {
-            const byId = new Map();
+            const sellerIdsByProvider = this.providerSellerIds();
+            const byId = new Map([...sellerIdsByProvider.keys()].map((id) => [id, {
+                id, name: this.providerNameById(id), sales: 0, items: 0
+            }]));
             this.products.forEach((item) => {
                 const id = asInt(item.id_proveedor);
-                if (!id) return;
-                const current = byId.get(id) || { id, name: asText(item.proveedor, this.providerNameById(id)), sales: 0, items: 0 };
+                if (!sellerIdsByProvider.get(id)?.has(asInt(item.id_vendedor))) return;
+                const current = byId.get(id);
                 current.sales += Number(item.venta_neta || 0);
                 current.items += Number(item.cantidad_neta || 0);
-                byId.set(id, current);
             });
             return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, 'es'));
         }
@@ -5694,7 +5715,9 @@
         }
 
         selectedProducts() {
-            return this.products.filter((item) => asInt(item.id_proveedor) === this.selectedProviderId);
+            const linkedSellerIds = this.providerSellerIds().get(this.selectedProviderId);
+            return this.products.filter((item) => asInt(item.id_proveedor) === this.selectedProviderId
+                && linkedSellerIds?.has(asInt(item.id_vendedor)));
         }
 
         sellerSummary(products) {
@@ -5703,12 +5726,10 @@
                 const id = asInt(item.id_vendedor);
                 const current = bySeller.get(id) || {
                     id_vendedor: id,
-                    nombre_vendedor: '',
                     sales: 0,
                     items: 0,
                     days: new Set()
                 };
-                current.nombre_vendedor = current.nombre_vendedor || this.daily.find((sale) => asInt(sale.id_vendedor) === id)?.nombre_vendedor || '';
                 current.sales += Number(item.venta_neta || 0);
                 current.items += Number(item.cantidad_neta || 0);
                 current.days.add(asText(item.fecha));
@@ -5740,7 +5761,7 @@
 
         duplicateWarnings() {
             const byCode = new Map();
-            this.promoters.forEach((person) => {
+            this.promoters.filter((person) => this.promoterProviderIds(person).includes(this.selectedProviderId)).forEach((person) => {
                 const code = asInt(person.idVendedor);
                 if (!code) return;
                 const people = byCode.get(code) || [];
@@ -5769,27 +5790,28 @@
             const cards = [
                 ['Venta mensual', this.money(providerSales), provider?.name || 'Selecciona un proveedor', 'payments', '#E85D75'],
                 ['Ítems netos', this.quantity(providerItems), 'Sin productos OBSEQUIO', 'shopping_bag', '#0E9F8F'],
-                ['Vendedoras', this.quantity(sellers.length), 'Con ventas del proveedor', 'badge', '#111827'],
+                ['Impulsadoras', this.quantity(sellers.length), 'Enlazadas con ventas del proveedor', 'badge', '#111827'],
                 ['Días con ventas', this.quantity(salesDays), `${products.length} productos distintos`, 'calendar_month', '#D97706']
             ];
             shell('sales', 'Ventas mensuales por proveedor', monthLabel(this.selectedMonth), iconButton('refresh', 'mobileApp.reload()', 'Actualizar'), `
                 ${monthControls(this.selectedMonth, 'mobileApp.changeMonth(-1)', 'mobileApp.changeMonth(1)')}
                 <section class="app-card p-4 md:p-5 mb-4">
                     <div class="grid gap-3 md:grid-cols-[minmax(240px,1fr)_minmax(280px,1.5fr)] md:items-end">
-                        <label class="text-xs font-bold text-slate-500">Buscar proveedor<span class="app-search mt-1"><span class="material-icons" aria-hidden="true">search</span><input value="${h(this.search)}" oninput="mobileApp.setSearch(this.value, this)" placeholder="Nombre o ID del proveedor"></span></label>
-                        <label class="text-xs font-bold text-slate-500">Proveedor<select onchange="mobileApp.setProvider(this.value)" class="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white p-3 text-base font-bold"><option value="">${providers.length ? 'Seleccionar…' : 'Sin proveedores con ventas en este mes'}</option>${providers.map((item) => `<option value="${item.id}" ${item.id === this.selectedProviderId ? 'selected' : ''}>${h(item.name)} · ID ${item.id} · ${h(this.money(item.sales))}</option>`).join('')}</select></label>
+                        <label class="text-xs font-bold text-slate-500">Buscar proveedor<span class="app-search mt-1"><span class="material-icons" aria-hidden="true">search</span><input type="search" value="${h(this.search)}" oninput="mobileApp.setSearch(this.value)" placeholder="Nombre o ID del proveedor"></span></label>
+                        <label class="text-xs font-bold text-slate-500">Proveedor<select id="sales-provider-select" onchange="mobileApp.setProvider(this.value)" class="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white p-3 text-base font-bold"><option value="">${providers.length ? 'Seleccionar…' : 'Sin proveedores enlazados'}</option>${providers.map((item) => `<option value="${item.id}" ${item.id === this.selectedProviderId ? 'selected' : ''}>${h(item.name)} · ID ${item.id} · ${h(this.money(item.sales))}</option>`).join('')}</select></label>
                     </div>
+                    <p id="sales-provider-search-status" class="mt-2 text-xs font-semibold text-slate-500" aria-live="polite">${this.search ? h(providers.length ? `${providers.length} proveedores encontrados` : 'No hay coincidencias. Prueba otro nombre o ID.') : ''}</p>
                     <p class="mt-3 flex items-center gap-2 text-sm font-semibold ${latestSync ? 'text-emerald-700' : 'text-amber-700'}"><span class="material-icons text-base" aria-hidden="true">${latestSync ? 'check_circle' : 'schedule'}</span>${h(syncStatus)}</p>
                 </section>
                 ${duplicates.length ? `<section class="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><strong class="flex items-center gap-2"><span class="material-icons">warning_amber</span>Códigos de vendedor duplicados en Horarios</strong><p class="mt-1">${h(duplicates.map(([code, people]) => `ID ${code}: ${people.map(promoterDisplayName).join(', ')}`).join(' · '))}. Estas personas compartirían las mismas ventas hasta corregir sus códigos.</p></section>` : ''}
                 <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 mb-4">${cards.map(([label, value, detail, icon, color]) => `<article class="app-card p-4"><span class="flex h-10 w-10 items-center justify-center rounded-xl" style="background:${color}18;color:${color}"><span class="material-icons">${icon}</span></span><p class="mt-3 text-xs font-bold uppercase tracking-wide text-slate-500">${h(label)}</p><strong class="mt-1 block text-2xl font-black text-slate-900">${h(value)}</strong><span class="mt-1 block text-xs text-slate-500">${h(detail)}</span></article>`).join('')}</section>
                 <section class="app-card overflow-hidden mb-4">
-                    <div class="border-b border-slate-100 p-4 md:p-5"><h2 class="text-lg font-black">Desglose por vendedora</h2><p class="mt-1 text-sm text-slate-500">Venta mensual atribuida a ${h(provider?.name || 'este proveedor')}.</p></div>
-                    ${sellers.length ? `<div class="overflow-x-auto"><table class="w-full min-w-[640px] text-left"><thead class="bg-slate-50 text-xs uppercase text-slate-500"><tr><th class="p-4">Vendedora</th><th class="p-4">ID vendedor</th><th class="p-4 text-right">Días</th><th class="p-4 text-right">Ítems</th><th class="p-4 text-right">Venta neta</th></tr></thead><tbody>${sellers.map((item) => `<tr class="border-t border-slate-100"><td class="p-4 font-bold">${h(this.sellerLabel(item))}</td><td class="p-4 font-mono text-sm">${item.id_vendedor}</td><td class="p-4 text-right font-bold">${item.days.size}</td><td class="p-4 text-right font-bold">${h(this.quantity(item.items))}</td><td class="p-4 text-right font-black">${h(this.money(item.sales))}</td></tr>`).join('')}</tbody></table></div>` : `<div class="p-8 text-center text-slate-500"><span class="material-icons text-4xl">badge</span><p class="mt-2 font-bold">Selecciona un proveedor con ventas para ver sus vendedoras.</p></div>`}
+                    <div class="border-b border-slate-100 p-4 md:p-5"><h2 class="text-lg font-black">Desglose por impulsadora</h2><p class="mt-1 text-sm text-slate-500">Venta mensual atribuida a ${h(provider?.name || 'este proveedor')}.</p></div>
+                    ${sellers.length ? `<div class="overflow-x-auto"><table class="w-full min-w-[640px] text-left"><thead class="bg-slate-50 text-xs uppercase text-slate-500"><tr><th class="p-4">Impulsadora</th><th class="p-4">ID vendedor</th><th class="p-4 text-right">Días</th><th class="p-4 text-right">Ítems</th><th class="p-4 text-right">Venta neta</th></tr></thead><tbody>${sellers.map((item) => `<tr class="border-t border-slate-100"><td class="p-4 font-bold">${h(this.sellerLabel(item))}</td><td class="p-4 font-mono text-sm">${item.id_vendedor}</td><td class="p-4 text-right font-bold">${item.days.size}</td><td class="p-4 text-right font-bold">${h(this.quantity(item.items))}</td><td class="p-4 text-right font-black">${h(this.money(item.sales))}</td></tr>`).join('')}</tbody></table></div>` : `<div class="p-8 text-center text-slate-500"><span class="material-icons text-4xl">badge</span><p class="mt-2 font-bold">No hay ventas de impulsadoras enlazadas en este mes.</p></div>`}
                 </section>
                 <section class="app-card overflow-hidden">
                     <div class="border-b border-slate-100 p-4 md:p-5"><h2 class="text-lg font-black">Productos del proveedor</h2><p class="mt-1 text-sm text-slate-500">Consolidado de todo el mes, sin líneas marcadas como OBSEQUIO.</p></div>
-                    ${products.length ? `<div class="overflow-x-auto"><table class="w-full min-w-[760px] text-left"><thead class="bg-slate-50 text-xs uppercase text-slate-500"><tr><th class="p-4">Código</th><th class="p-4">Producto</th><th class="p-4 text-right">Vendedoras</th><th class="p-4 text-right">Días</th><th class="p-4 text-right">Ítems</th><th class="p-4 text-right">Venta neta</th></tr></thead><tbody>${products.map((item) => `<tr class="border-t border-slate-100"><td class="p-4 font-mono text-sm">${h(item.code)}</td><td class="p-4 font-semibold">${h(item.name)}</td><td class="p-4 text-right font-bold">${item.sellers.size}</td><td class="p-4 text-right font-bold">${item.days.size}</td><td class="p-4 text-right font-bold">${h(this.quantity(item.items))}</td><td class="p-4 text-right font-black">${h(this.money(item.sales))}</td></tr>`).join('')}</tbody></table></div>` : `<div class="p-8 text-center text-slate-500"><span class="material-icons text-4xl">inventory_2</span><p class="mt-2 font-bold">No hay productos para el proveedor y mes seleccionados.</p></div>`}
+                    ${products.length ? `<div class="overflow-x-auto"><table class="w-full min-w-[760px] text-left"><thead class="bg-slate-50 text-xs uppercase text-slate-500"><tr><th class="p-4">Código</th><th class="p-4">Producto</th><th class="p-4 text-right">Impulsadoras</th><th class="p-4 text-right">Días</th><th class="p-4 text-right">Ítems</th><th class="p-4 text-right">Venta neta</th></tr></thead><tbody>${products.map((item) => `<tr class="border-t border-slate-100"><td class="p-4 font-mono text-sm">${h(item.code)}</td><td class="p-4 font-semibold">${h(item.name)}</td><td class="p-4 text-right font-bold">${item.sellers.size}</td><td class="p-4 text-right font-bold">${item.days.size}</td><td class="p-4 text-right font-bold">${h(this.quantity(item.items))}</td><td class="p-4 text-right font-black">${h(this.money(item.sales))}</td></tr>`).join('')}</tbody></table></div>` : `<div class="p-8 text-center text-slate-500"><span class="material-icons text-4xl">inventory_2</span><p class="mt-2 font-bold">No hay productos para el proveedor y mes seleccionados.</p></div>`}
                 </section>
             `);
         }
@@ -5797,16 +5819,35 @@
         async changeMonth(delta) {
             this.selectedMonth = new Date(this.selectedMonth.getFullYear(), this.selectedMonth.getMonth() + delta, 1);
             this.selectedProviderId = 0;
+            this.search = '';
             await this.reload();
         }
 
         setProvider(value) {
             this.selectedProviderId = asInt(value);
+            this.search = '';
             this.render();
         }
 
-        setSearch(value, input) {
-            this.updateSearch(value, input);
+        setSearch(value) {
+            this.search = value;
+            const select = document.getElementById('sales-provider-select');
+            if (!select) return;
+            const needle = normalizeSearch(value);
+            const matches = this.availableProviders().filter((item) => normalizeSearch(`${item.name} ${item.id}`).includes(needle));
+            const selected = this.selectedProvider();
+            const selectedOutsideSearch = Boolean(value && selected && !matches.some((item) => item.id === selected.id));
+            const visible = selectedOutsideSearch ? [selected, ...matches] : matches;
+            const placeholder = new Option(matches.length ? 'Seleccionar…' : 'No hay coincidencias', '');
+            select.replaceChildren(placeholder, ...visible.map((item) => new Option(
+                `${selectedOutsideSearch && item.id === selected.id ? 'Actual: ' : ''}${item.name} · ID ${item.id} · ${this.money(item.sales)}`,
+                String(item.id)
+            )));
+            select.value = selected ? String(selected.id) : '';
+            const status = document.getElementById('sales-provider-search-status');
+            if (status) status.textContent = value
+                ? matches.length ? `${matches.length} proveedores encontrados${selectedOutsideSearch ? ' · Selecciona uno para cambiar' : ''}` : 'No hay coincidencias. Prueba otro nombre o ID.'
+                : '';
         }
     }
 
@@ -5833,7 +5874,7 @@
                     <span class="material-icons text-slate-400">chevron_right</span>
                 </button>
                 ${this.session.isManager ? `<a class="navigation-tile app-card" href="proveedores-web.html"><span class="navigation-icon" style="background:rgba(14,159,143,.16);color:#0E9F8F"><span class="material-icons">link</span></span><span class="flex-1 min-w-0"><strong class="app-list-title block">Proveedores web</strong><span class="app-list-subtitle block">Enlaces y propuestas de horario</span></span><span class="material-icons text-slate-400">chevron_right</span></a>` : ''}
-                ${this.session.isManager ? `<a class="navigation-tile app-card" href="ventas.html"><span class="navigation-icon" style="background:rgba(217,119,6,.15);color:#D97706"><span class="material-icons">point_of_sale</span></span><span class="flex-1 min-w-0"><strong class="app-list-title block">Ventas mensuales por proveedor</strong><span class="app-list-subtitle block">Consolidado mensual de productos y vendedoras</span></span><span class="material-icons text-slate-400">chevron_right</span></a>` : ''}
+                ${this.session.isManager ? `<a class="navigation-tile app-card" href="ventas.html"><span class="navigation-icon" style="background:rgba(217,119,6,.15);color:#D97706"><span class="material-icons">point_of_sale</span></span><span class="flex-1 min-w-0"><strong class="app-list-title block">Ventas mensuales por proveedor</strong><span class="app-list-subtitle block">Consolidado mensual de productos e impulsadoras</span></span><span class="material-icons text-slate-400">chevron_right</span></a>` : ''}
             `);
         }
 
