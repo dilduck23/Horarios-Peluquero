@@ -74,7 +74,7 @@
         ];
         if (layoutMode === 'desktop') items.splice(-1, 0,
             ['pickups', 'retiros.html', 'qr_code_scanner', 'Retiros'],
-            ['sales', 'ventas.html', 'point_of_sale', 'Ventas mensuales por proveedor'],
+            ['sales', 'ventas.html', 'point_of_sale', 'Ventas'],
             ['vendors', 'proveedores-web.html', 'link', 'Proveedores web']);
         return items;
     }
@@ -120,6 +120,23 @@
             '"': '&quot;',
             "'": '&#39;'
         }[char]));
+    }
+
+    function pickupImageUrl(value) {
+        if (typeof value !== 'string' || !value.trim()) return '';
+        try {
+            const url = new URL(value, 'https://elpeluquero.ec');
+            return url.protocol === 'https:' ? url.href : '';
+        } catch {
+            return '';
+        }
+    }
+
+    function pickupThumbnailUrl(imageUrl) {
+        return imageUrl.replace(
+            'https://elpeluquero.ec/api/img/q_auto,f_auto/',
+            'https://elpeluquero.ec/api/img/w_96,h_96,c_limit,q_auto,f_auto/'
+        );
     }
 
     function asText(value, fallback = '') {
@@ -824,6 +841,7 @@
                         <a href="${href}" class="desktop-nav-item ${key === active ? 'active' : ''}">
                             <span class="material-icons">${icon}</span>
                             <span>${label}</span>
+                            ${key === 'pickups' ? '<span class="pickup-nav-badge" data-pickup-badge hidden aria-hidden="true"></span>' : ''}
                         </a>
                     `).join('')}
                 </nav>`;
@@ -833,7 +851,7 @@
                 <div class="flex justify-around items-center">
                     ${items.map(([key, href, icon, label]) => `
                         <a href="${href}" class="nav-item ${key === active ? 'active' : ''} flex flex-col items-center gap-1 p-2">
-                            <span class="nav-icon w-10 h-10 rounded-xl flex items-center justify-center"><span class="material-icons">${icon}</span></span>
+                            <span class="nav-icon w-10 h-10 rounded-xl flex items-center justify-center"><span class="material-icons">${icon}</span>${key === 'pickups' ? '<span class="pickup-nav-badge" data-pickup-badge hidden aria-hidden="true"></span>' : ''}</span>
                             <span class="text-[10px] font-semibold">${label}</span>
                         </a>
                     `).join('')}
@@ -882,6 +900,7 @@
                     </section>
                 </div>`;
             startOfficialClock();
+            window.PickupBadge?.mount({ managedByPickups: active === 'pickups' });
             updateDesktopScrollFrames();
             return;
         }
@@ -899,6 +918,7 @@
                 ${nav(active)}
             </div>`;
         startOfficialClock();
+        window.PickupBadge?.mount({ managedByPickups: active === 'pickups' });
     }
 
     function iconButton(icon, handler, title = '', active = false, tone = '', iconOnly = false) {
@@ -914,6 +934,14 @@
         frame.classList.toggle('can-scroll', canScroll);
         frame.classList.toggle('at-start', track.scrollLeft <= 2);
         frame.classList.toggle('at-end', track.scrollLeft + track.clientWidth >= track.scrollWidth - 2);
+    }
+
+    function restoreScrollInstantly(element, left, top) {
+        const previousBehavior = element.style.scrollBehavior;
+        element.style.scrollBehavior = 'auto';
+        element.scrollLeft = left;
+        element.scrollTop = top;
+        element.style.scrollBehavior = previousBehavior;
     }
 
     function updateDesktopScrollFrames() {
@@ -1240,8 +1268,7 @@
             schedule(() => {
                 const scrollingElement = document.scrollingElement;
                 if (scrollingElement) {
-                    scrollingElement.scrollLeft = position.left;
-                    scrollingElement.scrollTop = position.top;
+                    restoreScrollInstantly(scrollingElement, position.left, position.top);
                 } else {
                     window.scrollTo(position.left, position.top);
                 }
@@ -1255,8 +1282,7 @@
                 position.horizontalScrolls.forEach((saved) => {
                     const element = horizontalScrolls[saved.index];
                     if (!element) return;
-                    element.scrollLeft = saved.left;
-                    element.scrollTop = saved.top;
+                    restoreScrollInstantly(element, saved.left, saved.top);
                     syncScrollFrame(element.closest('.desktop-scroll-frame'));
                 });
             });
@@ -1460,6 +1486,10 @@
             this.selected = new Date();
             this.monthMode = false;
             this.sideMode = false;
+            this.sideBulkMode = false;
+            this.sideBulkPersonId = null;
+            this.sideBulkDates = new Set();
+            this.sideBulkValidationRows = [];
             this.vendorMode = false;
             this.summaryMode = false;
             this.onlyAssigned = false;
@@ -1871,6 +1901,7 @@
         renderSideView() {
             const actions = this.plannerActions('side');
             shell('planner', 'Vista lateral', monthLabel(this.selected), actions, this.sideContent());
+            this.refreshSideBulkCells();
         }
 
         renderVendorView() {
@@ -1885,17 +1916,119 @@
         sideContent() {
             return `
                 ${monthControls(this.selected, 'mobileApp.changeMonth(-1)', 'mobileApp.changeMonth(1)')}
-                <section class="app-filter-stack">
+                <section class="app-filter-stack side-filter-stack ${this.canManagePlanner() ? 'has-bulk-toggle' : ''}">
                     <div class="app-segment-three">
                         <button class="${this.zoneFilter === '' ? 'active' : ''}" onclick="mobileApp.setZone('')">Todas</button>
                         <button class="${this.zoneFilter === '1' ? 'active' : ''}" onclick="mobileApp.setZone('1')">Zona A</button>
                         <button class="${this.zoneFilter === '2' ? 'active' : ''}" onclick="mobileApp.setZone('2')">Zona B</button>
                     </div>
+                    ${this.canManagePlanner() ? `<button type="button" id="side-bulk-toggle" class="side-bulk-toggle ${this.sideBulkMode ? 'active' : ''}" onclick="mobileApp.toggleSideBulkSelection()" aria-label="${this.sideBulkMode ? 'Cancelar selección de varios días' : 'Seleccionar varios días'}" aria-pressed="${this.sideBulkMode}" title="${this.sideBulkMode ? 'Cancelar selección' : 'Seleccionar varios días'}"><span class="material-icons" aria-hidden="true">checklist</span></button>` : ''}
                     <label class="app-search"><span class="material-icons">search</span><input data-search-input="planner-side" value="${h(this.search)}" oninput="mobileApp.setSearch(this.value, this)" placeholder="Buscar persona, marca o proveedor"></label>
                     <button class="mini-chip justify-center" onclick="mobileApp.toggleOnlyAssigned()">${this.onlyAssigned ? 'Solo con turnos' : 'Todos'}</button>
                 </section>
+                <div id="side-bulk-tools">${this.sideBulkToolbar()}</div>
+                <p class="sr-only" id="side-save-status" role="status" aria-live="polite"></p>
                 ${this.sideTable()}
             `;
+        }
+
+        sideBulkToolbar() {
+            if (!this.canManagePlanner()) return '';
+            if (!this.sideBulkMode) return '';
+            const person = this.sideBulkPerson();
+            const count = this.sideBulkDates.size;
+            return `<div class="side-bulk-tools active"><div class="side-bulk-help"><strong>${count ? `${h(promoterDisplayName(person))} · ${count} ${count === 1 ? 'día seleccionado' : 'días seleccionados'}` : 'Selecciona los días libres de una impulsadora'}</strong><span>Las fechas pasadas y los días ya asignados no se pueden seleccionar.</span></div><div class="side-bulk-actions"><button type="button" class="side-bulk-cancel" onclick="mobileApp.cancelSideBulkSelection()">Cancelar</button><button type="button" class="side-bulk-assign" onclick="mobileApp.openSideBulkAssignment()" ${count ? '' : 'disabled'}>Asignar a tienda</button></div></div>`;
+        }
+
+        refreshSideBulkToolbar() {
+            const tools = document.getElementById('side-bulk-tools');
+            if (tools) tools.innerHTML = this.sideBulkToolbar();
+            const toggle = document.getElementById('side-bulk-toggle');
+            if (!toggle) return;
+            const label = this.sideBulkMode ? 'Cancelar selección de varios días' : 'Seleccionar varios días';
+            toggle.classList.toggle('active', this.sideBulkMode);
+            toggle.setAttribute('aria-label', label);
+            toggle.setAttribute('aria-pressed', String(this.sideBulkMode));
+            toggle.title = this.sideBulkMode ? 'Cancelar selección' : label;
+        }
+
+        toggleSideBulkSelection() {
+            if (this.sideBulkMode) this.cancelSideBulkSelection();
+            else this.beginSideBulkSelection();
+        }
+
+        sideBulkPerson() {
+            if (!this.sideBulkPersonId) return null;
+            return mergePromoterOptions(this.promoters, this.sideBulkPersonId)
+                .find((item) => promoterIds(item).includes(this.sideBulkPersonId)) || byId(this.promoters, this.sideBulkPersonId);
+        }
+
+        refreshSideBulkCells() {
+            const card = document.querySelector('.side-schedule-card');
+            if (!card) return;
+            const today = todayKeyInGuayaquil();
+            card.classList.toggle('side-bulk-selecting', this.sideBulkMode);
+            card.querySelectorAll('td[data-side-date]').forEach((cell) => {
+                const button = cell.querySelector('button');
+                if (!button) return;
+                const key = cell.dataset.sideDate;
+                const past = key < today;
+                const ids = cell.dataset.sidePersonIds.split(',').map(Number);
+                const empty = button.classList.contains('side-empty-cell');
+                const samePerson = !this.sideBulkPersonId || ids.includes(this.sideBulkPersonId);
+                const eligible = empty && !past && samePerson;
+                const selected = this.sideBulkMode && samePerson && this.sideBulkDates.has(key);
+                button.disabled = this.sideBulkMode && !eligible;
+                button.classList.toggle('side-bulk-selected', selected);
+                if (this.sideBulkMode && empty) {
+                    if (!button.dataset.sideOriginalTitle) button.dataset.sideOriginalTitle = button.title;
+                    button.setAttribute('aria-pressed', String(selected));
+                    button.setAttribute('aria-label', past ? `Fecha ${key} cerrada` : `${selected ? 'Quitar' : 'Seleccionar'} ${key}`);
+                    button.title = past ? 'Fecha pasada: solo consulta' : samePerson ? `${selected ? 'Quitar' : 'Seleccionar'} ${key}` : 'Solo una impulsadora a la vez';
+                    button.innerHTML = selected ? '<span class="material-icons" aria-hidden="true">check</span>' : past ? '<span class="material-icons" aria-hidden="true">lock</span>' : '';
+                } else {
+                    button.removeAttribute('aria-pressed');
+                    button.removeAttribute('aria-label');
+                    if (empty) {
+                        button.innerHTML = '';
+                        if (button.dataset.sideOriginalTitle) button.title = button.dataset.sideOriginalTitle;
+                        delete button.dataset.sideOriginalTitle;
+                    }
+                }
+            });
+        }
+
+        beginSideBulkSelection() {
+            if (!this.sideMode || !this.canManagePlanner()) return;
+            this.sideBulkMode = true;
+            this.sideBulkPersonId = null;
+            this.sideBulkDates.clear();
+            this.refreshSideBulkToolbar();
+            this.refreshSideBulkCells();
+        }
+
+        cancelSideBulkSelection() {
+            this.sideBulkMode = false;
+            this.sideBulkPersonId = null;
+            this.sideBulkDates.clear();
+            this.sideBulkValidationRows = [];
+            this.refreshSideBulkToolbar();
+            this.refreshSideBulkCells();
+        }
+
+        selectSideBulkDate(ids, key) {
+            if (!this.sideBulkMode || isPastDateKey(key)) return;
+            const person = this.sidePeopleRows().find((item) => ids.some((id) => promoterIds(item).includes(id)));
+            if (!person || (this.sideBulkPersonId && !promoterIds(person).includes(this.sideBulkPersonId))) return;
+            if (this.monthlyRows.some((row) => promoterMatchesRow(person, row) && asText(row.fecha) === key)) return;
+            if (this.sideBulkDates.has(key)) this.sideBulkDates.delete(key);
+            else {
+                this.sideBulkPersonId = asInt(person.id);
+                this.sideBulkDates.add(key);
+            }
+            if (!this.sideBulkDates.size) this.sideBulkPersonId = null;
+            this.refreshSideBulkToolbar();
+            this.refreshSideBulkCells();
         }
 
         sidePeopleRows() {
@@ -1958,15 +2091,145 @@
         sideDayCell(person, date) {
             const key = dateKey(date);
             const personIds = promoterIds(person).join(',');
+            const cellAttributes = `data-side-date="${key}" data-side-person-ids="${personIds}"`;
             const rowsForCell = this.visibleMonthRows().filter((row) => promoterMatchesRow(person, row) && asText(row.fecha) === key);
             if (!rowsForCell.length) {
-                return `<td><button class="side-empty-cell" title="Asignar ${h(promoterDisplayName(person))}" onclick="mobileApp.openSideCell('${personIds}', '${key}')"></button></td>`;
+                return `<td ${cellAttributes}><button class="side-empty-cell" title="Asignar ${h(promoterDisplayName(person))}" onclick="mobileApp.openSideCell('${personIds}', '${key}')"></button></td>`;
             }
             const row = rowsForCell[0];
             const store = byId(this.stores, row.tienda_id);
             const color = colorFromStore(store);
             const textColor = isLightColor(color) ? '#111827' : '#ffffff';
-            return `<td><button class="side-store-pill" style="background:${h(color)};color:${textColor}" title="${h(asText(store?.nombre_display, 'Tienda'))}" onclick="mobileApp.openSideCell('${personIds}', '${key}')">${h(asText(store?.alias_tienda, '?'))}${rowsForCell.length > 1 ? `<span>+${rowsForCell.length - 1}</span>` : ''}</button></td>`;
+            return `<td ${cellAttributes}><button class="side-store-pill" style="background:${h(color)};color:${textColor}" title="${h(asText(store?.nombre_display, 'Tienda'))}" onclick="mobileApp.openSideCell('${personIds}', '${key}')">${h(asText(store?.alias_tienda, '?'))}${rowsForCell.length > 1 ? `<span>+${rowsForCell.length - 1}</span>` : ''}</button></td>`;
+        }
+
+        updateSideCellAfterSave(savedRow) {
+            if (!this.sideMode || !savedRow || asText(savedRow.fecha).slice(0, 7) !== dateKey(this.selected).slice(0, 7)) return false;
+            const personId = asInt(savedRow.impulsadora_id);
+            const person = this.sidePeopleRows().find((candidate) => promoterIds(candidate).includes(personId));
+            const cell = Array.from(document.querySelectorAll(`.side-schedule-scroll td[data-side-date="${asText(savedRow.fecha)}"]`))
+                .find((candidate) => candidate.dataset.sidePersonIds.split(',').map(Number).includes(personId));
+            if (!person || !cell) return false;
+            cell.outerHTML = this.sideDayCell(person, parseDate(savedRow.fecha));
+            const status = document.getElementById('side-save-status');
+            if (status) status.textContent = `Turno guardado para ${promoterDisplayName(person)} el ${savedRow.fecha}.`;
+            return true;
+        }
+
+        refreshSideBulkPreview(resetOverrides = false) {
+            const popup = Swal.getPopup();
+            if (!popup) return { invalidCount: 1, assignments: [] };
+            const primaryId = asInt(popup.querySelector('#side-bulk-store')?.value);
+            const primaryStore = byId(this.stores, primaryId);
+            const person = byId(this.promoters, this.sideBulkPersonId);
+            const ids = promoterIds(this.sideBulkPerson());
+            const assignments = [];
+            let invalidCount = 0;
+            let unavailableCount = 0;
+            popup.querySelectorAll('[data-bulk-date]').forEach((line) => {
+                const key = line.dataset.bulkDate;
+                const alternative = line.querySelector('.side-bulk-alternative');
+                const picker = alternative.querySelector('select');
+                const status = line.querySelector('.side-bulk-date-status');
+                if (resetOverrides) picker.value = '';
+                const alternativeId = asInt(picker.value);
+                const storeId = alternativeId || primaryId;
+                const store = byId(this.stores, storeId);
+                const duplicate = this.sideBulkValidationRows.some((row) => asText(row.fecha) === key && ids.includes(asInt(row.impulsadora_id)));
+                const past = isPastDateKey(key);
+                const reason = past ? 'Esta fecha ya pasó y no se puede modificar.'
+                    : duplicate ? 'La impulsadora ya tiene un turno este día. Quita la fecha de la selección.'
+                        : !primaryStore ? 'Elige primero la tienda principal.'
+                            : !store ? 'Selecciona otro punto de venta.'
+                                : this.quotaMessage(key, this.sideBulkPersonId, storeId, null, this.sideBulkValidationRows);
+                const canChangeStore = !duplicate && !past && !!primaryStore;
+                alternative.hidden = !canChangeStore || (!reason && !alternativeId);
+                line.classList.toggle('side-bulk-date-error', !!reason && !!primaryStore);
+                status.textContent = reason
+                    ? `${store ? `${asText(store.nombre_display)}: ` : ''}${reason}`
+                    : `Disponible en ${asText(store.nombre_display)}.`;
+                if (reason) {
+                    invalidCount += 1;
+                    if (duplicate || past) unavailableCount += 1;
+                }
+                assignments.push({ fecha: key, impulsadora_id: this.sideBulkPersonId, tienda_id: storeId, categoria_asignada_id: person?.idCategoria || null });
+            });
+            const summary = popup.querySelector('#side-bulk-summary');
+            if (summary) summary.textContent = !primaryId ? 'Selecciona una tienda para comprobar los cupos.'
+                : unavailableCount ? `${unavailableCount} ${unavailableCount === 1 ? 'fecha ya no está disponible' : 'fechas ya no están disponibles'}. Pulsa Volver y quítalas de la selección.`
+                    : invalidCount ? `${invalidCount} ${invalidCount === 1 ? 'fecha necesita' : 'fechas necesitan'} atención. Elige otro punto donde haya cupo.`
+                    : `${assignments.length} ${assignments.length === 1 ? 'fecha lista' : 'fechas listas'} para guardar.`;
+            const confirm = Swal.getConfirmButton();
+            if (confirm) confirm.disabled = !primaryStore || invalidCount > 0 || !assignments.length;
+            return { invalidCount, unavailableCount, assignments };
+        }
+
+        async sideBulkCurrentRows(dates) {
+            return pagedRows((from, to) => db.from(tables.schedule)
+                .select('id,fecha,impulsadora_id,tienda_id,categoria_asignada_id')
+                .in('fecha', dates)
+                .order('id')
+                .range(from, to));
+        }
+
+        async openSideBulkAssignment() {
+            if (!this.sideBulkMode || !this.sideBulkPersonId || !this.sideBulkDates.size) return;
+            const person = this.sideBulkPerson();
+            if (!person) return;
+            const dates = [...this.sideBulkDates].sort();
+            const stores = this.stores
+                .filter((store) => store.activo !== false)
+                .sort((a, b) => asText(a.nombre_display).localeCompare(asText(b.nombre_display)));
+            if (!stores.length) {
+                Swal.fire('Sin tiendas', 'No hay puntos de venta activos para asignar.', 'info');
+                return;
+            }
+            const options = stores.map((store) => `<option value="${asInt(store.id)}">${h(asText(store.nombre_display))}</option>`).join('');
+            const viewPosition = this.captureViewPosition();
+            this.sideBulkValidationRows = this.monthlyRows;
+            const result = await Swal.fire({
+                title: `Asignar ${dates.length} ${dates.length === 1 ? 'día' : 'días'}`,
+                html: `<div class="side-bulk-dialog"><p class="side-bulk-person">${h(promoterDisplayName(person))} · ${h(asText(person.Marca, 'Sin marca'))}</p><label class="side-bulk-main-label" for="side-bulk-store">Tienda principal</label><select id="side-bulk-store" class="side-bulk-store-select" onchange="mobileApp.refreshSideBulkPreview(true)"><option value="">Seleccionar tienda...</option>${options}</select><p id="side-bulk-summary" class="side-bulk-summary" role="status" aria-live="polite"></p><div class="side-bulk-date-list">${dates.map((key) => `<div class="side-bulk-date" data-bulk-date="${key}"><div class="side-bulk-date-heading"><strong>${h(prettyDate(parseDate(key)))}</strong><span>${key}</span></div><p class="side-bulk-date-status"></p><label class="side-bulk-alternative" hidden>Otro punto para este día<select onchange="mobileApp.refreshSideBulkPreview()"><option value="">Elegir otro punto...</option>${options}</select></label></div>`).join('')}</div><p class="side-bulk-footnote">Solo se guardarán días libres desde hoy. Los cupos se verificarán otra vez antes de confirmar.</p></div>`,
+                customClass: { popup: 'side-bulk-popup' },
+                showCancelButton: true,
+                confirmButtonText: `Guardar ${dates.length} ${dates.length === 1 ? 'día' : 'días'}`,
+                cancelButtonText: 'Volver',
+                focusConfirm: false,
+                showLoaderOnConfirm: true,
+                allowOutsideClick: () => !Swal.isLoading(),
+                didOpen: () => this.refreshSideBulkPreview(),
+                preConfirm: async () => {
+                    try {
+                        this.sideBulkValidationRows = await this.sideBulkCurrentRows(dates);
+                        const preview = this.refreshSideBulkPreview();
+                        if (preview.invalidCount) {
+                            Swal.showValidationMessage(preview.unavailableCount
+                                ? 'Una fecha fue asignada o cerrada mientras preparabas el lote. Vuelve y quítala de la selección.'
+                                : 'Revisa las fechas con aviso y elige otro punto de venta donde haya cupo.');
+                            window.setTimeout(() => this.refreshSideBulkPreview(), 0);
+                            return false;
+                        }
+                        return await rows(db.from(tables.schedule).insert(preview.assignments).select());
+                    } catch (error) {
+                        Swal.showValidationMessage(window.StaffPlanner.duplicateMessage(error));
+                        return false;
+                    }
+                }
+            });
+            if (!result.isConfirmed) return;
+            const savedRows = Array.isArray(result.value) ? result.value : [];
+            this.cancelSideBulkSelection();
+            if (savedRows.length !== dates.length) {
+                await this.reload({ position: viewPosition });
+                return;
+            }
+            this.monthlyRows.push(...savedRows);
+            savedRows.forEach((row) => {
+                if (asText(row.fecha) === dateKey(this.selected)) this.promoterRows.push(row);
+                this.updateSideCellAfterSave(row);
+            });
+            const status = document.getElementById('side-save-status');
+            if (status) status.textContent = `${savedRows.length} ${savedRows.length === 1 ? 'turno guardado' : 'turnos guardados'} para ${promoterDisplayName(person)}.`;
         }
 
         vendorContent() {
@@ -2735,6 +2998,10 @@
 
         openSideCell(personIdsValue, key) {
             const ids = asText(personIdsValue).split(',').map((id) => asInt(id)).filter(Boolean);
+            if (this.sideBulkMode) {
+                this.selectSideBulkDate(ids, key);
+                return;
+            }
             const rowsForCell = this.visibleMonthRows().filter((row) => ids.includes(asInt(row.impulsadora_id)) && asText(row.fecha) === key);
             if (rowsForCell.length) {
                 this.openEntryActions('impulso', asInt(rowsForCell[0].id));
@@ -2814,6 +3081,7 @@
         }
 
         async changeMonth(delta) {
+            if (this.sideBulkMode) this.cancelSideBulkSelection();
             this.selected = new Date(this.selected.getFullYear(), this.selected.getMonth() + delta, 1);
             await this.reload();
         }
@@ -2853,6 +3121,7 @@
         }
 
         showDailyMode() {
+            if (this.sideBulkMode) this.cancelSideBulkSelection();
             this.vendorMode = false;
             this.sideMode = false;
             this.monthMode = false;
@@ -2860,6 +3129,7 @@
         }
 
         showMonthMode() {
+            if (this.sideBulkMode) this.cancelSideBulkSelection();
             this.vendorMode = false;
             this.sideMode = false;
             this.monthMode = true;
@@ -2869,6 +3139,7 @@
 
         showSideMode() {
             if (layoutMode !== 'desktop') return;
+            if (!this.sideMode && this.sideBulkMode) this.cancelSideBulkSelection();
             this.vendorMode = false;
             this.sideMode = true;
             this.monthMode = false;
@@ -2877,6 +3148,7 @@
         }
 
         async showVendorMode() {
+            if (this.sideBulkMode) this.cancelSideBulkSelection();
             this.vendorMode = true;
             this.sideMode = false;
             this.monthMode = false;
@@ -3152,12 +3424,18 @@
                 categoria_asignada_id: byId(this.promoters, value.impulsadora_id)?.idCategoria || null
             };
             try {
+                let savedRows;
                 if (existing) {
-                    await rows(db.from(tables.schedule).update(payload).eq('id', asInt(existing.id)).select());
+                    savedRows = await rows(db.from(tables.schedule).update(payload).eq('id', asInt(existing.id)).select());
                 } else {
-                    await rows(db.from(tables.schedule).insert(payload).select());
+                    savedRows = await rows(db.from(tables.schedule).insert(payload).select());
                 }
                 if (this.vendorMode) this.selectedPromoterId = value.impulsadora_id;
+                if (!existing && this.sideMode && savedRows[0]) {
+                    this.monthlyRows.push(savedRows[0]);
+                    if (asText(savedRows[0].fecha) === dateKey(this.selected)) this.promoterRows.push(savedRows[0]);
+                    if (this.updateSideCellAfterSave(savedRows[0])) return;
+                }
                 await this.reload({ position: viewPosition });
             } catch (error) {
                 Swal.fire('Error', window.StaffPlanner.duplicateMessage(error), 'error');
@@ -5304,6 +5582,65 @@
             await this.loadPending();
         }
 
+        renderPickupItems(items) {
+            return items.map((line) => {
+                const imageUrl = pickupImageUrl(line.imageUrl);
+                const thumbnail = imageUrl
+                    ? `<button type="button" class="pickup-item-thumb" data-image-url="${h(imageUrl)}" data-image-title="${h(line.title)}" aria-label="Ampliar foto de ${h(line.title)}"><img src="${h(pickupThumbnailUrl(imageUrl))}" alt="" loading="lazy" width="48" height="48"></button>`
+                    : '<span class="pickup-item-thumb pickup-item-thumb--empty" aria-label="Foto no disponible"><span class="material-icons" aria-hidden="true">image_not_supported</span></span>';
+                return `<li class="pickup-item">${thumbnail}<span class="pickup-item-info"><strong>${h(line.title)}</strong>${line.variantTitle ? `<small>${h(line.variantTitle)}</small>` : ''}<small>SKU ${h(line.sku || '—')}</small></span><b>× ${h(line.quantity)}</b></li>`;
+            }).join('');
+        }
+
+        bindPickupImages(popup) {
+            popup.querySelectorAll('.pickup-item-thumb[data-image-url]').forEach((button) => {
+                button.addEventListener('click', () => this.openPickupImage(button.dataset.imageUrl, button.dataset.imageTitle));
+                const image = button.querySelector('img');
+                const markUnavailable = () => {
+                    button.removeAttribute('data-image-url');
+                    button.disabled = true;
+                    button.classList.add('pickup-item-thumb--empty');
+                    button.setAttribute('aria-label', 'Foto no disponible');
+                    button.innerHTML = '<span class="material-icons" aria-hidden="true">image_not_supported</span>';
+                };
+                const handleImageError = () => {
+                    if (image && !image.dataset.fullImageAttempted && image.src !== button.dataset.imageUrl) {
+                        image.dataset.fullImageAttempted = 'true';
+                        image.src = button.dataset.imageUrl;
+                        return;
+                    }
+                    markUnavailable();
+                };
+                image?.addEventListener('error', handleImageError);
+                if (image?.complete && !image.naturalWidth) handleImageError();
+            });
+        }
+
+        openPickupImage(imageUrl, title) {
+            const safeImageUrl = pickupImageUrl(imageUrl);
+            if (!safeImageUrl) return;
+            const viewer = document.createElement('dialog');
+            viewer.className = 'pickup-image-viewer';
+            viewer.setAttribute('aria-label', `Foto de ${title || 'producto'}`);
+            viewer.innerHTML = `<div class="pickup-image-viewer-content"><button type="button" class="pickup-image-viewer-close" aria-label="Cerrar foto"><span class="material-icons" aria-hidden="true">close</span></button><img src="${h(safeImageUrl)}" alt="${h(title || 'Producto')}" /><p>${h(title || 'Producto')}</p></div>`;
+            const handleEscape = (event) => {
+                if (event.key !== 'Escape') return;
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                viewer.close();
+            };
+            viewer.querySelector('.pickup-image-viewer-close').addEventListener('click', () => viewer.close());
+            viewer.addEventListener('click', (event) => { if (event.target === viewer) viewer.close(); });
+            viewer.addEventListener('close', () => {
+                document.removeEventListener('keydown', handleEscape, true);
+                viewer.remove();
+            }, { once: true });
+            document.body.appendChild(viewer);
+            document.addEventListener('keydown', handleEscape, true);
+            viewer.showModal();
+            viewer.querySelector('.pickup-image-viewer-close').focus();
+        }
+
         async accessToken() {
             const { data, error } = await db.auth.getSession();
             if (error || !data?.session?.access_token) throw new Error('Tu sesión expiró. Vuelve a iniciar sesión.');
@@ -5338,6 +5675,7 @@
                 this.pendingLocations = result.data.locations || [];
                 this.pendingLocationId = result.data.selectedLocationId;
                 this.canChoosePickupStore = result.data.canChooseStore === true;
+                window.PickupBadge?.set(this.pendingTotal);
             } catch (error) {
                 this.pendingError = error.message || 'No se pudieron cargar los retiros.';
                 this.pending = [];
@@ -5345,6 +5683,7 @@
                 this.shipments = [];
                 this.shipmentTotal = 0;
                 this.showShipments = false;
+                window.PickupBadge?.clear();
             } finally {
                 this.pendingBusy = false;
             }
@@ -5352,6 +5691,7 @@
 
         async changePickupStore(value) {
             if (!this.canChoosePickupStore || this.pendingBusy) return;
+            window.PickupBadge?.clear();
             this.pendingLocationId = value;
             this.pendingPage = 1;
             this.shipmentPage = 1;
@@ -5445,8 +5785,8 @@
                         <input id="pickup-dialog-code-input" type="text" maxlength="4" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text" placeholder="Ej. QGC7" aria-describedby="pickup-dialog-code-hint" oninput="this.value = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4)">
                         <p id="pickup-dialog-code-hint">Ingresa el código de este pedido solo cuando lo vayas a entregar.</p>
                     </div>` : ''}
-                    <dl class="pickup-details"><div><dt>Documento</dt><dd>${h(item.idNumber || 'No registrado')}</dd></div><div><dt>Teléfono</dt><dd>${h(item.phone || 'No registrado')}</dd></div><div><dt>Correo</dt><dd>${h(item.email || 'No registrado')}</dd></div>${item.authorizedPerson ? `<div><dt>Persona autorizada</dt><dd>${h(item.authorizedPerson)}</dd></div>` : ''}<div><dt>Pago</dt><dd>${h(item.financialStatus === 'PAID' ? 'Pagado' : item.paymentMethod === 'cash_on_delivery' ? 'Cobrar al entregar' : 'Pendiente')}</dd></div></dl>
-                    <h3 class="pickup-items-title">Productos a entregar</h3><ul class="pickup-items">${item.items.map((line) => `<li><span><strong>${h(line.title)}</strong>${line.variantTitle ? `<small>${h(line.variantTitle)}</small>` : ''}<small>SKU ${h(line.sku || '—')}</small></span><b>× ${h(line.quantity)}</b></li>`).join('')}</ul>
+                    <dl class="pickup-details"><div><dt>Documento</dt><dd>${h(item.idNumber || 'No registrado')}</dd></div><div><dt>Teléfono</dt><dd>${h(item.phone || 'No registrado')}</dd></div><div class="pickup-detail-email"><dt>Correo</dt><dd>${h(item.email || 'No registrado')}</dd></div><div><dt>Pago</dt><dd>${h(item.financialStatus === 'PAID' ? 'Pagado' : item.paymentMethod === 'cash_on_delivery' ? 'Cobrar al entregar' : 'Pendiente')}</dd></div>${item.authorizedPerson ? `<div class="pickup-dialog-wide"><dt>Persona autorizada</dt><dd>${h(item.authorizedPerson)}</dd></div>` : ''}</dl>
+                    <h3 class="pickup-items-title">Productos a entregar</h3><ul class="pickup-items">${this.renderPickupItems(item.items)}</ul>
                     ${action === 'code' ? '<label class="pickup-check"><input id="pickup-dialog-verified" type="checkbox"><span>Verifiqué la identidad de quien retira y los productos del pedido.</span></label>' : !item.readyToDeliver ? `<p class="pickup-pending-note">${h(item.blockReason || 'El pedido todavía no está listo para retiro.')}</p>` : '<p class="pickup-pending-note">Este pedido no tiene código de retiro emitido.</p>'}
                 </div>`,
                 customClass: { popup: 'pickup-order-dialog' },
@@ -5456,6 +5796,12 @@
                 showLoaderOnConfirm: action === 'code',
                 allowOutsideClick: () => !Swal.isLoading(),
                 allowEscapeKey: () => !Swal.isLoading(),
+                didOpen: (popup) => {
+                    this.bindPickupImages(popup);
+                    const check = popup.querySelector('.pickup-check');
+                    const actions = popup.querySelector('.swal2-actions');
+                    if (check && actions) actions.before(check);
+                },
                 ...(action === 'code' ? { preConfirm: async () => {
                     const popup = Swal.getPopup();
                     const code = (popup?.querySelector('#pickup-dialog-code-input')?.value || '').trim().toUpperCase();
@@ -5494,8 +5840,8 @@
                 html: `<div class="pickup-dialog-content">
                     <p class="pickup-dialog-customer">${h(item.customerName)}</p>
                     <p class="pickup-dialog-meta">${h(new Date(item.createdAt).toLocaleDateString('es-EC'))}</p>
-                    <dl class="pickup-details"><div><dt>Teléfono</dt><dd>${h(item.phone || 'No registrado')}</dd></div><div><dt>Correo</dt><dd>${h(item.email || 'No registrado')}</dd></div><div class="pickup-dialog-wide"><dt>Destino</dt><dd>${h(item.shippingAddress || 'No registrado')}</dd></div></dl>
-                    <h3 class="pickup-items-title">Productos a enviar</h3><ul class="pickup-items">${item.items.map((line) => `<li><span><strong>${h(line.title)}</strong>${line.variantTitle ? `<small>${h(line.variantTitle)}</small>` : ''}<small>SKU ${h(line.sku || '—')}</small></span><b>× ${h(line.quantity)}</b></li>`).join('')}</ul>
+                    <dl class="pickup-details"><div><dt>Teléfono</dt><dd>${h(item.phone || 'No registrado')}</dd></div><div class="pickup-detail-email"><dt>Correo</dt><dd>${h(item.email || 'No registrado')}</dd></div><div class="pickup-dialog-wide"><dt>Destino</dt><dd>${h(item.shippingAddress || 'No registrado')}</dd></div></dl>
+                    <h3 class="pickup-items-title">Productos a enviar</h3><ul class="pickup-items">${this.renderPickupItems(item.items)}</ul>
                     ${item.canMarkShipped ? `<div class="pickup-shipping-form">
                         ${item.trackingNumber ? '<p class="pickup-saved-guide">Esta orden ya tiene una guía guardada. Confirma que corresponda a este envío antes de registrarlo.</p>' : ''}
                         <div><label class="pickup-label" for="shipment-carrier">Cooperativa / transportista</label><input id="shipment-carrier" class="pickup-store-select" type="text" list="shipment-carriers" maxlength="120" value="${h(item.shippingCarrier || '')}" placeholder="Selecciona o escribe la cooperativa"></div>
@@ -5508,6 +5854,7 @@
                 showCloseButton: true, showCancelButton: true, showConfirmButton: item.canMarkShipped,
                 confirmButtonText: 'Registrar envío', cancelButtonText: 'Cerrar', focusConfirm: false,
                 showLoaderOnConfirm: true,
+                didOpen: (popup) => this.bindPickupImages(popup),
                 preConfirm: async () => {
                     const shippingCarrier = (Swal.getPopup()?.querySelector('#shipment-carrier')?.value || '').trim();
                     const trackingNumber = (Swal.getPopup()?.querySelector('#shipment-guide')?.value || '').trim();
@@ -5798,7 +6145,7 @@
                 ['Impulsadoras', this.quantity(sellers.length), 'Enlazadas con ventas del proveedor', 'badge', '#111827'],
                 ['Días con ventas', this.quantity(salesDays), `${products.length} productos distintos`, 'calendar_month', '#D97706']
             ];
-            shell('sales', 'Ventas mensuales por proveedor', monthLabel(this.selectedMonth), iconButton('refresh', 'mobileApp.reload()', 'Actualizar'), `
+            shell('sales', 'Ventas', monthLabel(this.selectedMonth), iconButton('refresh', 'mobileApp.reload()', 'Actualizar'), `
                 ${monthControls(this.selectedMonth, 'mobileApp.changeMonth(-1)', 'mobileApp.changeMonth(1)')}
                 <section class="app-card p-4 md:p-5 mb-4">
                     <div class="grid gap-3 md:grid-cols-[minmax(240px,1fr)_minmax(280px,1.5fr)] md:items-end">
@@ -5864,7 +6211,7 @@
         render() {
             const email = asText(this.session.user?.email, 'Usuario');
             shell('nav', 'Navegación', 'Datos, usuario e integraciones', iconButton('logout', 'mobileApp.logout()', 'Salir'), `
-                ${this.session.isManager ? `<a class="navigation-tile app-card" href="retiros.html"><span class="navigation-icon" style="background:rgba(232,93,117,.16);color:#bc3452"><span class="material-icons">qr_code_scanner</span></span><span class="flex-1 min-w-0"><strong class="app-list-title block">Retiros</strong><span class="app-list-subtitle block">Verificar códigos y confirmar entregas</span></span><span class="material-icons text-slate-400">chevron_right</span></a>` : ''}
+                ${this.session.isManager ? `<a class="navigation-tile app-card" href="retiros.html"><span class="navigation-icon" style="background:rgba(232,93,117,.16);color:#bc3452"><span class="material-icons">qr_code_scanner</span></span><span class="flex-1 min-w-0"><strong class="app-list-title block">Retiros</strong><span class="app-list-subtitle block">Verificar códigos y confirmar entregas</span></span><span class="pickup-nav-badge" data-pickup-badge hidden aria-hidden="true"></span><span class="material-icons text-slate-400">chevron_right</span></a>` : ''}
                 ${this.session.isStoreUser ? `<a class="navigation-tile app-card" href="personal.html"><span class="navigation-icon" style="background:rgba(14,159,143,.16);color:#0E9F8F"><span class="material-icons">work_outline</span></span><span class="flex-1 min-w-0"><strong class="app-list-title block">Interno</strong><span class="app-list-subtitle block">Horario del personal interno</span></span><span class="material-icons text-slate-400">chevron_right</span></a>` : ''}
                 <button class="navigation-tile app-card" onclick="mobileApp.openData()">
                     <span class="navigation-icon" style="background:rgba(232,93,117,.16);color:#E85D75"><span class="material-icons">dataset</span></span>
@@ -5877,7 +6224,7 @@
                     <span class="material-icons text-slate-400">chevron_right</span>
                 </button>
                 ${this.session.isManager ? `<a class="navigation-tile app-card" href="proveedores-web.html"><span class="navigation-icon" style="background:rgba(14,159,143,.16);color:#0E9F8F"><span class="material-icons">link</span></span><span class="flex-1 min-w-0"><strong class="app-list-title block">Proveedores web</strong><span class="app-list-subtitle block">Enlaces y propuestas de horario</span></span><span class="material-icons text-slate-400">chevron_right</span></a>` : ''}
-                ${this.session.isManager ? `<a class="navigation-tile app-card" href="ventas.html"><span class="navigation-icon" style="background:rgba(217,119,6,.15);color:#D97706"><span class="material-icons">point_of_sale</span></span><span class="flex-1 min-w-0"><strong class="app-list-title block">Ventas mensuales por proveedor</strong><span class="app-list-subtitle block">Consolidado mensual de productos e impulsadoras</span></span><span class="material-icons text-slate-400">chevron_right</span></a>` : ''}
+                ${this.session.isManager ? `<a class="navigation-tile app-card" href="ventas.html"><span class="navigation-icon" style="background:rgba(217,119,6,.15);color:#D97706"><span class="material-icons">point_of_sale</span></span><span class="flex-1 min-w-0"><strong class="app-list-title block">Ventas</strong><span class="app-list-subtitle block">Consolidado mensual de productos e impulsadoras</span></span><span class="material-icons text-slate-400">chevron_right</span></a>` : ''}
             `);
         }
 
