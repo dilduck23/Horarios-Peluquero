@@ -209,7 +209,7 @@ async function bridgeRead(supabase: ReturnType<typeof createClient>, body: Recor
   let request;
   if (table === tableStores) {
     request = supabase.from(tableStores)
-      .select("id,nombre_display,alias_tienda,cupo_total,cupo_zona_a,cupo_zona_b,activo")
+      .select("id,nombre_display,alias_tienda,color_hex,cupo_total,cupo_zona_a,cupo_zona_b,activo")
       .order("nombre_display").limit(500);
   } else if (table === tableCategories) {
     request = supabase.from(tableCategories).select("id,descripcion,id_zona")
