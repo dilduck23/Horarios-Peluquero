@@ -51,16 +51,30 @@
     const internalAssignmentTypes = ['TRABAJO', 'VACACIONES', 'PERMISO', 'LICENCIA', internalDayOffType];
     const internalFreeTypes = ['VACACIONES', 'PERMISO', 'LICENCIA', 'LIBRE', internalDayOffType, 'DESCANSO', 'DESCANSO SEMANAL', 'OFF'];
     const desktopMediaQuery = '(min-width: 981px)';
+    const vendorIntegrationApiUrl = ['localhost', '127.0.0.1'].includes(window.location.hostname)
+        ? `${window.location.origin}/api/horarios/vendor-integrations`
+        : 'https://elpeluquero.ec/api/horarios/vendor-integrations';
     let layoutMode = 'mobile';
     let layoutPreference = 'auto';
 
     function navItems() {
-        if (window.StaffPlanner?.getRoleId?.() === 3) {
+        const roleId = window.StaffPlanner?.getRoleId?.();
+        if (roleId === 3) {
             return [
                 ['store', 'calendario-tienda.html', 'storefront', 'Tienda'],
                 ['messages', 'mensajes.html', 'inbox', 'Buzón'],
                 ['planner', 'index.html', 'space_dashboard', 'Planificar'],
                 ['pickups', 'retiros.html', 'qr_code_scanner', 'Retiros'],
+                ['nav', 'navegacion.html', 'apps', 'Navegación']
+            ];
+        }
+        if (roleId === 5) {
+            return [
+                ['planner', 'index.html', 'space_dashboard', 'Planificar'],
+                ['store', 'calendario-tienda.html', 'storefront', 'Tienda'],
+                ['internal', 'personal.html', 'work_outline', 'Interno'],
+                ['reports', 'reportes.html', 'report_problem', 'Reportes'],
+                ['sales', 'ventas.html', 'point_of_sale', 'Ventas'],
                 ['nav', 'navegacion.html', 'apps', 'Navegación']
             ];
         }
@@ -107,6 +121,9 @@
             return;
         }
         layoutMode = nextLayout;
+        if (nextLayout === 'mobile' && window.mobileApp?.active === 'planner' && window.mobileApp.sideMode) {
+            window.mobileApp.sideMode = false;
+        }
         if (window.mobileApp?.render) {
             window.mobileApp.render();
         }
@@ -820,7 +837,8 @@
             storeId: window.StaffPlanner.getTiendaId() || null,
             isAdmin: roleId === 1,
             isManager: roleId === 1 || roleId === 2,
-            isStoreUser: roleId === 3
+            isStoreUser: roleId === 3,
+            isScheduleReader: roleId === 5
         };
     }
 
@@ -1485,7 +1503,7 @@
             super('planner');
             this.selected = new Date();
             this.monthMode = false;
-            this.sideMode = false;
+            this.sideMode = layoutMode === 'desktop';
             this.sideBulkMode = false;
             this.sideBulkPersonId = null;
             this.sideBulkDates = new Set();
@@ -1515,6 +1533,9 @@
             this.vendorProductSales = [];
             this.vendorSalesCacheKey = '';
             this.vendorSalesLoading = false;
+            this.vendorProposals = [];
+            this.vendorProposalsLoaded = false;
+            this.vendorProposalsError = '';
         }
 
         async load() {
@@ -1531,6 +1552,7 @@
             this.monthlyRows = monthlyRows;
             this.monthlyInternalRows = monthlyInternalRows;
             this.attendanceRows = attendanceRows;
+            if (this.sideMode) await this.loadVendorProposals();
             const scheduleIds = promoterRows.map((row) => asInt(row.id)).filter(Boolean);
             this.incidentRows = scheduleIds.length
                 ? (await rows(db.from(tables.incidences).select('*').in('id_horario', scheduleIds).order('creado_en', { ascending: false })))
@@ -1594,7 +1616,7 @@
                 ${this.hero(promoterCount, internalCount, storeIds.size, capacityAlerts)}
                 ${this.capacityRail()}
                 ${this.dailyFilters()}
-                ${entries.length ? this.entrySections(entries) : emptyState(hasFocus ? 'filter_alt_off' : 'event_busy', 'Sin asignaciones visibles', hasFocus ? 'Quita el filtro de tienda o asigna personal aquí.' : 'Elige una fecha o crea una asignación.')}
+                ${entries.length ? `<section class="planner-daily-list" aria-label="Personal asignado por tienda">${this.entrySections(entries)}</section>` : emptyState(hasFocus ? 'filter_alt_off' : 'event_busy', 'Sin asignaciones visibles', hasFocus ? 'Quita el filtro de tienda o asigna personal aquí.' : 'Elige una fecha o crea una asignación.')}
                 ${this.canManagePlanner() ? '<button class="bottom-action" onclick="mobileApp.openAssignmentTypeSheet()">Asignar personal</button>' : ''}
             `;
         }
@@ -1926,6 +1948,8 @@
                     <label class="app-search"><span class="material-icons">search</span><input data-search-input="planner-side" value="${h(this.search)}" oninput="mobileApp.setSearch(this.value, this)" placeholder="Buscar persona, marca o proveedor"></label>
                     <button class="mini-chip justify-center" onclick="mobileApp.toggleOnlyAssigned()">${this.onlyAssigned ? 'Solo con turnos' : 'Todos'}</button>
                 </section>
+                ${this.vendorProposalsError ? `<p class="side-proposal-load-error" role="alert"><span class="material-icons" aria-hidden="true">warning</span>${h(this.vendorProposalsError)} <button type="button" onclick="mobileApp.reload({preservePosition:true})">Reintentar</button></p>` : ''}
+                ${this.vendorProposals.some((proposal) => asText(proposal.date).startsWith(dateKey(this.selected).slice(0, 7))) ? '<p class="side-proposal-legend"><span class="material-icons" aria-hidden="true">pending_actions</span><span>Los turnos opacos son propuestas pendientes. Pulsa el icono para revisarlas, modificarlas o aprobarlas.</span></p>' : ''}
                 <div id="side-bulk-tools">${this.sideBulkToolbar()}</div>
                 <p class="sr-only" id="side-save-status" role="status" aria-live="polite"></p>
                 ${this.sideTable()}
@@ -2054,6 +2078,52 @@
             });
         }
 
+        vendorProposalPromoterId(proposal) {
+            return asInt(proposal?.horariosPromoterId || proposal?.vendorPromotor?.horariosPromoterId);
+        }
+
+        sideProposalsForPerson(person, key = '') {
+            const ids = promoterIds(person);
+            const month = dateKey(this.selected).slice(0, 7);
+            return this.vendorProposals.filter((proposal) => {
+                const proposalDate = asText(proposal.date).slice(0, 10);
+                return ids.includes(this.vendorProposalPromoterId(proposal))
+                    && proposalDate.startsWith(month)
+                    && (!key || proposalDate === key);
+            });
+        }
+
+        async vendorIntegrationRequest(method = 'GET', body = null) {
+            const { data, error } = await db.auth.getSession();
+            if (error || !data?.session?.access_token) throw new Error('Tu sesión expiró. Vuelve a iniciar sesión.');
+            const response = await fetch(vendorIntegrationApiUrl, {
+                method,
+                headers: {
+                    Authorization: `Bearer ${data.session.access_token}`,
+                    ...(body ? { 'Content-Type': 'application/json' } : {})
+                },
+                ...(body ? { body: JSON.stringify(body) } : {}),
+                cache: 'no-store'
+            });
+            const result = await response.json().catch(() => null);
+            if (!response.ok || !result?.success) throw new Error(result?.error || 'No se pudieron cargar las propuestas.');
+            return result.data || {};
+        }
+
+        async loadVendorProposals() {
+            if (!this.canManagePlanner()) return;
+            this.vendorProposalsError = '';
+            try {
+                const data = await this.vendorIntegrationRequest();
+                this.vendorProposals = Array.isArray(data.proposals) ? data.proposals : [];
+                this.vendorProposalsLoaded = true;
+            } catch (error) {
+                this.vendorProposals = [];
+                this.vendorProposalsLoaded = true;
+                this.vendorProposalsError = error.message || 'No se pudieron cargar las propuestas.';
+            }
+        }
+
         sideTable() {
             const people = this.sidePeopleRows();
             if (!people.length) {
@@ -2067,10 +2137,12 @@
                 const zone = asInt(category?.id_zona);
                 const zoneLabel = zone === 1 ? 'ZONA A' : zone === 2 ? 'ZONA B' : 'SIN ZONA';
                 const zoneRow = zoneLabel !== lastZone ? `<tr class="side-zone-row"><th colspan="${daysInMonth + 2}">${h(zoneLabel)}</th></tr>` : '';
+                const proposals = this.sideProposalsForPerson(person);
+                const proposalButton = proposals.length ? `<button type="button" class="side-proposal-indicator" onclick="mobileApp.openSideProposalList('${promoterIds(person).join(',')}')" aria-label="Revisar ${proposals.length} ${proposals.length === 1 ? 'propuesta' : 'propuestas'} de ${h(promoterDisplayName(person))}" title="${proposals.length} ${proposals.length === 1 ? 'propuesta pendiente' : 'propuestas pendientes'}"><span class="material-icons" aria-hidden="true">pending_actions</span><span>${proposals.length}</span></button>` : '';
                 lastZone = zoneLabel;
                 return `${zoneRow}<tr>
                     <th class="side-sticky-col side-brand-col">${h(asText(person.Marca, 'Sin marca'))}</th>
-                    <th class="side-sticky-col side-name-col">${h(asText(person.nombre_completo, 'Sin nombre'))}</th>
+                    <th class="side-sticky-col side-name-col"><span class="side-name-content"><span>${h(asText(person.nombre_completo, 'Sin nombre'))}</span>${proposalButton}</span></th>
                     ${days.map((date) => this.sideDayCell(person, date)).join('')}
                 </tr>`;
             }).join('');
@@ -2093,14 +2165,161 @@
             const personIds = promoterIds(person).join(',');
             const cellAttributes = `data-side-date="${key}" data-side-person-ids="${personIds}"`;
             const rowsForCell = this.visibleMonthRows().filter((row) => promoterMatchesRow(person, row) && asText(row.fecha) === key);
+            const proposals = this.sideProposalsForPerson(person, key);
+            const proposal = proposals[0];
+            const proposalStore = proposal ? byId(this.stores, proposal.horariosStoreId) : null;
             if (!rowsForCell.length) {
+                if (proposal) {
+                    const proposalColor = colorFromStore(proposalStore);
+                    return `<td ${cellAttributes}><button type="button" class="side-proposal-pill" style="--proposal-color:${h(proposalColor)}" title="Propuesta: ${h(asText(proposalStore?.nombre_display, 'Tienda'))}" aria-label="Revisar propuesta para ${h(promoterDisplayName(person))} en ${h(asText(proposalStore?.nombre_display, 'tienda'))} el ${key}" onclick="mobileApp.openSideProposalById('${h(proposal.id)}')"><span class="material-icons" aria-hidden="true">pending_actions</span><b>${h(asText(proposalStore?.alias_tienda, '?'))}</b>${proposals.length > 1 ? `<em>+${proposals.length - 1}</em>` : ''}</button></td>`;
+                }
                 return `<td ${cellAttributes}><button class="side-empty-cell" title="Asignar ${h(promoterDisplayName(person))}" onclick="mobileApp.openSideCell('${personIds}', '${key}')"></button></td>`;
             }
             const row = rowsForCell[0];
             const store = byId(this.stores, row.tienda_id);
             const color = colorFromStore(store);
             const textColor = isLightColor(color) ? '#111827' : '#ffffff';
-            return `<td ${cellAttributes}><button class="side-store-pill" style="background:${h(color)};color:${textColor}" title="${h(asText(store?.nombre_display, 'Tienda'))}" onclick="mobileApp.openSideCell('${personIds}', '${key}')">${h(asText(store?.alias_tienda, '?'))}${rowsForCell.length > 1 ? `<span>+${rowsForCell.length - 1}</span>` : ''}</button></td>`;
+            const proposalMarker = proposal ? `<button type="button" class="side-proposal-cell-action ${asInt(row.tienda_id) !== asInt(proposal.horariosStoreId) ? 'conflict' : ''}" onclick="mobileApp.openSideProposalById('${h(proposal.id)}')" aria-label="Revisar propuesta para ${h(asText(proposalStore?.nombre_display, 'tienda'))}" title="Propuesta: ${h(asText(proposalStore?.nombre_display, 'Tienda'))}"><span class="material-icons" aria-hidden="true">pending_actions</span></button>` : '';
+            return `<td ${cellAttributes}><span class="side-cell-stack"><button class="side-store-pill" style="background:${h(color)};color:${textColor}" title="${h(asText(store?.nombre_display, 'Tienda'))}" onclick="mobileApp.openSideCell('${personIds}', '${key}')">${h(asText(store?.alias_tienda, '?'))}${rowsForCell.length > 1 ? `<span>+${rowsForCell.length - 1}</span>` : ''}</button>${proposalMarker}</span></td>`;
+        }
+
+        async openSideProposalList(personIdsValue) {
+            const ids = asText(personIdsValue).split(',').map((id) => asInt(id)).filter(Boolean);
+            const person = this.sidePeopleRows().find((candidate) => ids.some((id) => promoterIds(candidate).includes(id)));
+            const proposals = person ? this.sideProposalsForPerson(person) : [];
+            if (!proposals.length) {
+                Swal.fire('Sin propuestas', 'No quedan propuestas pendientes para esta impulsadora.', 'info');
+                return;
+            }
+            await Swal.fire({
+                title: promoterDisplayName(person),
+                html: `<div class="side-proposal-list">${proposals.map((proposal) => {
+                    const store = byId(this.stores, proposal.horariosStoreId);
+                    const key = asText(proposal.date).slice(0, 10);
+                    const current = this.monthlyRows.find((row) => asInt(row.impulsadora_id) === this.vendorProposalPromoterId(proposal) && asText(row.fecha) === key);
+                    const currentStore = current ? byId(this.stores, current.tienda_id) : null;
+                    const conflict = current && asInt(current.tienda_id) !== asInt(proposal.horariosStoreId);
+                    return `<button type="button" class="side-proposal-list-item ${conflict ? 'conflict' : ''}" onclick="Swal.close(); mobileApp.openSideProposalById('${h(proposal.id)}')"><span class="material-icons" aria-hidden="true">${conflict ? 'swap_horiz' : 'pending_actions'}</span><span><strong>${h(prettyDate(parseDate(key)))}</strong><small>Propuesta: ${h(asText(store?.nombre_display, 'Tienda'))}${currentStore ? ` · Actual: ${h(asText(currentStore.nombre_display))}` : ''}</small></span><span class="material-icons" aria-hidden="true">chevron_right</span></button>`;
+                }).join('')}</div>`,
+                showConfirmButton: false,
+                showCloseButton: true,
+                customClass: { popup: 'side-proposal-list-popup' }
+            });
+        }
+
+        refreshSideProposalPreview() {
+            const popup = Swal.getPopup();
+            const proposal = this.vendorProposals.find((item) => item.id === popup?.dataset.proposalId);
+            const status = popup?.querySelector('#side-proposal-preview');
+            if (!proposal || !status) return '';
+            const targetStoreId = asInt(popup.querySelector('#side-proposal-store')?.value);
+            const targetStore = byId(this.stores, targetStoreId);
+            const promoterId = this.vendorProposalPromoterId(proposal);
+            const key = asText(proposal.date).slice(0, 10);
+            const current = this.monthlyRows.find((row) => asInt(row.impulsadora_id) === promoterId && asText(row.fecha) === key);
+            const currentStore = current ? byId(this.stores, current.tienda_id) : null;
+            const quota = targetStore ? this.quotaMessage(key, promoterId, targetStoreId, asInt(current?.id, null), this.monthlyRows) : 'Selecciona una tienda.';
+            status.classList.toggle('error', Boolean(quota));
+            status.innerHTML = quota
+                ? `<span class="material-icons" aria-hidden="true">warning</span><span>${h(quota)}</span>`
+                : current && asInt(current.tienda_id) !== targetStoreId
+                    ? `<span class="material-icons" aria-hidden="true">swap_horiz</span><span>Se reemplazará <strong>${h(asText(currentStore?.nombre_display, 'la tienda actual'))}</strong> por <strong>${h(asText(targetStore?.nombre_display))}</strong>.</span>`
+                    : `<span class="material-icons" aria-hidden="true">check_circle</span><span>Se aprobará el turno en <strong>${h(asText(targetStore?.nombre_display))}</strong>.</span>`;
+            const confirm = Swal.getConfirmButton();
+            if (confirm) confirm.disabled = Boolean(quota);
+            return quota;
+        }
+
+        async rejectSideProposal(proposal) {
+            const answer = await Swal.fire({
+                title: 'Pedir modificación',
+                input: 'textarea',
+                inputLabel: 'Indica al proveedor qué debe corregir',
+                inputPlaceholder: 'Ej. Mantener el turno en Vélez o proponer otra fecha.',
+                inputValidator: (value) => !value?.trim() ? 'Escribe la corrección necesaria.' : undefined,
+                showCancelButton: true,
+                confirmButtonText: 'Enviar devolución',
+                cancelButtonText: 'Cancelar'
+            });
+            if (!answer.isConfirmed) return;
+            Swal.fire({ title: 'Enviando devolución…', allowOutsideClick: false, allowEscapeKey: false, didOpen: () => Swal.showLoading() });
+            await this.vendorIntegrationRequest('POST', { action: 'reject', proposalId: proposal.id, reviewNote: answer.value.trim() });
+            await this.reload({ preservePosition: true });
+            Swal.fire({ icon: 'success', title: 'Propuesta devuelta', timer: 1500, showConfirmButton: false });
+        }
+
+        async openSideProposalById(proposalId) {
+            const proposal = this.vendorProposals.find((item) => item.id === proposalId);
+            if (!proposal) {
+                Swal.fire('Propuesta actualizada', 'Esta propuesta ya no está pendiente. Actualiza la vista.', 'info');
+                return;
+            }
+            const promoterId = this.vendorProposalPromoterId(proposal);
+            const person = byId(this.promoters, promoterId);
+            if (!person) return;
+            const key = asText(proposal.date).slice(0, 10);
+            const proposedStore = byId(this.stores, proposal.horariosStoreId);
+            const current = this.monthlyRows.find((row) => asInt(row.impulsadora_id) === promoterId && asText(row.fecha) === key);
+            const currentStore = current ? byId(this.stores, current.tienda_id) : null;
+            const past = isPastDateKey(key);
+            const options = this.stores.filter((store) => store.activo !== false).map((store) => `<option value="${asInt(store.id)}" ${asInt(store.id) === asInt(proposal.horariosStoreId) ? 'selected' : ''}>${h(asText(store.nombre_display))}</option>`).join('');
+            const result = await Swal.fire({
+                title: 'Revisar propuesta',
+                html: `<div class="side-proposal-dialog"><div class="side-proposal-person"><span class="material-icons" aria-hidden="true">pending_actions</span><span><strong>${h(promoterDisplayName(person))}</strong><small>${h(asText(person.Marca, 'Sin marca'))} · ${h(prettyDate(parseDate(key)))}</small></span></div><dl><div><dt>Propuesta del proveedor</dt><dd>${h(asText(proposedStore?.nombre_display, 'Tienda'))}</dd></div><div><dt>Horario actual</dt><dd>${h(asText(currentStore?.nombre_display, 'Sin asignación'))}</dd></div></dl>${proposal.note ? `<p class="side-proposal-note"><strong>Nota:</strong> ${h(proposal.note)}</p>` : ''}<label for="side-proposal-store">Tienda que se aprobará</label><select id="side-proposal-store" onchange="mobileApp.refreshSideProposalPreview()" ${past ? 'disabled' : ''}>${options}</select><p id="side-proposal-preview" class="side-proposal-preview" role="status" aria-live="polite"></p>${past ? '<p class="side-proposal-locked"><span class="material-icons" aria-hidden="true">lock</span>La fecha ya pasó y no se puede modificar ni aprobar.</p>' : ''}</div>`,
+                customClass: { popup: 'side-proposal-popup' },
+                showConfirmButton: !past,
+                showDenyButton: true,
+                showCancelButton: true,
+                confirmButtonText: 'Aprobar turno',
+                denyButtonText: 'Pedir cambio',
+                cancelButtonText: 'Cerrar',
+                focusConfirm: false,
+                didOpen: (popup) => {
+                    popup.dataset.proposalId = proposal.id;
+                    this.refreshSideProposalPreview();
+                },
+                preConfirm: () => {
+                    const quota = this.refreshSideProposalPreview();
+                    if (quota) {
+                        Swal.showValidationMessage(quota);
+                        return false;
+                    }
+                    return asInt(Swal.getPopup()?.querySelector('#side-proposal-store')?.value);
+                }
+            });
+            if (result.isDenied) {
+                try { await this.rejectSideProposal(proposal); }
+                catch (error) { Swal.fire('No se pudo devolver', error.message, 'error'); }
+                return;
+            }
+            if (!result.isConfirmed) return;
+            const targetStoreId = asInt(result.value);
+            const targetStore = byId(this.stores, targetStoreId);
+            if (current && asInt(current.tienda_id) !== targetStoreId) {
+                const confirmation = await Swal.fire({
+                    title: '¿Cambiar el punto de venta?',
+                    text: `${promoterDisplayName(person)} pasará de ${asText(currentStore?.nombre_display, 'la tienda actual')} a ${asText(targetStore?.nombre_display)} el ${key}.`,
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonText: 'Cambiar y aprobar',
+                    cancelButtonText: 'Volver'
+                });
+                if (!confirmation.isConfirmed) return;
+            }
+            try {
+                Swal.fire({ title: 'Aprobando turno…', text: 'Estamos validando nuevamente los cupos.', allowOutsideClick: false, allowEscapeKey: false, didOpen: () => Swal.showLoading() });
+                await this.vendorIntegrationRequest('POST', {
+                    action: 'approve',
+                    proposalId: proposal.id,
+                    horariosStoreId: targetStoreId,
+                    replaceExisting: Boolean(current && asInt(current.tienda_id) !== targetStoreId),
+                    reviewNote: targetStoreId !== asInt(proposal.horariosStoreId) ? `Tienda ajustada al aprobar: ${asText(targetStore?.nombre_display)}.` : ''
+                });
+                await this.reload({ preservePosition: true });
+                Swal.fire({ icon: 'success', title: 'Turno aprobado', text: `Quedó registrado en ${asText(targetStore?.nombre_display)}.`, timer: 1800, showConfirmButton: false });
+            } catch (error) {
+                Swal.fire('No se pudo aprobar', error.message || 'Actualiza la vista e inténtalo otra vez.', 'error');
+            }
         }
 
         updateSideCellAfterSave(savedRow) {
@@ -3137,13 +3356,14 @@
             this.render();
         }
 
-        showSideMode() {
+        async showSideMode() {
             if (layoutMode !== 'desktop') return;
             if (!this.sideMode && this.sideBulkMode) this.cancelSideBulkSelection();
             this.vendorMode = false;
             this.sideMode = true;
             this.monthMode = false;
             this.selected = monthStart(this.selected);
+            await this.loadVendorProposals();
             this.render();
         }
 
@@ -5952,8 +6172,8 @@
         }
 
         async load() {
-            if (!this.session.isManager) {
-                window.location.href = 'navegacion.html';
+            if (!this.session.isManager && !this.session.isScheduleReader) {
+                window.location.href = 'index.html';
                 return;
             }
             const [promoters, promoterProviders, brandCatalog] = await Promise.all([
@@ -6258,6 +6478,10 @@
 
     function start(view, options = {}) {
         setLayoutPreference(options.layout);
+        if (window.StaffPlanner.getRoleId() === 5 && !['planner', 'store', 'internal', 'reports', 'sales', 'nav'].includes(view)) {
+            window.location.href = 'index.html';
+            return Promise.resolve(null);
+        }
         if (window.StaffPlanner.getRoleId() === 3 && !['store', 'messages', 'planner', 'internal', 'pickups', 'nav'].includes(view)) {
             window.location.href = 'calendario-tienda.html';
             return Promise.resolve(null);

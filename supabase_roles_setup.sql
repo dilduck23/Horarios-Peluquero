@@ -15,7 +15,8 @@ INSERT INTO "Tiendas_Roles" (id, nombre, descripcion) VALUES
     (1, 'Administrador', 'Acceso total al sistema'),
     (2, 'Organizador', 'Gestiona personal y horarios'),
     (3, 'Punto de Venta', 'Visualiza calendario y reporta faltas'),
-    (4, 'Impulsadora', 'Solo ve su horario personal')
+    (4, 'Impulsadora', 'Solo ve su horario personal'),
+    (5, 'Lector de Horarios', 'Consulta horarios, ventas, reportes, tiendas y personal interno sin modificar datos')
 ON CONFLICT (id) DO NOTHING;
 
 -- 3. TABLA DE USUARIOS

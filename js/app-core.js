@@ -64,7 +64,7 @@
         getTiendaId,
         isAdmin: () => getRoleId() === 1,
         canManageSchedules: () => [1, 2].includes(getRoleId()),
-        canAccessAdminViews: () => [1, 2, 3].includes(getRoleId()),
+        canAccessAdminViews: () => [1, 2, 3, 5].includes(getRoleId()),
         isActiveImpulsadora,
         isActiveInternalStaff,
         isUniqueViolation,

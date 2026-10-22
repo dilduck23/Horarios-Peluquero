@@ -58,7 +58,7 @@ CREATE POLICY "asistencia_select_authorized"
 ON public."Tiendas_Asistencia"
 FOR SELECT TO authenticated
 USING (
-    private.staffplanner_role_id() IN (1, 2)
+    private.staffplanner_role_id() IN (1, 2, 5)
     OR (
         private.staffplanner_role_id() = 3
         AND tienda_id = private.staffplanner_tienda_id()

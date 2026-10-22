@@ -106,21 +106,21 @@ DROP POLICY IF EXISTS "Users can view their own data" ON public."Tiendas_Usuario
 
 CREATE POLICY "categorias_select_public" ON public."Tiendas_Categorias" FOR SELECT TO public USING (true);
 CREATE POLICY "tiendas_select_public" ON public."Tiendas_Razonamiento" FOR SELECT TO public USING (true);
-CREATE POLICY "impulsadoras_select_staff" ON public."Tiendas_Impulsadoras" FOR SELECT TO authenticated USING (private.staffplanner_role_id() IN (1, 2, 3));
-CREATE POLICY "marcas_proveedores_select_staff" ON public."Tiendas_Marcas_Proveedores" FOR SELECT TO authenticated USING (private.staffplanner_role_id() IN (1, 2, 3));
+CREATE POLICY "impulsadoras_select_staff" ON public."Tiendas_Impulsadoras" FOR SELECT TO authenticated USING (private.staffplanner_role_id() IN (1, 2, 3, 5));
+CREATE POLICY "marcas_proveedores_select_staff" ON public."Tiendas_Marcas_Proveedores" FOR SELECT TO authenticated USING (private.staffplanner_role_id() IN (1, 2, 3, 5));
 CREATE POLICY "horario_select_staff" ON public."Tiendas_Horario" FOR SELECT TO authenticated USING (
-    private.staffplanner_role_id() IN (1, 2)
+    private.staffplanner_role_id() IN (1, 2, 5)
     OR (private.staffplanner_role_id() = 3 AND tienda_id = private.staffplanner_tienda_id())
 );
 CREATE POLICY "faltas_select_staff" ON public."Tiendas_Faltas" FOR SELECT TO authenticated USING (
-    private.staffplanner_role_id() IN (1, 2)
+    private.staffplanner_role_id() IN (1, 2, 5)
     OR (private.staffplanner_role_id() = 3 AND EXISTS (
         SELECT 1 FROM public."Tiendas_Horario" h WHERE h.id = id_horario AND h.tienda_id = private.staffplanner_tienda_id()
     ))
 );
-CREATE POLICY "personal_select_staff" ON public."Tiendas_Personal" FOR SELECT TO authenticated USING (private.staffplanner_role_id() IN (1, 2, 3));
+CREATE POLICY "personal_select_staff" ON public."Tiendas_Personal" FOR SELECT TO authenticated USING (private.staffplanner_role_id() IN (1, 2, 3, 5));
 CREATE POLICY "personal_horario_select_staff" ON public."Tiendas_Personal_Horario" FOR SELECT TO authenticated USING (
-    private.staffplanner_role_id() IN (1, 2)
+    private.staffplanner_role_id() IN (1, 2, 5)
     OR (private.staffplanner_role_id() = 3 AND tienda_id = private.staffplanner_tienda_id())
 );
 

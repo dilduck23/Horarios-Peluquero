@@ -1903,6 +1903,42 @@ nav.fixed {
     padding: 0 12px;
 }
 
+.side-name-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+.side-name-content > span:first-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.side-proposal-indicator {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    min-width: 34px;
+    height: 34px;
+    padding: 0 5px;
+    border: 1px solid #f5c46b;
+    border-radius: 10px;
+    background: #fff8e8;
+    color: #9a5b08;
+    cursor: pointer;
+}
+
+.side-proposal-indicator .material-icons { font-size: 17px; }
+.side-proposal-indicator > span:last-child { font-size: 10px; font-weight: 900; }
+.side-proposal-indicator:hover { border-color: #d9901a; background: #fff1cc; }
+.side-proposal-indicator:focus-visible,
+.side-proposal-pill:focus-visible,
+.side-proposal-cell-action:focus-visible { outline: 3px solid #d9901a; outline-offset: 2px; }
+
 .side-schedule-table tbody .side-sticky-col {
     height: 48px;
     background: #fff;
@@ -1956,7 +1992,8 @@ nav.fixed {
 }
 
 .side-empty-cell,
-.side-store-pill {
+.side-store-pill,
+.side-proposal-pill {
     width: 32px;
     height: 30px;
     display: inline-flex;
@@ -1966,6 +2003,122 @@ nav.fixed {
     font-size: 11px;
     font-weight: 900;
 }
+
+.side-cell-stack {
+    position: relative;
+    display: inline-flex;
+}
+
+.side-proposal-pill {
+    position: relative;
+    gap: 1px;
+    border: 1px dashed #94a3b8;
+    border-color: color-mix(in srgb, var(--proposal-color) 72%, #475569);
+    background: #f8fafc;
+    background: color-mix(in srgb, var(--proposal-color) 42%, #fff);
+    color: #334155;
+    cursor: pointer;
+    opacity: .76;
+}
+
+.side-proposal-pill .material-icons { font-size: 12px; }
+.side-proposal-pill b { font-size: 10px; }
+.side-proposal-pill em {
+    position: absolute;
+    top: -7px;
+    right: -7px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 3px;
+    border-radius: 999px;
+    background: #9a5b08;
+    color: #fff;
+    font-size: 9px;
+    font-style: normal;
+    line-height: 16px;
+}
+
+.side-proposal-pill:hover { opacity: 1; }
+
+.side-proposal-cell-action {
+    position: absolute;
+    top: -8px;
+    right: -9px;
+    z-index: 2;
+    display: grid;
+    place-items: center;
+    width: 21px;
+    height: 21px;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    background: #f1a928;
+    color: #111827;
+    cursor: pointer;
+}
+
+.side-proposal-cell-action.conflict { background: #dc2626; color: #fff; }
+.side-proposal-cell-action .material-icons { font-size: 13px; }
+
+.side-proposal-legend,
+.side-proposal-load-error {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 18px 12px;
+    color: #7c4a08;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.side-proposal-legend .material-icons,
+.side-proposal-load-error .material-icons { font-size: 18px; }
+.side-proposal-load-error { color: #9f1239; }
+.side-proposal-load-error button { color: inherit; font-weight: 900; text-decoration: underline; }
+
+.side-proposal-list { display: grid; gap: 8px; text-align: left; }
+.side-proposal-list-item {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr) 24px;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 56px;
+    padding: 8px 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    background: #fff;
+    color: #334155;
+    text-align: left;
+}
+.side-proposal-list-item:hover { border-color: #e7ad45; background: #fffbeb; }
+.side-proposal-list-item.conflict { border-color: #fecaca; background: #fff7f7; }
+.side-proposal-list-item > .material-icons:first-child { color: #b76d0b; }
+.side-proposal-list-item.conflict > .material-icons:first-child { color: #dc2626; }
+.side-proposal-list-item strong,
+.side-proposal-list-item small { display: block; }
+.side-proposal-list-item small { margin-top: 2px; color: #64748b; font-size: 12px; }
+
+.side-proposal-popup { width: min(560px, calc(100vw - 24px)) !important; }
+.side-proposal-dialog { display: grid; gap: 13px; text-align: left; }
+.side-proposal-person { display: flex; align-items: center; gap: 10px; }
+.side-proposal-person > .material-icons { color: #b76d0b; font-size: 28px; }
+.side-proposal-person strong,
+.side-proposal-person small { display: block; }
+.side-proposal-person small { margin-top: 2px; color: #64748b; }
+.side-proposal-dialog dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.side-proposal-dialog dl > div { padding: 10px; border-radius: 10px; background: #f8fafc; }
+.side-proposal-dialog dt { color: #64748b; font-size: 11px; font-weight: 800; text-transform: uppercase; }
+.side-proposal-dialog dd { margin-top: 3px; color: #111827; font-size: 13px; font-weight: 800; }
+.side-proposal-dialog label { color: #334155; font-size: 13px; font-weight: 800; }
+.side-proposal-dialog select { width: 100%; min-height: 46px; margin-top: -7px; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 11px; background: #fff; }
+.side-proposal-dialog select:focus-visible { outline: 3px solid rgba(232, 93, 117, .35); outline-offset: 1px; }
+.side-proposal-note { padding: 10px 12px; border-radius: 10px; background: #f8fafc; color: #475569; font-size: 13px; }
+.side-proposal-preview,
+.side-proposal-locked { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border-radius: 10px; background: #ecfdf5; color: #166534; font-size: 13px; }
+.side-proposal-preview.error,
+.side-proposal-locked { background: #fff7ed; color: #9a3412; }
+.side-proposal-preview .material-icons,
+.side-proposal-locked .material-icons { flex: none; font-size: 19px; }
 
 .side-empty-cell {
     border: 1px dashed #dbe6f3;
@@ -3350,7 +3503,54 @@ nav.fixed {
 }
 
 .desktop-content .planner-hero {
-    margin: 12px 0 18px;
+    margin: 8px 0 12px;
+    padding: 12px;
+    border-radius: 18px;
+}
+
+.desktop-content .planner-hero-title {
+    gap: 6px;
+    font-size: 15px;
+}
+
+.desktop-content .planner-hero-title > .material-icons {
+    font-size: 19px;
+}
+
+.desktop-content .planner-metrics {
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.desktop-content .planner-metric {
+    padding: 9px 10px;
+    border-radius: 12px;
+}
+
+.desktop-content .planner-metric-value {
+    font-size: 18px;
+    line-height: 1.1;
+}
+
+.desktop-content .planner-metric-label {
+    margin-top: 2px;
+    font-size: 11px;
+}
+
+.desktop-content .date-strip {
+    gap: 8px;
+    min-height: 62px;
+}
+
+.desktop-content .date-chip {
+    flex-basis: 56px;
+    height: 54px;
+    border-radius: 14px;
+    font-size: 12px;
+}
+
+.desktop-content .date-chip strong {
+    font-size: 18px;
 }
 
 .desktop-content .date-strip,
@@ -3376,6 +3576,75 @@ nav.fixed {
     width: 100%;
     margin-left: 0;
     margin-right: 0;
+}
+
+.desktop-content .planner-daily-list .store-section-header {
+    gap: 8px;
+    padding-top: 10px;
+    padding-bottom: 4px;
+}
+
+.desktop-content .planner-daily-list .store-section-header strong {
+    font-size: 14px;
+}
+
+.desktop-content .planner-daily-list .store-section-header .store-badge-ui {
+    width: 28px !important;
+    height: 28px !important;
+    border-radius: 9px;
+    font-size: 11px;
+}
+
+.desktop-content .planner-daily-list .mini-chip {
+    min-height: 20px;
+    padding: 3px 7px;
+    font-size: 10px;
+}
+
+.desktop-content .planner-daily-list .app-list-card {
+    min-height: 52px;
+    margin-top: 3px;
+    margin-bottom: 3px;
+    padding: 5px 8px;
+    border-radius: 12px;
+}
+
+.desktop-content .planner-daily-list .app-list-card-row {
+    gap: 9px;
+}
+
+.desktop-content .planner-daily-list .daily-entry-main {
+    min-height: 44px;
+}
+
+.desktop-content .planner-daily-list .app-list-card-row > .store-badge-ui {
+    width: 38px !important;
+    height: 38px !important;
+    border-radius: 11px;
+    font-size: 13px;
+}
+
+.desktop-content .planner-daily-list .app-list-card-row > .store-badge-ui .material-icons {
+    font-size: 18px;
+}
+
+.desktop-content .planner-daily-list .app-list-title {
+    font-size: 13px;
+    line-height: 1.2;
+}
+
+.desktop-content .planner-daily-list .app-list-subtitle {
+    margin-top: 2px;
+    font-size: 11px;
+    line-height: 1.25;
+}
+
+.desktop-content .planner-daily-list .app-list-card-row > .material-icons {
+    font-size: 18px;
+}
+
+.desktop-content .planner-daily-list .daily-entry-badges {
+    gap: 4px;
 }
 
 .desktop-content .calendar-card,

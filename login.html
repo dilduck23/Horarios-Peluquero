@@ -328,7 +328,7 @@
                 card.style.transition = 'opacity 0.4s ease';
 
                 setTimeout(() => {
-                    if (roleId >= 1 && roleId <= 3) {
+                    if ((roleId >= 1 && roleId <= 3) || roleId === 5) {
                         window.location.href = plannerHome();
                     } else if (roleId === 4) {
                         window.location.href = 'mi-horario.html';
