@@ -47,6 +47,13 @@ pausando los sábados y domingos, con la hora de Ecuador. **Añadir más tiempo*
 permite sumar entre 1 y 240 horas y registrar un motivo. El plazo se guarda en
 Web Peluquero y se comparte entre usuarios; cambiar de dispositivo no lo reinicia.
 
+La auto-confirmación y su aviso se realizan únicamente de lunes a viernes,
+entre las 10:00 y las 17:30 de Ecuador. Si el plazo vence fuera de esa franja,
+se programa a las 10:00 del siguiente día de lunes a viernes. El reloj muestra
+la fecha ajustada. Las ampliaciones respetan la misma regla. El worker OpenWA
+también conserva en cola los avisos automáticos que se retrasen fuera de horario;
+se deben desplegar sus dos scripts actualizados junto con la API.
+
 La transición automática se ejecuta en Web Peluquero mediante
 `/api/cron/pickup-auto-ready`, programado cada minuto en su `vercel.json`.
 Requiere desplegar ese backend junto con esta interfaz y disponer de

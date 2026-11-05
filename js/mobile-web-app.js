@@ -6019,7 +6019,7 @@
             if (!item?.canExtendAutoReady || this.pendingBusy || this.readyBusyId || this.extensionBusyId) return;
             const result = await Swal.fire({
                 title: `Añadir tiempo · Orden #${h(item.orderNumber)}`,
-                html: `<div class="pickup-dialog-content"><p class="pickup-deadline-help">Se añadirán horas al plazo actual, sin contar sábados ni domingos. Si ya venció, el nuevo plazo empieza desde ahora.</p>
+                html: `<div class="pickup-dialog-content"><p class="pickup-deadline-help">Se añadirán horas al plazo actual, sin contar sábados ni domingos. Si ya venció, el nuevo plazo empieza desde ahora. La auto-confirmación se programa de lunes a viernes, de 10:00 a 17:30; fuera de ese horario, pasa a la siguiente apertura a las 10:00.</p>
                     ${this.pickupDeadlineMarkup(item)}
                     <label class="pickup-label" for="pickup-extension-hours">Horas adicionales</label>
                     <input id="pickup-extension-hours" class="pickup-store-select" type="number" min="1" max="240" step="1" value="24" inputmode="numeric" aria-describedby="pickup-extension-hint">
@@ -6069,7 +6069,7 @@
                     ${this.canChoosePickupStore ? `<select id="pickup-store" class="pickup-store-select" onchange="mobileApp.changePickupStore(this.value)" ${this.pendingBusy ? 'disabled' : ''}><option value="all" ${this.pendingLocationId === 'all' ? 'selected' : ''}>Todas las tiendas</option>${this.pendingLocations.map((location) => `<option value="${h(location.id)}" ${location.id === this.pendingLocationId ? 'selected' : ''}>${h(location.name)}</option>`).join('')}</select>` : `<div id="pickup-store" class="pickup-store-fixed">${h(storeName)}</div>`}
                     ${this.pendingError ? `<p class="pickup-alert error" role="alert">${h(this.pendingError)} <button type="button" class="pickup-retry" onclick="mobileApp.reload()">Reintentar</button></p>` : ''}
                     ${this.readyMessage ? `<p class="pickup-alert success" role="status">${h(this.readyMessage)}</p>` : ''}
-                    <p class="pickup-deadline-help">Los pedidos se confirman como Listo para Retiro al completar 48 horas desde su creación, sin contar sábados ni domingos. Puedes ampliar el plazo antes de la confirmación.</p>
+                    <p class="pickup-deadline-help">Auto-confirmación tras 48 horas desde la creación, sin contar sábados ni domingos. Se confirma y envía el aviso de lunes a viernes, de 10:00 a 17:30 (Ecuador). Si vence fuera de ese horario, pasa a la próxima apertura a las 10:00. Puedes ampliar el plazo antes de la confirmación.</p>
                     ${!this.pendingBusy && !this.pendingError && !this.pending.length ? '<p class="pickup-empty">No hay retiros pendientes en esta tienda.</p>' : ''}
                     <ul class="pickup-compact-list" aria-live="polite">${this.pending.map((item, index) => `<li class="pickup-list-item">
                         <button type="button" class="pickup-list-button" onclick="mobileApp.openPickup(${index})" ${this.pendingBusy || this.readyBusyId ? 'disabled' : ''} aria-label="Ver detalles del retiro de la orden ${h(item.orderNumber)}">
