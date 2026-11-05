@@ -792,6 +792,7 @@
             node.classList.toggle('fallback', officialClock.status !== 'synced');
         });
         updateLunchTimers();
+        window.mobileApp?.updatePickupDeadlines?.();
     }
 
     async function syncOfficialClock() {
@@ -5796,6 +5797,9 @@
             this.showShipments = false;
             this.shippingBusyId = null;
             this.shippingMessage = '';
+            this.pickupClockOffsetMs = null;
+            this.nextDeadlineRefreshAt = Date.now() + 60_000;
+            this.extensionBusyId = null;
         }
 
         async load() {
@@ -5877,12 +5881,16 @@
                 url.searchParams.set('page', String(this.pendingPage));
                 url.searchParams.set('shipmentPage', String(this.shipmentPage));
                 if (this.pendingLocationId) url.searchParams.set('locationId', this.pendingLocationId);
+                const requestStartedAt = Date.now();
                 const response = await fetch(url, {
                     headers: { Authorization: `Bearer ${await this.accessToken()}` },
                     cache: 'no-store'
                 });
                 const result = await response.json().catch(() => null);
                 if (!response.ok || !result?.success) throw new Error(result?.error || 'No se pudieron cargar los retiros.');
+                const serverTime = Date.parse(result.data.serverTime);
+                if (Number.isFinite(serverTime)) this.pickupClockOffsetMs = serverTime - (requestStartedAt + Date.now()) / 2;
+                this.nextDeadlineRefreshAt = Date.now() + 60_000;
                 this.pending = result.data.orders || [];
                 this.shipments = result.data.shipments || [];
                 this.shipmentTotal = result.data.shipmentTotal || 0;
@@ -5968,6 +5976,89 @@
             </section>`;
         }
 
+        pickupDeadlineMarkup(item) {
+            if (item.autoReadyConfirmedAt) return '<span class="pickup-auto-confirmed"><span class="material-icons" aria-hidden="true">task_alt</span>Confirmado automáticamente</span>';
+            const deadline = Date.parse(item.autoReadyAt);
+            if (!Number.isFinite(deadline)) return '';
+            const date = new Date(deadline).toLocaleString('es-EC', { timeZone: 'America/Guayaquil', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+            return `<span class="pickup-deadline" data-pickup-deadline="${h(new Date(deadline).toISOString())}"><span class="pickup-deadline-time"><span class="material-icons" aria-hidden="true">schedule</span><span data-countdown-label>Auto-confirmación en</span> <strong data-countdown-value>Calculando…</strong></span><small>Listo para Retiro: ${h(date)} · Ecuador</small></span>`;
+        }
+
+        updatePickupDeadlines() {
+            const now = Date.now() + (this.pickupClockOffsetMs ?? officialClock.offsetMs);
+            const offset = -5 * 3_600_000;
+            document.querySelectorAll('[data-pickup-deadline]').forEach((node) => {
+                const deadline = Date.parse(node.dataset.pickupDeadline);
+                if (!Number.isFinite(deadline)) return;
+                let cursor = now;
+                let remaining = 0;
+                while (cursor < deadline) {
+                    const local = new Date(cursor + offset);
+                    const boundary = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() + 1) - offset;
+                    const end = Math.min(boundary, deadline);
+                    if (![0, 6].includes(local.getUTCDay())) remaining += end - cursor;
+                    cursor = end;
+                }
+                const due = now >= deadline;
+                const paused = [0, 6].includes(new Date(now + offset).getUTCDay());
+                const seconds = Math.ceil(remaining / 1000);
+                const display = `${String(Math.floor(seconds / 3600)).padStart(2, '0')}:${String(Math.floor(seconds / 60) % 60).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+                node.querySelector('[data-countdown-value]').textContent = due ? '' : display;
+                node.querySelector('[data-countdown-label]').textContent = due ? 'Plazo cumplido · esperando confirmación' : paused ? 'Pausado por fin de semana' : 'Auto-confirmación en';
+                node.classList.toggle('is-due', due);
+            });
+            if (Date.now() >= this.nextDeadlineRefreshAt && this.pending.some((item) => item.autoReadyAt)
+                && !this.pendingBusy && !this.readyBusyId && !this.extensionBusyId && !Swal.isVisible()) {
+                this.nextDeadlineRefreshAt = Date.now() + 60_000;
+                this.reload({ preservePosition: true });
+            }
+        }
+
+        async extendPickupTime(index) {
+            const item = this.pending[index];
+            if (!item?.canExtendAutoReady || this.pendingBusy || this.readyBusyId || this.extensionBusyId) return;
+            const result = await Swal.fire({
+                title: `Añadir tiempo · Orden #${h(item.orderNumber)}`,
+                html: `<div class="pickup-dialog-content"><p class="pickup-deadline-help">Se añadirán horas al plazo actual, sin contar sábados ni domingos. Si ya venció, el nuevo plazo empieza desde ahora.</p>
+                    ${this.pickupDeadlineMarkup(item)}
+                    <label class="pickup-label" for="pickup-extension-hours">Horas adicionales</label>
+                    <input id="pickup-extension-hours" class="pickup-store-select" type="number" min="1" max="240" step="1" value="24" inputmode="numeric" aria-describedby="pickup-extension-hint">
+                    <p id="pickup-extension-hint" class="pickup-deadline-help">Entre 1 y 240 horas de lunes a viernes.</p>
+                    <label class="pickup-label" for="pickup-extension-reason">Motivo de la ampliación</label>
+                    <textarea id="pickup-extension-reason" class="pickup-store-select" rows="3" maxlength="500" placeholder="Ej. Productos en traslado a esta tienda"></textarea></div>`,
+                customClass: { popup: 'pickup-order-dialog' },
+                showCancelButton: true, showCloseButton: true, confirmButtonText: 'Guardar ampliación', cancelButtonText: 'Cancelar',
+                showLoaderOnConfirm: true, focusConfirm: false,
+                allowOutsideClick: () => !Swal.isLoading(), allowEscapeKey: () => !Swal.isLoading(),
+                didOpen: () => this.updatePickupDeadlines(),
+                preConfirm: async () => {
+                    const hours = Number(document.getElementById('pickup-extension-hours').value);
+                    const reason = document.getElementById('pickup-extension-reason').value.trim();
+                    if (!Number.isInteger(hours) || hours < 1 || hours > 240 || !reason) {
+                        Swal.showValidationMessage('Indica entre 1 y 240 horas y el motivo de la ampliación.');
+                        return false;
+                    }
+                    this.extensionBusyId = item.id;
+                    try {
+                        const response = await fetch(this.apiUrl, {
+                            method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await this.accessToken()}` },
+                            body: JSON.stringify({ action: 'extend-ready', orderId: item.id, hours, reason, expectedDeadline: item.autoReadyAt }), cache: 'no-store'
+                        });
+                        const payload = await response.json().catch(() => null);
+                        if (!response.ok || !payload?.success) throw new Error(payload?.error || 'No se pudo ampliar el plazo.');
+                        return payload.data;
+                    } catch (error) {
+                        Swal.showValidationMessage(error.message || 'No se pudo ampliar el plazo.');
+                        return false;
+                    } finally { this.extensionBusyId = null; }
+                }
+            });
+            if (!result.isConfirmed) return;
+            const deadline = new Date(result.value.autoReadyAt).toLocaleString('es-EC', { timeZone: 'America/Guayaquil' });
+            this.readyMessage = `Plazo ampliado para la orden #${item.orderNumber}. Nueva auto-confirmación: ${deadline} (Ecuador).`;
+            await this.reload({ preservePosition: true });
+        }
+
         render() {
             const storeName = this.pendingLocations.find((item) => item.id === this.pendingLocationId)?.name || 'Todas las tiendas';
             shell('pickups', 'Retiros', 'Pedidos pendientes del local y verificación de entregas', '', `
@@ -5978,17 +6069,20 @@
                     ${this.canChoosePickupStore ? `<select id="pickup-store" class="pickup-store-select" onchange="mobileApp.changePickupStore(this.value)" ${this.pendingBusy ? 'disabled' : ''}><option value="all" ${this.pendingLocationId === 'all' ? 'selected' : ''}>Todas las tiendas</option>${this.pendingLocations.map((location) => `<option value="${h(location.id)}" ${location.id === this.pendingLocationId ? 'selected' : ''}>${h(location.name)}</option>`).join('')}</select>` : `<div id="pickup-store" class="pickup-store-fixed">${h(storeName)}</div>`}
                     ${this.pendingError ? `<p class="pickup-alert error" role="alert">${h(this.pendingError)} <button type="button" class="pickup-retry" onclick="mobileApp.reload()">Reintentar</button></p>` : ''}
                     ${this.readyMessage ? `<p class="pickup-alert success" role="status">${h(this.readyMessage)}</p>` : ''}
+                    <p class="pickup-deadline-help">Los pedidos se confirman como Listo para Retiro al completar 48 horas desde su creación, sin contar sábados ni domingos. Puedes ampliar el plazo antes de la confirmación.</p>
                     ${!this.pendingBusy && !this.pendingError && !this.pending.length ? '<p class="pickup-empty">No hay retiros pendientes en esta tienda.</p>' : ''}
                     <ul class="pickup-compact-list" aria-live="polite">${this.pending.map((item, index) => `<li class="pickup-list-item">
                         <button type="button" class="pickup-list-button" onclick="mobileApp.openPickup(${index})" ${this.pendingBusy || this.readyBusyId ? 'disabled' : ''} aria-label="Ver detalles del retiro de la orden ${h(item.orderNumber)}">
                             <span class="pickup-list-main"><strong>Orden #${h(item.orderNumber)}</strong><span>${h(item.customerName)}</span><small>${h(item.pickupLocation?.name || 'Tienda sin asignar')} · ${h(new Date(item.createdAt).toLocaleDateString('es-EC'))}</small></span>
-                            <span class="pickup-list-end"><span class="pickup-state ${item.readyToDeliver ? 'ready' : 'waiting'}">${item.readyToDeliver ? 'Lista para entregar' : 'En preparación'}</span><span class="material-icons" aria-hidden="true">chevron_right</span></span>
+                            <span class="pickup-list-end"><span class="pickup-state ${item.readyToDeliver ? 'ready' : 'waiting'}">${item.readyToDeliver ? 'Listo para Retiro' : 'En preparación'}</span><span class="material-icons" aria-hidden="true">chevron_right</span></span>
                         </button>
+                        ${item.autoReadyAt || item.autoReadyConfirmedAt ? `<div class="pickup-deadline-row">${this.pickupDeadlineMarkup(item)}${item.canExtendAutoReady ? `<button type="button" class="pickup-secondary" onclick="mobileApp.extendPickupTime(${index})" ${this.pendingBusy || this.readyBusyId || this.extensionBusyId ? 'disabled' : ''} aria-label="Añadir más tiempo a la orden ${h(item.orderNumber)}"><span class="material-icons" aria-hidden="true">more_time</span>Añadir más tiempo</button>` : ''}</div>` : ''}
                     </li>`).join('')}</ul>
                     ${this.pendingTotal > this.pendingPageSize ? `<nav class="pickup-pages" aria-label="Páginas de retiros"><button type="button" class="pickup-secondary" onclick="mobileApp.changePickupPage(-1)" ${this.pendingPage <= 1 || this.pendingBusy ? 'disabled' : ''}>Anterior</button><span>Página ${h(this.pendingPage)} de ${h(Math.ceil(this.pendingTotal / this.pendingPageSize))}</span><button type="button" class="pickup-secondary" onclick="mobileApp.changePickupPage(1)" ${this.pendingPage * this.pendingPageSize >= this.pendingTotal || this.pendingBusy ? 'disabled' : ''}>Siguiente</button></nav>` : ''}
                 </section>
                 ${this.renderShipments()}
             `);
+            this.updatePickupDeadlines();
         }
 
         async openPickup(index) {
@@ -6001,6 +6095,7 @@
                     <p class="pickup-dialog-customer">${h(item.customerName)}</p>
                     <p class="pickup-dialog-meta">${h(item.pickupLocation?.name || 'Tienda sin asignar')} · ${h(new Date(item.createdAt).toLocaleDateString('es-EC'))}</p>
                     <p><span class="pickup-state ${item.readyToDeliver ? 'ready' : 'waiting'}">${item.readyToDeliver ? 'Lista para entregar' : 'En preparación'}</span></p>
+                    ${this.pickupDeadlineMarkup(item)}
                     ${action === 'code' ? `<div class="pickup-dialog-code"><label class="pickup-label" for="pickup-dialog-code-input">Código de retiro del cliente</label>
                         <input id="pickup-dialog-code-input" type="text" maxlength="4" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text" placeholder="Ej. QGC7" aria-describedby="pickup-dialog-code-hint" oninput="this.value = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4)">
                         <p id="pickup-dialog-code-hint">Ingresa el código de este pedido solo cuando lo vayas a entregar.</p>
@@ -6017,6 +6112,7 @@
                 allowOutsideClick: () => !Swal.isLoading(),
                 allowEscapeKey: () => !Swal.isLoading(),
                 didOpen: (popup) => {
+                    this.updatePickupDeadlines();
                     this.bindPickupImages(popup);
                     const check = popup.querySelector('.pickup-check');
                     const actions = popup.querySelector('.swal2-actions');
@@ -6421,6 +6517,22 @@
         }
     }
 
+    class ShippingGuidesView extends BaseView {
+        constructor() {
+            super('nav');
+            this.guideState = window.ShippingGuides.createState();
+        }
+
+        async load() {}
+
+        render() {
+            shell('nav', 'Crear Guías de Envío', 'Completa los datos y descarga tu guía en PDF.',
+                '<a class="planner-icon-btn" href="navegacion.html" aria-label="Volver a Navegación"><span class="material-icons" aria-hidden="true">arrow_back</span></a>',
+                window.ShippingGuides.markup(this.guideState));
+            window.ShippingGuides.mount(this.guideState);
+        }
+    }
+
     class NavigationView extends BaseView {
         constructor() {
             super('nav');
@@ -6431,6 +6543,7 @@
         render() {
             const email = asText(this.session.user?.email, 'Usuario');
             shell('nav', 'Navegación', 'Datos, usuario e integraciones', iconButton('logout', 'mobileApp.logout()', 'Salir'), `
+                <a class="navigation-tile app-card" href="guias-envio.html"><span class="navigation-icon" style="background:rgba(14,159,143,.16);color:#0E9F8F"><span class="material-icons" aria-hidden="true">local_shipping</span></span><span class="flex-1 min-w-0"><strong class="app-list-title block">Crear Guías de Envío</strong><span class="app-list-subtitle block">Formulario, vista previa y descarga en PDF</span></span><span class="material-icons text-slate-400" aria-hidden="true">chevron_right</span></a>
                 ${this.session.isManager ? `<a class="navigation-tile app-card" href="retiros.html"><span class="navigation-icon" style="background:rgba(232,93,117,.16);color:#bc3452"><span class="material-icons">qr_code_scanner</span></span><span class="flex-1 min-w-0"><strong class="app-list-title block">Retiros</strong><span class="app-list-subtitle block">Verificar códigos y confirmar entregas</span></span><span class="pickup-nav-badge" data-pickup-badge hidden aria-hidden="true"></span><span class="material-icons text-slate-400">chevron_right</span></a>` : ''}
                 ${this.session.isStoreUser ? `<a class="navigation-tile app-card" href="personal.html"><span class="navigation-icon" style="background:rgba(14,159,143,.16);color:#0E9F8F"><span class="material-icons">work_outline</span></span><span class="flex-1 min-w-0"><strong class="app-list-title block">Interno</strong><span class="app-list-subtitle block">Horario del personal interno</span></span><span class="material-icons text-slate-400">chevron_right</span></a>` : ''}
                 <button class="navigation-tile app-card" onclick="mobileApp.openData()">
@@ -6478,11 +6591,11 @@
 
     function start(view, options = {}) {
         setLayoutPreference(options.layout);
-        if (window.StaffPlanner.getRoleId() === 5 && !['planner', 'store', 'internal', 'reports', 'sales', 'nav'].includes(view)) {
+        if (window.StaffPlanner.getRoleId() === 5 && !['planner', 'store', 'internal', 'reports', 'sales', 'nav', 'shipping'].includes(view)) {
             window.location.href = 'index.html';
             return Promise.resolve(null);
         }
-        if (window.StaffPlanner.getRoleId() === 3 && !['store', 'messages', 'planner', 'internal', 'pickups', 'nav'].includes(view)) {
+        if (window.StaffPlanner.getRoleId() === 3 && !['store', 'messages', 'planner', 'internal', 'pickups', 'nav', 'shipping'].includes(view)) {
             window.location.href = 'calendario-tienda.html';
             return Promise.resolve(null);
         }
@@ -6494,6 +6607,7 @@
             reports: ReportsView,
             sales: SalesView,
             pickups: PickupsView,
+            shipping: ShippingGuidesView,
             nav: NavigationView
         };
         const Klass = map[view] || PlannerView;

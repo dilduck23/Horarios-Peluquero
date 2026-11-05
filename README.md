@@ -8,6 +8,20 @@ Sistema de gestión de horarios para peluquerías.
 - `personal.html` - Gestión de personal interno
 - `calendario-tienda.html` - Vista de calendario por tienda
 - `reportes.html` - Módulo de reportes
+- `guias-envio.html` - Creación manual de guías con vista previa y descarga PDF
+
+## Guías de envío
+
+Desde **Navegación → Crear Guías de Envío**, completa la orden y los datos del
+destinatario. La vista previa se actualiza mientras escribes. Los textos largos
+reducen su tamaño y pueden ocupar dos líneas; si no caben con una letra legible,
+el formulario indica qué campo acortar y evita descargar una guía incompleta.
+
+El PDF ocupa la mitad derecha de una A4 horizontal (148,5 × 210 mm), con línea
+de corte central. Imprime en tamaño real, al 100 %. El formulario funciona en
+escritorio y móvil para los usuarios con acceso a Navegación; no guarda los datos
+del destinatario ni necesita una API de Web Peluquero. Las imágenes y jsPDF 4.2.1
+(licencia MIT en `js/vendor/jspdf.LICENSE.txt`) se sirven desde este proyecto.
 
 ## Ejecutar en local
 
@@ -24,6 +38,22 @@ de Horarios reenvía únicamente `/api/horarios/pickups` a
 `http://127.0.0.1:3000`, sin CORS. Si Web usa otro puerto, inicia Horarios con
 `WEB_API_URL=http://127.0.0.1:PUERTO npm run dev`. Reinicia Horarios después de
 cambiar esa variable.
+
+## Auto-confirmación de retiros
+
+En **Retiros**, cada pedido elegible muestra el tiempo hasta quedar **Listo para
+Retiro**: 48 horas desde su creación, contando las noches de lunes a viernes y
+pausando los sábados y domingos, con la hora de Ecuador. **Añadir más tiempo**
+permite sumar entre 1 y 240 horas y registrar un motivo. El plazo se guarda en
+Web Peluquero y se comparte entre usuarios; cambiar de dispositivo no lo reinicia.
+
+La transición automática se ejecuta en Web Peluquero mediante
+`/api/cron/pickup-auto-ready`, programado cada minuto en su `vercel.json`.
+Requiere desplegar ese backend junto con esta interfaz y disponer de
+`CRON_SECRET` en Vercel. En desarrollo, Vercel no ejecuta el cron automáticamente.
+La migración aditiva `prisma/migrations/pickup_auto_ready.sql` de Web incorpora
+los campos del plazo; su aplicación no modifica estados ni envía notificaciones.
+La confirmación automática conserva la verificación por código para la entrega.
 
 ## Archivos SQL (Supabase)
 
