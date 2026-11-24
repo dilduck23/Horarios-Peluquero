@@ -3984,3 +3984,8 @@ nav.fixed {
 .pickup-selection-summary { padding: 12px; border-radius: 8px; background: #eff6ff; color: #1e3a8a; text-align: left; font-size: 14px; line-height: 1.5; }
 .pickup-selection-summary.is-error { background: #fef2f2; color: #991b1b; }
 .pickup-partial-badge { display: inline-flex; padding: 6px 10px; border-radius: 16px; background: #dbeafe; color: #1e40af; font-size: 12px; font-weight: 700; }
+@media (max-width: 600px) {
+    .pickup-list-button { flex-direction: column; align-items: stretch; }
+    .pickup-list-end { align-items: flex-start; }
+    .pickup-order-tags { flex-direction: row; justify-content: flex-start; align-items: center; }
+}
