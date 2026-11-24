@@ -5806,14 +5806,43 @@
             await this.loadPending();
         }
 
-        renderPickupItems(items) {
-            return items.map((line) => {
+        renderPickupItems(items, selectQuantities = false) {
+            return items.map((line, index) => {
                 const imageUrl = pickupImageUrl(line.imageUrl);
                 const thumbnail = imageUrl
                     ? `<button type="button" class="pickup-item-thumb" data-image-url="${h(imageUrl)}" data-image-title="${h(line.title)}" aria-label="Ampliar foto de ${h(line.title)}"><img src="${h(pickupThumbnailUrl(imageUrl))}" alt="" loading="lazy" width="48" height="48"></button>`
                     : '<span class="pickup-item-thumb pickup-item-thumb--empty" aria-label="Foto no disponible"><span class="material-icons" aria-hidden="true">image_not_supported</span></span>';
-                return `<li class="pickup-item">${thumbnail}<span class="pickup-item-info"><strong>${h(line.title)}</strong>${line.variantTitle ? `<small>${h(line.variantTitle)}</small>` : ''}<small>SKU ${h(line.sku || '—')}</small></span><b>× ${h(line.quantity)}</b></li>`;
+                return `<li class="pickup-item">${thumbnail}<span class="pickup-item-info"><strong>${h(line.title)}</strong>${line.variantTitle ? `<small>${h(line.variantTitle)}</small>` : ''}<small>SKU ${h(line.sku || '—')}</small>${Number.isInteger(line.deliveredQuantity) ? `<small>Entregado: ${h(line.deliveredQuantity)} · Pendiente: ${h(line.quantity)}</small>` : ''}</span>${selectQuantities ? `<label class="pickup-quantity" for="pickup-quantity-${index}"><span>Retirar hoy</span><input id="pickup-quantity-${index}" data-pickup-line="${h(line.id)}" type="number" inputmode="numeric" min="0" max="${h(line.quantity)}" step="1" value="${h(line.quantity)}" aria-label="Cantidad de ${h(line.title)} a retirar hoy" ${line.quantity === 0 ? 'disabled' : ''}></label>` : `<b>× ${h(line.quantity)}</b>`}</li>`;
             }).join('');
+        }
+
+        pickupSelection(popup, items) {
+            const selected = [];
+            for (const input of popup.querySelectorAll('[data-pickup-line]')) {
+                const line = items.find((item) => item.id === input.dataset.pickupLine);
+                const quantity = Number(input.value);
+                if (!line || !/^\d+$/.test(input.value) || !Number.isSafeInteger(quantity) || quantity < 0 || quantity > line.quantity) {
+                    throw new Error('Revisa las cantidades: usa números enteros entre 0 y lo pendiente de cada producto.');
+                }
+                if (quantity > 0) selected.push({ lineItemId: line.id, quantity });
+            }
+            if (!selected.length) throw new Error('Selecciona al menos una unidad para entregar.');
+            return selected;
+        }
+
+        updatePickupSelection(popup, items) {
+            const summary = popup.querySelector('[data-pickup-selection-summary]');
+            if (!summary) return;
+            try {
+                const selected = this.pickupSelection(popup, items);
+                const quantity = selected.reduce((sum, item) => sum + item.quantity, 0);
+                const remaining = items.reduce((sum, item) => sum + item.quantity, 0) - quantity;
+                summary.textContent = `Entregarás ${quantity} unidad${quantity === 1 ? '' : 'es'} · Quedarán ${remaining} pendientes. ${remaining ? 'El pedido seguirá abierto con el mismo código.' : 'Se completará el pedido.'}`;
+                summary.classList.remove('is-error');
+            } catch (error) {
+                summary.textContent = error.message;
+                summary.classList.add('is-error');
+            }
         }
 
         bindPickupImages(popup) {
@@ -6106,7 +6135,7 @@
                     <ul class="pickup-compact-list" aria-live="polite">${this.pending.map((item, index) => `<li class="pickup-list-item">
                         <button type="button" class="pickup-list-button" onclick="mobileApp.openPickup(${index})" ${this.pendingBusy || this.readyBusyId ? 'disabled' : ''} aria-label="Ver detalles del retiro de la orden ${h(item.orderNumber)}">
                             <span class="pickup-list-main"><strong>Orden #${h(item.orderNumber)}</strong><span>${h(item.customerName)}</span><small>${h(item.pickupLocation?.name || 'Tienda sin asignar')} · ${h(new Date(item.createdAt).toLocaleDateString('es-EC'))}</small>${this.isPickupPreorder(item) ? `<small class="pickup-preorder-date">Retiro desde: ${h(this.pickupPreorderDate(item))} (Ecuador)</small>` : ''}</span>
-                            <span class="pickup-list-end"><span class="pickup-order-tags">${this.pickupPreorderBadge(item)}<span class="pickup-state ${this.isPickupDateBlocked(item) ? 'waiting' : item.readyToDeliver ? 'ready' : 'waiting'}">${this.isPickupDateBlocked(item) ? 'Retiro bloqueado' : item.readyToDeliver ? 'Listo para Retiro' : 'En preparación'}</span></span><span class="material-icons" aria-hidden="true">chevron_right</span></span>
+                            <span class="pickup-list-end"><span class="pickup-order-tags">${this.pickupPreorderBadge(item)}${item.deliveredQuantity > 0 ? `<span class="pickup-partial-badge">Retiro parcial · ${h(item.remainingQuantity)} pendientes</span>` : ''}<span class="pickup-state ${this.isPickupDateBlocked(item) ? 'waiting' : item.readyToDeliver ? 'ready' : 'waiting'}">${this.isPickupDateBlocked(item) ? 'Retiro bloqueado' : item.readyToDeliver ? 'Listo para Retiro' : 'En preparación'}</span></span><span class="material-icons" aria-hidden="true">chevron_right</span></span>
                         </button>
                         ${item.autoReadyAt || item.autoReadyConfirmedAt ? `<div class="pickup-deadline-row">${this.pickupDeadlineMarkup(item)}${item.canExtendAutoReady ? `<button type="button" class="pickup-secondary" onclick="mobileApp.extendPickupTime(${index})" ${this.pendingBusy || this.readyBusyId || this.extensionBusyId ? 'disabled' : ''} aria-label="Añadir más tiempo a la orden ${h(item.orderNumber)}"><span class="material-icons" aria-hidden="true">more_time</span>Añadir más tiempo</button>` : ''}</div>` : ''}
                     </li>`).join('')}</ul>
@@ -6122,6 +6151,8 @@
             if (!item || this.pendingBusy || this.readyBusyId) return;
             const pickupDateBlocked = this.isPickupDateBlocked(item);
             const action = pickupDateBlocked ? null : item.readyToDeliver && item.hasPickupCode ? 'code' : item.canMarkReady ? 'ready' : null;
+            const selectQuantities = action === 'code' && Number.isSafeInteger(item.pickupDeliveryVersion);
+            const requestId = selectQuantities ? window.crypto.randomUUID() : null;
             const result = await Swal.fire({
                 title: `Retiro · Orden #${h(item.orderNumber)}`,
                 html: `<div class="pickup-dialog-content">
@@ -6135,12 +6166,12 @@
                         <p id="pickup-dialog-code-hint">Ingresa el código de este pedido solo cuando lo vayas a entregar.</p>
                     </div>` : ''}
                     <dl class="pickup-details"><div><dt>Documento</dt><dd>${h(item.idNumber || 'No registrado')}</dd></div><div><dt>Teléfono</dt><dd>${h(item.phone || 'No registrado')}</dd></div><div class="pickup-detail-email"><dt>Correo</dt><dd>${h(item.email || 'No registrado')}</dd></div><div><dt>Pago</dt><dd>${h(item.financialStatus === 'PAID' ? 'Pagado' : item.paymentMethod === 'cash_on_delivery' ? 'Cobrar al entregar' : 'Pendiente')}</dd></div>${item.authorizedPerson ? `<div class="pickup-dialog-wide"><dt>Persona autorizada</dt><dd>${h(item.authorizedPerson)}</dd></div>` : ''}</dl>
-                    <h3 class="pickup-items-title">${pickupDateBlocked ? 'Productos para separar' : 'Productos a entregar'}</h3><ul class="pickup-items">${this.renderPickupItems(item.items)}</ul>
+                    <h3 class="pickup-items-title">${pickupDateBlocked ? 'Productos para separar' : 'Productos a entregar'}</h3>${selectQuantities ? '<p class="pickup-quantity-hint">Ajusta las cantidades a retirar hoy. Usa 0 para dejar un producto pendiente.</p>' : ''}<ul class="pickup-items">${this.renderPickupItems(item.items, selectQuantities)}</ul>${selectQuantities ? '<p class="pickup-selection-summary" data-pickup-selection-summary role="status" aria-live="polite"></p>' : ''}
                     ${action === 'code' ? '<label class="pickup-check"><input id="pickup-dialog-verified" type="checkbox"><span>Verifiqué la identidad de quien retira y los productos del pedido.</span></label>' : pickupDateBlocked ? '' : !item.readyToDeliver ? `<p class="pickup-pending-note">${h(item.blockReason || 'El pedido todavía no está listo para retiro.')}</p>` : '<p class="pickup-pending-note">Este pedido no tiene código de retiro emitido.</p>'}
                 </div>`,
                 customClass: { popup: 'pickup-order-dialog' },
                 showCloseButton: true, showCancelButton: true, showConfirmButton: Boolean(action),
-                confirmButtonText: action === 'ready' ? 'Listo para el retiro' : 'Verificar y entregar',
+                confirmButtonText: action === 'ready' ? 'Listo para el retiro' : selectQuantities ? 'Verificar y registrar retiro' : 'Verificar y entregar',
                 cancelButtonText: 'Cerrar', focusConfirm: false,
                 showLoaderOnConfirm: action === 'code',
                 allowOutsideClick: () => !Swal.isLoading(),
@@ -6148,6 +6179,14 @@
                 didOpen: (popup) => {
                     this.updatePickupDeadlines();
                     this.bindPickupImages(popup);
+                    if (selectQuantities) {
+                        this.updatePickupSelection(popup, item.items);
+                        popup.querySelectorAll('[data-pickup-line]').forEach((input) => input.addEventListener('input', () => {
+                            const verified = popup.querySelector('#pickup-dialog-verified');
+                            if (verified) verified.checked = false;
+                            this.updatePickupSelection(popup, item.items);
+                        }));
+                    }
                     const check = popup.querySelector('.pickup-check');
                     const actions = popup.querySelector('.swal2-actions');
                     if (check && actions) actions.before(check);
@@ -6166,7 +6205,8 @@
                         return false;
                     }
                     try {
-                        return await this.requestPickup('confirm', item.id, code);
+                        const selection = selectQuantities ? { items: this.pickupSelection(popup, item.items), requestId, expectedVersion: item.pickupDeliveryVersion } : undefined;
+                        return await this.requestPickup('confirm', item.id, code, selection);
                     } catch (error) {
                         Swal.showValidationMessage(error.message || 'No se pudo confirmar la entrega.');
                         return false;
@@ -6176,7 +6216,9 @@
             if (!result.isConfirmed) return;
             if (action === 'ready') await this.markPickupReady(index);
             if (action === 'code') {
-                this.success = `La orden #${item.orderNumber} quedó marcada como entregada.`;
+                this.success = result.value?.partialDelivery
+                    ? `Retiro parcial registrado para la orden #${item.orderNumber}: ${result.value.deliveredQuantity} unidad${result.value.deliveredQuantity === 1 ? ' entregada' : 'es entregadas'}, ${result.value.remainingQuantity} pendientes. Conserva el mismo código para el próximo retiro.`
+                    : `La orden #${item.orderNumber} quedó marcada como entregada.`;
                 await this.loadPending();
                 this.render();
             }
@@ -6237,11 +6279,11 @@
             this.render();
         }
 
-        async requestPickup(action, orderId, code) {
+        async requestPickup(action, orderId, code, selection) {
             const response = await fetch(this.apiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await this.accessToken()}` },
-                body: JSON.stringify({ action, code, orderId }),
+                body: JSON.stringify({ action, code, orderId, ...selection }),
                 cache: 'no-store'
             });
             const result = await response.json().catch(() => null);

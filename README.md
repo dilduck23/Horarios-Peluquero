@@ -69,6 +69,14 @@ hasta `fulfillmentNotBefore`. La API también rechaza la confirmación y entrega
 anticipadas aunque se intente omitir la interfaz. Tras esa fecha siguen vigentes
 los requisitos habituales de pago, pedido listo y verificación del código.
 
+En pedidos listos, **Retirar hoy** permite indicar las unidades de cada producto
+(0 lo deja pendiente). El resumen muestra cuánto se entregará y cuánto quedará.
+Cada retiro se registra con fecha, usuario y cantidades; el pedido permanece en
+**Retiro parcial** y conserva su código hasta entregar el saldo. Las cantidades
+ya entregadas o reembolsadas no pueden retirarse otra vez. Se requiere aplicar
+la migración `20261124175501_pickup_partial_deliveries.sql` y publicar la API de
+Web Peluquero antes de usar esta interfaz. Las precompras conservan su fecha mínima.
+
 ## Archivos SQL (Supabase)
 
 Scripts de configuración para la base de datos Supabase:
