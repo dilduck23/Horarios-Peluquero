@@ -5976,6 +5976,38 @@
             </section>`;
         }
 
+        isPickupDateBlocked(item) {
+            const availableAt = Date.parse(item.fulfillmentNotBefore);
+            const now = Date.now() + (this.pickupClockOffsetMs ?? officialClock.offsetMs);
+            return item.pickupDateBlocked === true || (Number.isFinite(availableAt) && availableAt > now);
+        }
+
+        isPickupPreorder(item) {
+            return item.isPreorder === true || Number.isFinite(Date.parse(item.fulfillmentNotBefore));
+        }
+
+        pickupPreorderDate(item) {
+            const date = Date.parse(item.fulfillmentNotBefore);
+            if (!Number.isFinite(date)) return 'Fecha de retiro por confirmar';
+            return new Date(date).toLocaleString('es-EC', {
+                timeZone: 'America/Guayaquil', day: '2-digit', month: 'short', year: 'numeric',
+                hour: '2-digit', minute: '2-digit', hour12: false
+            });
+        }
+
+        pickupPreorderBadge(item) {
+            return this.isPickupPreorder(item) ? '<span class="pickup-preorder-badge"><span class="material-icons" aria-hidden="true">event</span>Precompra</span>' : '';
+        }
+
+        pickupPreorderNotice(item) {
+            if (!this.isPickupPreorder(item)) return '';
+            const blocked = this.isPickupDateBlocked(item);
+            return `<div class="pickup-preorder-notice" role="note">${this.pickupPreorderBadge(item)}
+                <strong>Retiro desde: ${h(this.pickupPreorderDate(item))} (Ecuador)</strong>
+                <p>${blocked ? 'Puedes revisar y separar estos productos. El ingreso del código, la confirmación y la entrega permanecerán bloqueados hasta la fecha de retiro.' : 'La fecha de retiro ya está habilitada. Confirma que el pedido esté listo y verifica el código del cliente antes de entregarlo.'}</p>
+            </div>`;
+        }
+
         pickupDeadlineMarkup(item) {
             if (item.autoReadyConfirmedAt) return '<span class="pickup-auto-confirmed"><span class="material-icons" aria-hidden="true">task_alt</span>Confirmado automáticamente</span>';
             const deadline = Date.parse(item.autoReadyAt);
@@ -6073,8 +6105,8 @@
                     ${!this.pendingBusy && !this.pendingError && !this.pending.length ? '<p class="pickup-empty">No hay retiros pendientes en esta tienda.</p>' : ''}
                     <ul class="pickup-compact-list" aria-live="polite">${this.pending.map((item, index) => `<li class="pickup-list-item">
                         <button type="button" class="pickup-list-button" onclick="mobileApp.openPickup(${index})" ${this.pendingBusy || this.readyBusyId ? 'disabled' : ''} aria-label="Ver detalles del retiro de la orden ${h(item.orderNumber)}">
-                            <span class="pickup-list-main"><strong>Orden #${h(item.orderNumber)}</strong><span>${h(item.customerName)}</span><small>${h(item.pickupLocation?.name || 'Tienda sin asignar')} · ${h(new Date(item.createdAt).toLocaleDateString('es-EC'))}</small></span>
-                            <span class="pickup-list-end"><span class="pickup-state ${item.readyToDeliver ? 'ready' : 'waiting'}">${item.readyToDeliver ? 'Listo para Retiro' : 'En preparación'}</span><span class="material-icons" aria-hidden="true">chevron_right</span></span>
+                            <span class="pickup-list-main"><strong>Orden #${h(item.orderNumber)}</strong><span>${h(item.customerName)}</span><small>${h(item.pickupLocation?.name || 'Tienda sin asignar')} · ${h(new Date(item.createdAt).toLocaleDateString('es-EC'))}</small>${this.isPickupPreorder(item) ? `<small class="pickup-preorder-date">Retiro desde: ${h(this.pickupPreorderDate(item))} (Ecuador)</small>` : ''}</span>
+                            <span class="pickup-list-end"><span class="pickup-order-tags">${this.pickupPreorderBadge(item)}<span class="pickup-state ${this.isPickupDateBlocked(item) ? 'waiting' : item.readyToDeliver ? 'ready' : 'waiting'}">${this.isPickupDateBlocked(item) ? 'Retiro bloqueado' : item.readyToDeliver ? 'Listo para Retiro' : 'En preparación'}</span></span><span class="material-icons" aria-hidden="true">chevron_right</span></span>
                         </button>
                         ${item.autoReadyAt || item.autoReadyConfirmedAt ? `<div class="pickup-deadline-row">${this.pickupDeadlineMarkup(item)}${item.canExtendAutoReady ? `<button type="button" class="pickup-secondary" onclick="mobileApp.extendPickupTime(${index})" ${this.pendingBusy || this.readyBusyId || this.extensionBusyId ? 'disabled' : ''} aria-label="Añadir más tiempo a la orden ${h(item.orderNumber)}"><span class="material-icons" aria-hidden="true">more_time</span>Añadir más tiempo</button>` : ''}</div>` : ''}
                     </li>`).join('')}</ul>
@@ -6088,21 +6120,23 @@
         async openPickup(index) {
             const item = this.pending[index];
             if (!item || this.pendingBusy || this.readyBusyId) return;
-            const action = item.readyToDeliver && item.hasPickupCode ? 'code' : item.canMarkReady ? 'ready' : null;
+            const pickupDateBlocked = this.isPickupDateBlocked(item);
+            const action = pickupDateBlocked ? null : item.readyToDeliver && item.hasPickupCode ? 'code' : item.canMarkReady ? 'ready' : null;
             const result = await Swal.fire({
                 title: `Retiro · Orden #${h(item.orderNumber)}`,
                 html: `<div class="pickup-dialog-content">
                     <p class="pickup-dialog-customer">${h(item.customerName)}</p>
                     <p class="pickup-dialog-meta">${h(item.pickupLocation?.name || 'Tienda sin asignar')} · ${h(new Date(item.createdAt).toLocaleDateString('es-EC'))}</p>
-                    <p><span class="pickup-state ${item.readyToDeliver ? 'ready' : 'waiting'}">${item.readyToDeliver ? 'Lista para entregar' : 'En preparación'}</span></p>
+                    <p><span class="pickup-state ${pickupDateBlocked ? 'waiting' : item.readyToDeliver ? 'ready' : 'waiting'}">${pickupDateBlocked ? 'Retiro bloqueado hasta la fecha de precompra' : item.readyToDeliver ? 'Lista para entregar' : 'En preparación'}</span></p>
+                    ${this.pickupPreorderNotice(item)}
                     ${this.pickupDeadlineMarkup(item)}
                     ${action === 'code' ? `<div class="pickup-dialog-code"><label class="pickup-label" for="pickup-dialog-code-input">Código de retiro del cliente</label>
                         <input id="pickup-dialog-code-input" type="text" maxlength="4" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text" placeholder="Ej. QGC7" aria-describedby="pickup-dialog-code-hint" oninput="this.value = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4)">
                         <p id="pickup-dialog-code-hint">Ingresa el código de este pedido solo cuando lo vayas a entregar.</p>
                     </div>` : ''}
                     <dl class="pickup-details"><div><dt>Documento</dt><dd>${h(item.idNumber || 'No registrado')}</dd></div><div><dt>Teléfono</dt><dd>${h(item.phone || 'No registrado')}</dd></div><div class="pickup-detail-email"><dt>Correo</dt><dd>${h(item.email || 'No registrado')}</dd></div><div><dt>Pago</dt><dd>${h(item.financialStatus === 'PAID' ? 'Pagado' : item.paymentMethod === 'cash_on_delivery' ? 'Cobrar al entregar' : 'Pendiente')}</dd></div>${item.authorizedPerson ? `<div class="pickup-dialog-wide"><dt>Persona autorizada</dt><dd>${h(item.authorizedPerson)}</dd></div>` : ''}</dl>
-                    <h3 class="pickup-items-title">Productos a entregar</h3><ul class="pickup-items">${this.renderPickupItems(item.items)}</ul>
-                    ${action === 'code' ? '<label class="pickup-check"><input id="pickup-dialog-verified" type="checkbox"><span>Verifiqué la identidad de quien retira y los productos del pedido.</span></label>' : !item.readyToDeliver ? `<p class="pickup-pending-note">${h(item.blockReason || 'El pedido todavía no está listo para retiro.')}</p>` : '<p class="pickup-pending-note">Este pedido no tiene código de retiro emitido.</p>'}
+                    <h3 class="pickup-items-title">${pickupDateBlocked ? 'Productos para separar' : 'Productos a entregar'}</h3><ul class="pickup-items">${this.renderPickupItems(item.items)}</ul>
+                    ${action === 'code' ? '<label class="pickup-check"><input id="pickup-dialog-verified" type="checkbox"><span>Verifiqué la identidad de quien retira y los productos del pedido.</span></label>' : pickupDateBlocked ? '' : !item.readyToDeliver ? `<p class="pickup-pending-note">${h(item.blockReason || 'El pedido todavía no está listo para retiro.')}</p>` : '<p class="pickup-pending-note">Este pedido no tiene código de retiro emitido.</p>'}
                 </div>`,
                 customClass: { popup: 'pickup-order-dialog' },
                 showCloseButton: true, showCancelButton: true, showConfirmButton: Boolean(action),
@@ -6217,7 +6251,7 @@
 
         async markPickupReady(index) {
             const item = this.pending[index];
-            if (!item?.canMarkReady || this.readyBusyId || this.pendingBusy) return;
+            if (!item?.canMarkReady || this.isPickupDateBlocked(item) || this.readyBusyId || this.pendingBusy) return;
             const answer = await Swal.fire({
                 title: `¿La orden #${item.orderNumber} está lista?`,
                 text: 'Se actualizará el estado en la web y se enviará un aviso por WhatsApp al cliente. La entrega todavía requerirá su código.',

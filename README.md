@@ -62,6 +62,13 @@ La migración aditiva `prisma/migrations/pickup_auto_ready.sql` de Web incorpora
 los campos del plazo; su aplicación no modifica estados ni envía notificaciones.
 La confirmación automática conserva la verificación por código para la entrega.
 
+Las precompras aparecen con la etiqueta **Precompra** y la fecha de retiro del
+pedido, en hora de Ecuador. Su detalle permite revisar los productos para
+separarlos desde antes, pero oculta el ingreso del código y la confirmación
+hasta `fulfillmentNotBefore`. La API también rechaza la confirmación y entrega
+anticipadas aunque se intente omitir la interfaz. Tras esa fecha siguen vigentes
+los requisitos habituales de pago, pedido listo y verificación del código.
+
 ## Archivos SQL (Supabase)
 
 Scripts de configuración para la base de datos Supabase:
